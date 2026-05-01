@@ -1,44 +1,32 @@
-import { db } from "../db/client.ts";
-import { user } from "../db/schema.ts";
 import { tokenProviderForUser } from "../auth/credentials.ts";
 import { copyFile, getFile, listComments } from "../google/drive.ts";
+import { parseGoogleDocId } from "../domain/google-doc-url.ts";
+import { defaultUser, die } from "./util.ts";
 
-function parseDocId(input: string): string {
-  const m = input.match(/\/document\/d\/([^/]+)/);
-  if (m && m[1]) return m[1];
-  return input;
-}
+export async function run(args: string[]): Promise<void> {
+  const arg = args[0];
+  if (!arg) die("usage: bun docket smoke <doc-url-or-id>");
 
-const arg = process.argv[2];
-if (!arg) {
-  console.error("usage: bun src/cli/smoke.ts <doc-url-or-id>");
-  process.exit(1);
-}
-const docId = parseDocId(arg);
+  const docId = parseGoogleDocId(arg);
+  const u = await defaultUser();
+  console.log(`acting as ${u.email} (id=${u.id})`);
 
-const users = await db.select().from(user).limit(1);
-const u = users[0];
-if (!u) {
-  console.error("no user in db. Run `bun src/cli/connect.ts` first.");
-  process.exit(1);
-}
+  const tp = tokenProviderForUser(u.id);
 
-console.log(`acting as ${u.email} (id=${u.id})`);
-const tp = tokenProviderForUser(u.id);
+  console.log(`\nfetching metadata for ${docId}...`);
+  const file = await getFile(tp, docId);
+  console.log(file);
 
-console.log(`\nfetching metadata for ${docId}...`);
-const file = await getFile(tp, docId);
-console.log(file);
+  console.log(`\ncopying ${file.name}...`);
+  const copy = await copyFile(tp, docId, { name: `[docket smoke] ${file.name}` });
+  console.log(copy);
 
-console.log(`\ncopying ${file.name}...`);
-const copy = await copyFile(tp, docId, { name: `[docket smoke] ${file.name}` });
-console.log(copy);
-
-console.log(`\nlisting comments on the original...`);
-const comments = await listComments(tp, docId);
-console.log(`${comments.length} comment(s)`);
-for (const c of comments) {
-  console.log(
-    `- ${c.author?.displayName ?? "?"} @ ${c.createdTime}: ${c.content.slice(0, 60)}`,
-  );
+  console.log(`\nlisting comments on the original...`);
+  const comments = await listComments(tp, docId);
+  console.log(`${comments.length} comment(s)`);
+  for (const c of comments) {
+    console.log(
+      `- ${c.author?.displayName ?? "?"} @ ${c.createdTime}: ${c.content.slice(0, 60)}`,
+    );
+  }
 }

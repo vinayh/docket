@@ -1,3 +1,57 @@
+# docket — project conventions
+
+Phase-1 backend per [`SPEC.md`](./SPEC.md). Track progress in README §"Build phases" — keep the checklist current as work lands.
+
+## Layering
+
+```
+src/
+  db/         drizzle schema + bun:sqlite client
+  google/     thin Drive/Docs API wrappers (endpoint-shaped)
+  auth/       credentials, token storage, envelope encryption
+  domain/     business logic that composes db/google/auth (pure-ish; no HTTP, no CLI)
+  cli/        thin shells over src/domain/ via a single dispatcher
+  api/        Bun.serve HTTP routes (added when surfaces start consuming)
+  surfaces/   Slack bot / web app / Workspace add-on (later phases)
+```
+
+- Use **surface** for user-facing UX, **client** for any other API caller. Per SPEC §3, all state lives in the backend; surfaces are views.
+- Don't put logic in `src/cli/` — keep subcommands as parse-and-call wrappers over `src/domain/`.
+
+## CLI
+
+- Single dispatcher: `bun docket <subcommand>` (`src/cli/index.ts`).
+- Each subcommand exports `async function run(args: string[])` and is registered in `index.ts`.
+- Use `parseArgs` from `node:util`.
+
+## Schema migrations
+
+- Edit `src/db/schema.ts`, then `bunx drizzle-kit generate` → `bun migrate`.
+- Migrations apply at runtime via `drizzle-orm/bun-sqlite/migrator`. Don't add `better-sqlite3` as a runtime dep.
+- `drizzle.config.ts` uses `process.env` (not `Bun.env`) — drizzle-kit runs under Node.
+
+## Config
+
+- `src/config.ts` uses lazy getters; importing it doesn't require any env var. Only accessing a missing getter throws. Reflect new env vars in `.env.example`.
+
+## Google integration
+
+- Only `drive.file` for active doc operations (SPEC §8).
+- Don't pass raw access tokens around. Build `tokenProviderForUser(userId)` and pass it to `authedFetch` / `authedJson<T>`. Refresh-on-401 is automatic.
+- New Drive/Docs endpoints go in `src/google/{drive,docs}.ts` as typed wrappers — keep them endpoint-shaped, not domain-shaped.
+
+## Secrets
+
+- Long-lived secrets (refresh tokens, etc.) round-trip through `encryptWithMaster` / `decryptWithMaster` — never store plaintext.
+
+## Tests
+
+- Unit tests for pure logic (URL parsing, encryption, reanchoring).
+- Live Google API integration is exercised by CLI smoke commands, not by mocking `fetch`.
+
+---
+
+# Bun reference
 
 Default to using Bun instead of Node.js.
 

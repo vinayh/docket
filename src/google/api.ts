@@ -19,21 +19,15 @@ export async function authedFetch(
   url: string | URL,
   init: RequestInit = {},
 ): Promise<Response> {
-  const send = (token: string) =>
-    fetch(url, {
-      ...init,
-      headers: {
-        ...init.headers,
-        Authorization: `Bearer ${token}`,
-      },
-    });
+  const send = (token: string) => {
+    const headers = new Headers(init.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    return fetch(url, { ...init, headers });
+  };
 
-  const first = await tp.getAccessToken();
-  let res = await send(first);
-
+  let res = await send(await tp.getAccessToken());
   if (res.status === 401) {
-    const next = await tp.refreshAccessToken();
-    res = await send(next);
+    res = await send(await tp.refreshAccessToken());
   }
   return res;
 }

@@ -42,41 +42,35 @@ export interface TokenResponse {
   id_token?: string;
 }
 
+async function tokenRequest(form: Record<string, string>): Promise<TokenResponse> {
+  const res = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(form),
+  });
+  if (!res.ok) {
+    throw new Error(`token request failed: ${res.status} ${await res.text()}`);
+  }
+  return res.json() as Promise<TokenResponse>;
+}
+
 export async function exchangeCode(code: string, redirectUri?: string): Promise<TokenResponse> {
-  const body = new URLSearchParams({
+  return tokenRequest({
     code,
     client_id: config.google.clientId,
     client_secret: config.google.clientSecret,
     redirect_uri: redirectUri ?? config.google.redirectUri,
     grant_type: "authorization_code",
   });
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!res.ok) {
-    throw new Error(`token exchange failed: ${res.status} ${await res.text()}`);
-  }
-  return res.json() as Promise<TokenResponse>;
 }
 
 export async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
-  const body = new URLSearchParams({
+  return tokenRequest({
     client_id: config.google.clientId,
     client_secret: config.google.clientSecret,
     refresh_token: refreshToken,
     grant_type: "refresh_token",
   });
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!res.ok) {
-    throw new Error(`token refresh failed: ${res.status} ${await res.text()}`);
-  }
-  return res.json() as Promise<TokenResponse>;
 }
 
 export interface UserInfo {

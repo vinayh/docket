@@ -25,15 +25,24 @@ async function loadRefreshToken(userId: string): Promise<string> {
 
 export function tokenProviderForUser(userId: string): TokenProvider {
   let cached: CachedAccessToken | null = null;
+  let inflight: Promise<string> | null = null;
 
-  const refresh = async (): Promise<string> => {
-    const refreshToken = await loadRefreshToken(userId);
-    const r = await refreshAccessToken(refreshToken);
-    cached = {
-      token: r.access_token,
-      expiresAt: Date.now() + r.expires_in * 1000 - SAFETY_MARGIN_MS,
-    };
-    return r.access_token;
+  const refresh = (): Promise<string> => {
+    if (inflight) return inflight;
+    inflight = (async () => {
+      try {
+        const refreshToken = await loadRefreshToken(userId);
+        const r = await refreshAccessToken(refreshToken);
+        cached = {
+          token: r.access_token,
+          expiresAt: Date.now() + r.expires_in * 1000 - SAFETY_MARGIN_MS,
+        };
+        return r.access_token;
+      } finally {
+        inflight = null;
+      }
+    })();
+    return inflight;
   };
 
   return {
