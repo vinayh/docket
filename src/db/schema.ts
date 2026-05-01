@@ -1,0 +1,251 @@
+import {
+  sqliteTable,
+  text,
+  integer,
+  primaryKey,
+  index,
+  foreignKey,
+} from "drizzle-orm/sqlite-core";
+
+const newId = () => crypto.randomUUID();
+const now = () => new Date();
+
+export type AuthMethod = "google" | "sso" | "magic_link";
+
+export const user = sqliteTable("user", {
+  id: text("id").primaryKey().$defaultFn(newId),
+  email: text("email").notNull().unique(),
+  googleSubjectId: text("google_subject_id").unique(),
+  displayName: text("display_name"),
+  homeOrg: text("home_org"),
+  authMethod: text("auth_method").$type<AuthMethod>().notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+});
+
+export const driveCredential = sqliteTable(
+  "drive_credential",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    scope: text("scope").notNull(),
+    refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
+    associatedProjectIds: text("associated_project_ids", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .$defaultFn(() => []),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+  },
+  (t) => [index("drive_credential_user_idx").on(t.userId)],
+);
+
+export type ProjectSettings = {
+  defaultReviewerIds?: string[];
+  defaultOverlayId?: string;
+};
+
+export const project = sqliteTable("project", {
+  id: text("id").primaryKey().$defaultFn(newId),
+  parentDocId: text("parent_doc_id").notNull(),
+  ownerUserId: text("owner_user_id")
+    .notNull()
+    .references(() => user.id),
+  settings: text("settings", { mode: "json" })
+    .$type<ProjectSettings>()
+    .notNull()
+    .$defaultFn(() => ({})),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+});
+
+export type VersionStatus = "active" | "archived";
+
+export const version = sqliteTable(
+  "version",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    googleDocId: text("google_doc_id").notNull(),
+    parentVersionId: text("parent_version_id"),
+    label: text("label").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    snapshotContentHash: text("snapshot_content_hash"),
+    status: text("status").$type<VersionStatus>().notNull().default("active"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+  },
+  (t) => [
+    index("version_project_idx").on(t.projectId),
+    foreignKey({ columns: [t.parentVersionId], foreignColumns: [t.id] }),
+  ],
+);
+
+export const overlay = sqliteTable(
+  "overlay",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+  },
+  (t) => [index("overlay_project_idx").on(t.projectId)],
+);
+
+export type OverlayOpType = "redact" | "replace" | "insert" | "append";
+
+export type OverlayAnchor = {
+  quotedText: string;
+  contextBefore?: string;
+  contextAfter?: string;
+  paragraphHash?: string;
+};
+
+export const overlayOperation = sqliteTable(
+  "overlay_operation",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    overlayId: text("overlay_id")
+      .notNull()
+      .references(() => overlay.id, { onDelete: "cascade" }),
+    orderIndex: integer("order_index").notNull(),
+    type: text("type").$type<OverlayOpType>().notNull(),
+    anchor: text("anchor", { mode: "json" }).$type<OverlayAnchor>().notNull(),
+    payload: text("payload"),
+    confidenceThreshold: integer("confidence_threshold"),
+  },
+  (t) => [index("overlay_op_overlay_idx").on(t.overlayId, t.orderIndex)],
+);
+
+export const derivative = sqliteTable("derivative", {
+  id: text("id").primaryKey().$defaultFn(newId),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => project.id, { onDelete: "cascade" }),
+  versionId: text("version_id")
+    .notNull()
+    .references(() => version.id),
+  overlayId: text("overlay_id")
+    .notNull()
+    .references(() => overlay.id),
+  googleDocId: text("google_doc_id").notNull(),
+  audienceLabel: text("audience_label"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+});
+
+export type CommentAnchor = {
+  quotedText: string;
+  contextBefore?: string;
+  contextAfter?: string;
+  paragraphHash?: string;
+  structuralPosition?: { paragraphIndex: number; offset: number };
+};
+
+export type CanonicalCommentStatus = "open" | "addressed" | "wontfix" | "superseded";
+
+export const canonicalComment = sqliteTable(
+  "canonical_comment",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    originVersionId: text("origin_version_id")
+      .notNull()
+      .references(() => version.id),
+    originUserId: text("origin_user_id").notNull(),
+    originUserEmail: text("origin_user_email"),
+    originUserDisplayName: text("origin_user_display_name"),
+    originTimestamp: integer("origin_timestamp", { mode: "timestamp_ms" }).notNull(),
+    anchor: text("anchor", { mode: "json" }).$type<CommentAnchor>().notNull(),
+    body: text("body").notNull(),
+    status: text("status").$type<CanonicalCommentStatus>().notNull().default("open"),
+    parentCommentId: text("parent_comment_id"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+  },
+  (t) => [
+    index("canonical_comment_project_idx").on(t.projectId),
+    foreignKey({ columns: [t.parentCommentId], foreignColumns: [t.id] }),
+  ],
+);
+
+export type ProjectionStatus = "clean" | "fuzzy" | "orphaned" | "manually_resolved";
+
+export const commentProjection = sqliteTable(
+  "comment_projection",
+  {
+    canonicalCommentId: text("canonical_comment_id")
+      .notNull()
+      .references(() => canonicalComment.id, { onDelete: "cascade" }),
+    versionId: text("version_id")
+      .notNull()
+      .references(() => version.id, { onDelete: "cascade" }),
+    googleCommentId: text("google_comment_id"),
+    anchorMatchConfidence: integer("anchor_match_confidence"),
+    projectionStatus: text("projection_status").$type<ProjectionStatus>().notNull(),
+    lastSyncedAt: integer("last_synced_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+  },
+  (t) => [primaryKey({ columns: [t.canonicalCommentId, t.versionId] })],
+);
+
+export type ReviewRequestStatus = "open" | "closed" | "cancelled";
+
+export const reviewRequest = sqliteTable("review_request", {
+  id: text("id").primaryKey().$defaultFn(newId),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => project.id, { onDelete: "cascade" }),
+  versionId: text("version_id")
+    .notNull()
+    .references(() => version.id),
+  status: text("status").$type<ReviewRequestStatus>().notNull().default("open"),
+  deadline: integer("deadline", { mode: "timestamp_ms" }),
+  slackThreadRef: text("slack_thread_ref"),
+  createdByUserId: text("created_by_user_id")
+    .notNull()
+    .references(() => user.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+});
+
+export type ReviewAssignmentStatus = "pending" | "reviewed" | "changes_requested" | "declined";
+
+export const reviewAssignment = sqliteTable(
+  "review_assignment",
+  {
+    reviewRequestId: text("review_request_id")
+      .notNull()
+      .references(() => reviewRequest.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    status: text("status")
+      .$type<ReviewAssignmentStatus>()
+      .notNull()
+      .default("pending"),
+    respondedAt: integer("responded_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [primaryKey({ columns: [t.reviewRequestId, t.userId] })],
+);
+
+export const auditLog = sqliteTable(
+  "audit_log",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    actorUserId: text("actor_user_id"),
+    action: text("action").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id"),
+    before: text("before", { mode: "json" }).$type<Record<string, unknown>>(),
+    after: text("after", { mode: "json" }).$type<Record<string, unknown>>(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+  },
+  (t) => [
+    index("audit_target_idx").on(t.targetType, t.targetId),
+    index("audit_actor_idx").on(t.actorUserId),
+  ],
+);

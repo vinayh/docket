@@ -1,0 +1,151 @@
+CREATE TABLE `audit_log` (
+	`id` text PRIMARY KEY NOT NULL,
+	`actor_user_id` text,
+	`action` text NOT NULL,
+	`target_type` text NOT NULL,
+	`target_id` text,
+	`before` text,
+	`after` text,
+	`created_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `audit_target_idx` ON `audit_log` (`target_type`,`target_id`);--> statement-breakpoint
+CREATE INDEX `audit_actor_idx` ON `audit_log` (`actor_user_id`);--> statement-breakpoint
+CREATE TABLE `canonical_comment` (
+	`id` text PRIMARY KEY NOT NULL,
+	`project_id` text NOT NULL,
+	`origin_version_id` text NOT NULL,
+	`origin_user_id` text NOT NULL,
+	`origin_user_email` text,
+	`origin_user_display_name` text,
+	`origin_timestamp` integer NOT NULL,
+	`anchor` text NOT NULL,
+	`body` text NOT NULL,
+	`status` text DEFAULT 'open' NOT NULL,
+	`parent_comment_id` text,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`origin_version_id`) REFERENCES `version`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`parent_comment_id`) REFERENCES `canonical_comment`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE INDEX `canonical_comment_project_idx` ON `canonical_comment` (`project_id`);--> statement-breakpoint
+CREATE TABLE `comment_projection` (
+	`canonical_comment_id` text NOT NULL,
+	`version_id` text NOT NULL,
+	`google_comment_id` text,
+	`anchor_match_confidence` integer,
+	`projection_status` text NOT NULL,
+	`last_synced_at` integer NOT NULL,
+	PRIMARY KEY(`canonical_comment_id`, `version_id`),
+	FOREIGN KEY (`canonical_comment_id`) REFERENCES `canonical_comment`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`version_id`) REFERENCES `version`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `derivative` (
+	`id` text PRIMARY KEY NOT NULL,
+	`project_id` text NOT NULL,
+	`version_id` text NOT NULL,
+	`overlay_id` text NOT NULL,
+	`google_doc_id` text NOT NULL,
+	`audience_label` text,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`version_id`) REFERENCES `version`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`overlay_id`) REFERENCES `overlay`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE TABLE `drive_credential` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`scope` text NOT NULL,
+	`refresh_token_encrypted` text NOT NULL,
+	`associated_project_ids` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `drive_credential_user_idx` ON `drive_credential` (`user_id`);--> statement-breakpoint
+CREATE TABLE `overlay` (
+	`id` text PRIMARY KEY NOT NULL,
+	`project_id` text NOT NULL,
+	`name` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `overlay_project_idx` ON `overlay` (`project_id`);--> statement-breakpoint
+CREATE TABLE `overlay_operation` (
+	`id` text PRIMARY KEY NOT NULL,
+	`overlay_id` text NOT NULL,
+	`order_index` integer NOT NULL,
+	`type` text NOT NULL,
+	`anchor` text NOT NULL,
+	`payload` text,
+	`confidence_threshold` integer,
+	FOREIGN KEY (`overlay_id`) REFERENCES `overlay`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `overlay_op_overlay_idx` ON `overlay_operation` (`overlay_id`,`order_index`);--> statement-breakpoint
+CREATE TABLE `project` (
+	`id` text PRIMARY KEY NOT NULL,
+	`parent_doc_id` text NOT NULL,
+	`owner_user_id` text NOT NULL,
+	`settings` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`owner_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE TABLE `review_assignment` (
+	`review_request_id` text NOT NULL,
+	`user_id` text NOT NULL,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`responded_at` integer,
+	PRIMARY KEY(`review_request_id`, `user_id`),
+	FOREIGN KEY (`review_request_id`) REFERENCES `review_request`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE TABLE `review_request` (
+	`id` text PRIMARY KEY NOT NULL,
+	`project_id` text NOT NULL,
+	`version_id` text NOT NULL,
+	`status` text DEFAULT 'open' NOT NULL,
+	`deadline` integer,
+	`slack_thread_ref` text,
+	`created_by_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`version_id`) REFERENCES `version`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`created_by_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE TABLE `user` (
+	`id` text PRIMARY KEY NOT NULL,
+	`email` text NOT NULL,
+	`google_subject_id` text,
+	`display_name` text,
+	`home_org` text,
+	`auth_method` text NOT NULL,
+	`created_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `user_email_unique` ON `user` (`email`);--> statement-breakpoint
+CREATE UNIQUE INDEX `user_google_subject_id_unique` ON `user` (`google_subject_id`);--> statement-breakpoint
+CREATE TABLE `version` (
+	`id` text PRIMARY KEY NOT NULL,
+	`project_id` text NOT NULL,
+	`google_doc_id` text NOT NULL,
+	`parent_version_id` text,
+	`label` text NOT NULL,
+	`created_by_user_id` text NOT NULL,
+	`snapshot_content_hash` text,
+	`status` text DEFAULT 'active' NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`created_by_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`parent_version_id`) REFERENCES `version`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE INDEX `version_project_idx` ON `version` (`project_id`);
