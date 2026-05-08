@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import { createVersion, listVersions } from "../domain/version.ts";
+import { googleDocUrl } from "../domain/google-doc-url.ts";
 import { die, resolveUser } from "./util.ts";
 
 const USAGE = `\
@@ -31,6 +32,7 @@ export async function run(args: string[]): Promise<void> {
     });
     console.log(`✓ created version ${v.label} (id=${v.id})`);
     console.log(`  google_doc_id: ${v.googleDocId}`);
+    console.log(`  url: ${googleDocUrl(v.googleDocId)}`);
     console.log(`  parent_version: ${v.parentVersionId ?? "(none)"}`);
     console.log(`  hash: ${v.snapshotContentHash}`);
     return;
@@ -49,6 +51,7 @@ export async function run(args: string[]): Promise<void> {
       console.log(
         `${v.label.padEnd(8)} ${v.id}  ${parent}  doc=${v.googleDocId}  ${v.status}  ${v.createdAt.toISOString()}`,
       );
+      console.log(`  ${googleDocUrl(v.googleDocId)}`);
     }
     return;
   }

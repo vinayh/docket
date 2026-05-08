@@ -9,7 +9,14 @@ import {
 import { tokenProviderForUser } from "../auth/credentials.ts";
 import { getDocument } from "../google/docs.ts";
 import { getProject } from "./project.ts";
-import { reanchor } from "./reanchor.ts";
+import { reanchor, type ReanchorResult } from "./reanchor.ts";
+
+type CanonicalComment = typeof canonicalComment.$inferSelect;
+
+export interface ProjectionDetail {
+  canonicalComment: CanonicalComment;
+  result: ReanchorResult;
+}
 
 export interface ProjectionRunResult {
   versionId: string;
@@ -21,6 +28,7 @@ export interface ProjectionRunResult {
   /** Existing rows where the projection was unchanged. */
   unchanged: number;
   byStatus: Record<ProjectionStatus, number>;
+  details: ProjectionDetail[];
 }
 
 /**
@@ -60,11 +68,13 @@ export async function projectCommentsOntoVersion(
     updated: 0,
     unchanged: 0,
     byStatus: { clean: 0, fuzzy: 0, orphaned: 0, manually_resolved: 0 },
+    details: [],
   };
 
   for (const cc of comments) {
     result.scanned++;
     const r = reanchor(doc, cc.anchor);
+    result.details.push({ canonicalComment: cc, result: r });
     const existing = (
       await db
         .select()

@@ -1,3 +1,4 @@
+import { diffChars } from "diff";
 import type { CommentAnchor } from "../db/schema.ts";
 import type { Document } from "../google/docs.ts";
 import { extractParagraphs, type ParagraphText } from "../google/docs.ts";
@@ -8,7 +9,7 @@ import { paragraphHash, orphanAnchor } from "./anchor.ts";
  *
  * Confidence is 0–100. Status mirrors `comment_projection.projection_status`:
  *   clean   ≥ CLEAN_THRESHOLD  — paragraph hash + quoted text both match.
- *   fuzzy   ≥ FUZZY_THRESHOLD  — quoted text drifted (paragraph edited, contiguous fragment).
+ *   fuzzy   ≥ FUZZY_THRESHOLD  — quoted text drifted; Myers-diff recovers a partial alignment.
  *   orphan  otherwise          — quoted text not recoverable; surface for human review.
  */
 export interface ReanchorResult {
@@ -16,6 +17,14 @@ export interface ReanchorResult {
   confidence: number;
   status: "clean" | "fuzzy" | "orphaned";
   paragraph?: ParagraphText;
+  /**
+   * The substring in the target paragraph that the source anchor mapped to.
+   * For clean / exact matches this equals the source `quotedText`. For fuzzy
+   * matches it's the span from the first to the last Myers-diff equal segment
+   * — may include inserted target characters between matches so the displayed
+   * region covers all source content.
+   */
+  matchedText?: string;
 }
 
 export const CLEAN_THRESHOLD = 90;
@@ -27,7 +36,7 @@ const CONTEXT_CHARS = 32;
  * Locate the best match for a source anchor in `doc`. SPEC §5 algorithm:
  *  1. Same paragraph hash + exact quoted-text substring → 100 (clean).
  *  2. Exact quoted-text substring in any paragraph → 85–95 depending on context match.
- *  3. Longest-common-substring fuzzy fallback within a paragraph → ≤ 80.
+ *  3. Myers-diff (jsdiff) fuzzy fallback within a paragraph → ≤ 80.
  *  4. Otherwise orphan.
  */
 export function reanchor(doc: Document, source: CommentAnchor): ReanchorResult {
@@ -49,6 +58,7 @@ export function reanchor(doc: Document, source: CommentAnchor): ReanchorResult {
           confidence: 100,
           status: "clean",
           paragraph: p,
+          matchedText: quoted,
         };
       }
     }
@@ -76,31 +86,87 @@ export function reanchor(doc: Document, source: CommentAnchor): ReanchorResult {
       confidence,
       status: confidence >= CLEAN_THRESHOLD ? "clean" : "fuzzy",
       paragraph: chosen.p,
+      matchedText: quoted,
     };
   }
 
-  // Pass 3 — longest common substring within a paragraph.
-  let best: { p: ParagraphText; offset: number; matchLen: number; ratio: number } | null = null;
+  // Pass 3 — Myers character diff between source and each paragraph (jsdiff,
+  // same algorithm git's default `diff` uses for line-level diffs). Equal
+  // segments are matches. We score by total matched chars and report a span
+  // from the first to the last match, so insertions like "probably " between
+  // matched runs land inside the highlighted region.
+  let best: {
+    p: ParagraphText;
+    spanStart: number;
+    spanEnd: number;
+    totalMatched: number;
+  } | null = null;
   for (const p of paragraphs) {
-    const lcs = longestCommonSubstring(quoted, p.text);
-    if (lcs.length === 0) continue;
-    const ratio = lcs.length / quoted.length;
-    if (!best || ratio > best.ratio) {
-      best = { p, offset: lcs.offsetInB, matchLen: lcs.length, ratio };
+    const m = matchSpan(quoted, p.text);
+    if (!m) continue;
+    if (!best || m.totalMatched > best.totalMatched) {
+      best = { p, spanStart: m.spanStart, spanEnd: m.spanEnd, totalMatched: m.totalMatched };
     }
   }
 
-  if (best && best.ratio >= 0.5) {
-    const confidence = Math.min(80, Math.round(best.ratio * 80));
+  if (best && best.totalMatched / quoted.length >= 0.5) {
+    const ratio = best.totalMatched / quoted.length;
+    const confidence = Math.min(80, Math.round(ratio * 80));
+    const matchLen = best.spanEnd - best.spanStart;
     return {
-      anchor: fuzzyAnchorAt(quoted, best.p, best.offset, best.matchLen),
+      anchor: fuzzyAnchorAt(quoted, best.p, best.spanStart, matchLen),
       confidence,
       status: confidence >= CLEAN_THRESHOLD ? "clean" : "fuzzy",
       paragraph: best.p,
+      matchedText: best.p.text.slice(best.spanStart, best.spanEnd),
     };
   }
 
   return { anchor: orphanAnchor(quoted), confidence: 0, status: "orphaned" };
+}
+
+/**
+ * Equal segments shorter than this are ignored when scoring — character-level
+ * Myers otherwise accumulates noise from incidental 1–2 char overlaps in
+ * unrelated text. Mirrors the spirit of patience/histogram diff where
+ * rare/long anchors carry the alignment.
+ */
+const MIN_EQUAL_LEN = 3;
+
+/**
+ * Walk a Myers character diff (jsdiff) between `source` and `target` and
+ * report the smallest target span containing every matching segment plus the
+ * total number of source characters matched. Equal segments shorter than
+ * {@link MIN_EQUAL_LEN} don't count toward the span or score. Returns null if
+ * nothing significant matched.
+ */
+export function matchSpan(
+  source: string,
+  target: string,
+): { spanStart: number; spanEnd: number; totalMatched: number } | null {
+  const parts = diffChars(source, target);
+  let targetCursor = 0;
+  let spanStart = Infinity;
+  let spanEnd = -Infinity;
+  let totalMatched = 0;
+  for (const part of parts) {
+    const len = part.value.length;
+    if (part.added) {
+      targetCursor += len;
+    } else if (part.removed) {
+      // present in source only — doesn't advance target cursor
+    } else {
+      if (len >= MIN_EQUAL_LEN) {
+        if (targetCursor < spanStart) spanStart = targetCursor;
+        const end = targetCursor + len;
+        if (end > spanEnd) spanEnd = end;
+        totalMatched += len;
+      }
+      targetCursor += len;
+    }
+  }
+  if (totalMatched === 0) return null;
+  return { spanStart, spanEnd, totalMatched };
 }
 
 function anchorAt(quoted: string, p: ParagraphText, offset: number): CommentAnchor {
@@ -152,43 +218,4 @@ function contextMatches(
       source.contextAfter.startsWith(sliceAfter.slice(0, 8))
     : true;
   return beforeOk && afterOk;
-}
-
-/**
- * Length and position of the longest contiguous substring shared between `a` and `b`,
- * with the position reported as the offset within `b`. Empty strings yield length 0.
- */
-export function longestCommonSubstring(
-  a: string,
-  b: string,
-): { offsetInB: number; length: number } {
-  const m = a.length;
-  const n = b.length;
-  if (m === 0 || n === 0) return { offsetInB: 0, length: 0 };
-
-  let prev = new Uint16Array(n + 1);
-  let curr = new Uint16Array(n + 1);
-  let bestLen = 0;
-  let bestEndJ = 0;
-
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (a.charCodeAt(i - 1) === b.charCodeAt(j - 1)) {
-        const v = prev[j - 1]! + 1;
-        curr[j] = v;
-        if (v > bestLen) {
-          bestLen = v;
-          bestEndJ = j;
-        }
-      } else {
-        curr[j] = 0;
-      }
-    }
-    const tmp = prev;
-    prev = curr;
-    curr = tmp;
-    curr.fill(0);
-  }
-
-  return { offsetInB: bestEndJ - bestLen, length: bestLen };
 }

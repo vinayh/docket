@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CLEAN_THRESHOLD,
   FUZZY_THRESHOLD,
-  longestCommonSubstring,
+  matchSpan,
   reanchor,
 } from "./reanchor.ts";
 import { paragraphHash } from "./anchor.ts";
@@ -50,20 +50,27 @@ function anchorFor(paragraphs: string[], paraIdx: number, snippet: string): Comm
   };
 }
 
-describe("longestCommonSubstring", () => {
-  test("returns zero length for disjoint strings", () => {
-    expect(longestCommonSubstring("abc", "xyz")).toEqual({ offsetInB: 0, length: 0 });
+describe("matchSpan", () => {
+  test("returns null for disjoint strings", () => {
+    expect(matchSpan("abc", "xyz")).toBeNull();
   });
 
-  test("returns the longest contiguous match and its offset in b", () => {
-    const r = longestCommonSubstring("hello world", "say hello there");
-    expect(r.length).toBe(6); // "hello "
-    expect(r.offsetInB).toBe(4);
+  test("spans across an inserted word so the matched region covers all matches", () => {
+    // Source content appears verbatim in target with one extra word in the middle.
+    // Span should run from the first match to the last, including the insertion.
+    const r = matchSpan("You can edit this freely", "You can probably edit this freely");
+    expect(r).not.toBeNull();
+    expect(r!.totalMatched).toBe(24);
+    expect(r!.spanStart).toBe(0);
+    expect(r!.spanEnd).toBe(33); // full target length
   });
 
-  test("handles empty inputs", () => {
-    expect(longestCommonSubstring("", "abc")).toEqual({ offsetInB: 0, length: 0 });
-    expect(longestCommonSubstring("abc", "")).toEqual({ offsetInB: 0, length: 0 });
+  test("matches a contiguous substring", () => {
+    const r = matchSpan("hello world", "say hello world there");
+    expect(r).not.toBeNull();
+    expect(r!.totalMatched).toBe(11);
+    expect(r!.spanStart).toBe(4);
+    expect(r!.spanEnd).toBe(15);
   });
 });
 
