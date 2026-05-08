@@ -1,12 +1,14 @@
+import { handleOauthCallback, handleOauthStart } from "./oauth.ts";
+
 export interface ServeOptions {
   port?: number;
   hostname?: string;
 }
 
 /**
- * Phase-2 HTTP API host. Currently exposes only `/healthz` so Fly's
- * health checks pass; routes (OAuth callback, Drive webhook, extension
- * ingest, Drive Picker) get layered on as they land.
+ * Phase-2 HTTP API host. Routes shipped: `/healthz`, `/oauth/start`,
+ * `/oauth/callback`. Drive webhook, extension ingest, and the Drive
+ * Picker host page get layered on as they land.
  */
 export function startServer(opts: ServeOptions = {}) {
   const envPort = Bun.env.PORT ? Number(Bun.env.PORT) : undefined;
@@ -17,8 +19,16 @@ export function startServer(opts: ServeOptions = {}) {
     hostname: opts.hostname,
     async fetch(req) {
       const url = new URL(req.url);
-      if (req.method === "GET" && url.pathname === "/healthz") {
+      const method = req.method;
+
+      if (method === "GET" && url.pathname === "/healthz") {
         return Response.json({ ok: true });
+      }
+      if (method === "GET" && url.pathname === "/oauth/start") {
+        return handleOauthStart(req);
+      }
+      if (method === "GET" && url.pathname === "/oauth/callback") {
+        return handleOauthCallback(req);
       }
       return new Response("not found", { status: 404 });
     },
