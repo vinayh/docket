@@ -1,0 +1,45 @@
+# Fly.io app config. App name and region are placeholders; flyctl will
+# set `app` on first launch / `fly apps create`.
+#
+# Why these knobs:
+# - SQLite (`bun:sqlite`) lives on a Fly Volume mounted at /data so it
+#   survives machine restarts. DOCKET_DB_PATH points at it.
+# - min_machines_running = 1 keeps the Drive `files.watch` webhook
+#   reachable without cold-start drops (SPEC §9.3). Auto-stop still
+#   trims any auto-scaled extras when idle.
+# - Health check hits /healthz (served by `bun docket serve`).
+# - Secrets (GOOGLE_*, DOCKET_MASTER_KEY) are set via `fly secrets set`.
+
+app = "docket-server"
+primary_region = "lhr"
+
+[build]
+
+[env]
+  PORT = "8787"
+  DOCKET_DB_PATH = "/data/docket.db"
+  NODE_ENV = "production"
+
+[[mounts]]
+  source = "docket_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/healthz"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
