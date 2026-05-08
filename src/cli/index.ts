@@ -1,13 +1,19 @@
 import { run as runConnect } from "./connect.ts";
 import { run as runSmoke } from "./smoke.ts";
+import { run as runDoc } from "./doc.ts";
+import { run as runInspect } from "./inspect.ts";
 import { run as runProject } from "./project.ts";
 import { run as runVersion } from "./version.ts";
+import { run as runComments } from "./comments.ts";
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
   connect: runConnect,
   smoke: runSmoke,
+  doc: runDoc,
+  inspect: runInspect,
   project: runProject,
   version: runVersion,
+  comments: runComments,
 };
 
 const [name, ...rest] = process.argv.slice(2);

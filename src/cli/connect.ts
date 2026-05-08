@@ -44,9 +44,12 @@ export async function run(_args: string[]): Promise<void> {
           return finish(new Response(`oauth error: ${error}`, { status: 400 }));
         }
         if (!code || returnedState !== state) {
-          return new Response("invalid callback (missing code or state mismatch)", {
-            status: 400,
-          });
+          console.error("invalid callback (missing code or state mismatch)");
+          return finish(
+            new Response("invalid callback (missing code or state mismatch)", {
+              status: 400,
+            }),
+          );
         }
         try {
           const { userId, email, isNewUser } = await completeOAuth(code);

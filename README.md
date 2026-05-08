@@ -1,4 +1,4 @@
-# docket
+# Docket
 
 Structured review and version tracking of Google Docs through a sidebar add-on and Slack bot.
 
@@ -11,38 +11,6 @@ See [`SPEC.md`](./SPEC.md) for the full design. Status: **Phase 1 in progress** 
 - HTTP: `Bun.serve()` (no Express)
 - Encryption: WebCrypto AES-GCM, envelope-style for refresh tokens
 - Tests: `bun test`
-
-## Repository layout
-
-```
-src/
-  config.ts            lazy env-var config
-  db/
-    schema.ts          12 tables from SPEC §4
-    client.ts          drizzle + bun:sqlite (WAL, FK on)
-    migrate.ts         applies generated migrations
-  auth/
-    encryption.ts      envelope encryption (KEK → per-row DEK → ciphertext)
-    credentials.ts     TokenProvider with in-memory cache + auto-refresh
-    connect.ts         completes OAuth: upserts user, stores encrypted refresh token
-  google/
-    oauth.ts           authorize URL, code exchange, refresh, userinfo
-    api.ts             authedFetch / authedJson — refresh-on-401
-    drive.ts           files.get / files.copy / comments.list / files.watch / permissions
-    docs.ts            documents.get / documents.batchUpdate + op.* helpers
-  domain/
-    google-doc-url.ts  parse doc IDs out of URLs
-    project.ts         createProject / getProject / list*
-    version.ts         createVersion (copies parent doc, hashes snapshot) / list / archive
-  cli/
-    index.ts           subcommand dispatcher (`bun docket <cmd>`)
-    util.ts            shared helpers (default user, etc.)
-    connect.ts         one-shot OAuth callback receiver
-    smoke.ts           end-to-end: getFile + copyFile + listComments
-    project.ts         project create / list
-    version.ts         version create / list
-drizzle/               generated migration SQL
-```
 
 ## Setup
 
@@ -85,11 +53,15 @@ Run any subcommand with `bun docket <subcommand>`:
 
 ```
 bun docket connect                                        connect a Google account
+bun docket doc create [--title <t>] [--seed]              create a fresh Docs API doc (auto drive.file access)
 bun docket smoke <doc-url>                                getFile + copyFile + listComments
+bun docket inspect <doc-url>                              dump raw Drive/Docs API responses (debugging)
 bun docket project create <doc-url> [--user <email>]      register a doc as a project
 bun docket project list
 bun docket version create <project-id> [--label v1]       snapshot the parent into a new version
 bun docket version list <project-id>
+bun docket comments ingest <version-id>                   pull Drive comments into the canonical store
+bun docket comments list <project-id>
 ```
 
 The `--user <email>` flag selects which connected account acts as the doc owner; if omitted, the first user in the DB is used.
@@ -104,46 +76,34 @@ After setup, you can connect a real Google account and exercise the full stack:
 #    upserts a user row, and stores an encrypted refresh token.
 bun docket connect
 
-# 2. Sanity-check the Drive/Docs wrappers against a doc you own.
-bun docket smoke 'https://docs.google.com/document/d/<doc-id>/edit'
+# 2. Create a fresh doc to test against.
+#    The OAuth client gets drive.file access automatically because it created the file.
+#    A URL of a pre-existing doc you own won't work yet — drive.file is per-file (SPEC §9.2);
+#    the Drive Picker (Phase 2) and Workspace Add-on (Phase 5) are the other entry points.
+bun docket doc create --seed
+# → ✓ created doc <doc-id>
+#   url: https://docs.google.com/document/d/<doc-id>/edit
+# Open the URL, add a few comments by highlighting text and clicking "Comment".
 
-# 3. Register the doc as a project, then snapshot it into v1.
-bun docket project create 'https://docs.google.com/document/d/<doc-id>/edit'
+# 3. Sanity-check the Drive/Docs wrappers.
+bun docket smoke '<url-from-step-2>'
+
+# 4. Register the doc as a project, then snapshot it into v1.
+bun docket project create '<url-from-step-2>'
 bun docket project list                # copy the project id from here
 bun docket version create <project-id>
-bun docket version list <project-id>
+bun docket version list <project-id>   # copy the version id from here
+
+# 5. Ingest Drive comments on that version into the canonical store.
+bun docket comments ingest <version-id>
+bun docket comments list <project-id>
 ```
 
-Each `version create` copies the parent doc via Drive, names the copy `[docket vN] <original>`, and stores a SHA-256 hash of the copy's plaintext as the snapshot fingerprint.
-
-## Tests
-
-```sh
-bun test
-```
-
-Unit-tested so far:
-
-- Envelope encryption: round-trip, randomized ciphertexts, tampering detection, wrong-key rejection, version byte checks.
-- OAuth URL builder: scopes, state, prompt overrides, custom redirect URIs.
-- Google Doc URL/ID parsing.
-
-Wrappers around live Google APIs and the project/version flow are validated via the CLI against a real doc rather than mocked unit tests.
-
-## Schema migrations
-
-Schema lives in `src/db/schema.ts`. After editing:
-
-```sh
-bunx drizzle-kit generate    # emits a new SQL file in ./drizzle
-bun migrate                  # applies it
-```
-
-`drizzle-kit` runs under Node (not Bun), so `drizzle.config.ts` uses `process.env`. Migrations are applied at runtime via `drizzle-orm/bun-sqlite/migrator` — `better-sqlite3` is not a runtime dependency.
+Each `version create` copies the parent doc via Drive, names the copy `[Docket vN] <original>`, and stores a SHA-256 hash of the copy's plaintext as the snapshot fingerprint. `comments ingest` pulls Drive comments + replies, computes a canonical anchor (quoted text + paragraph hash + structural offset) against the version's doc, and is idempotent on re-run.
 
 ## Build phases
 
-Tracking SPEC §11.
+Tracking SPEC §12.
 
 - [ ] **Phase 1** — core engine: project/version model, doc-copy + overlay application, canonical comment store, reanchoring engine, doc-watcher. CLI for testing.
   - [x] Drizzle schema for all 12 tables (§4)
@@ -151,19 +111,24 @@ Tracking SPEC §11.
   - [x] Google OAuth flow + `TokenProvider` with auto-refresh
   - [x] Drive + Docs API wrappers
   - [x] Project + Version primitives (creating projects from a parent doc, snapshotting versions)
-  - [ ] Canonical comment ingestion
+  - [x] Canonical comment ingestion (Drive `comments.list` + Docs API tracked-change suggestions across body/headers/footers/footnotes → `canonical_comment` + `comment_projection`, idempotent)
   - [ ] Reanchoring engine
   - [ ] Overlay model + applier
   - [ ] Drive push-notification doc-watcher
   - [ ] Phase-1 CLI
-- [ ] **Phase 2** — Slack bot
-- [ ] **Phase 3** — Web app (reconciliation UI, diff views, overlay editor)
-- [ ] **Phase 4** — Workspace add-on
-- [ ] **Phase 5** — Cross-org polish
-- [ ] **Phase 6** — Marketplace, advanced features
+- [ ] **Phase 2** — backend HTTP API + browser extension (capture) + minimal web entry points
+  - [ ] `Bun.serve` HTTP API with per-user API tokens
+  - [ ] OAuth callback + Drive Picker host page
+  - [ ] Manifest V3 extension scaffold (Chrome/Edge/Firefox)
+  - [ ] Sidebar `MutationObserver` + kix-discussion-id matching
+  - [ ] Backend ingest endpoint resolving (docId, kix id) → suggestion's canonical_comment
+  - [ ] Service-worker dedupe + retry queue
+- [ ] **Phase 3** — Slack bot
+- [ ] **Phase 4** — extension rich UI (dashboard, diff, reconciliation, overlay editor, settings) + magic-link action handlers — closes the MVP
+- [ ] **Phase 5** — Workspace add-on
+- [ ] **Phase 6** — cross-org polish + extension visualization (highlights, gutter, selection capture) + suggestion author/timestamp resolution
+- [ ] **Phase 7** — Marketplace, advanced features
 
-## Conventions
+## Contributing
 
-- Use Bun APIs over Node equivalents (per [`CLAUDE.md`](./CLAUDE.md)). `bun:sqlite`, `Bun.serve`, `Bun.file`, `Bun.$`.
-- All state lives in the backend; surfaces (Slack/add-on/web) are views (SPEC §3).
-- The only Google scope held for active doc operations is `drive.file` (SPEC §8).
+Project conventions, repo layout, schema-migration workflow, and test layout live in [`AGENTS.md`](./AGENTS.md).

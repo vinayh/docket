@@ -1,6 +1,6 @@
-import { parseArgs } from "util";
+import { parseArgs } from "node:util";
 import { createVersion, listVersions } from "../domain/version.ts";
-import { defaultUser, die, userByEmail } from "./util.ts";
+import { die, resolveUser } from "./util.ts";
 
 const USAGE = `\
 usage:
@@ -23,7 +23,7 @@ export async function run(args: string[]): Promise<void> {
     const projectId = positionals[0];
     if (!projectId) die(USAGE);
 
-    const u = values.user ? await userByEmail(values.user) : await defaultUser();
+    const u = await resolveUser(values.user);
     const v = await createVersion({
       projectId,
       createdByUserId: u.id,

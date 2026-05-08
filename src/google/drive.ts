@@ -54,7 +54,6 @@ export interface DriveCommentReply {
   modifiedTime?: string;
   content: string;
   htmlContent?: string;
-  resolved?: boolean;
   deleted?: boolean;
   action?: "resolve" | "reopen";
 }
@@ -74,7 +73,7 @@ export interface DriveComment {
 }
 
 const COMMENT_FIELDS =
-  "comments(id,author(displayName,emailAddress,me),createdTime,modifiedTime,content,htmlContent,quotedFileContent,resolved,deleted,anchor,replies(id,author(displayName,emailAddress,me),createdTime,modifiedTime,content,htmlContent,resolved,deleted,action)),nextPageToken";
+  "comments(id,author(displayName,emailAddress,me),createdTime,modifiedTime,content,htmlContent,quotedFileContent,resolved,deleted,anchor,replies(id,author(displayName,emailAddress,me),createdTime,modifiedTime,content,htmlContent,deleted,action)),nextPageToken";
 
 interface CommentListResponse {
   comments?: DriveComment[];

@@ -138,15 +138,38 @@ export const derivative = sqliteTable("derivative", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
 });
 
+export type DocRegion = "body" | "header" | "footer" | "footnote";
+
 export type CommentAnchor = {
   quotedText: string;
   contextBefore?: string;
   contextAfter?: string;
   paragraphHash?: string;
-  structuralPosition?: { paragraphIndex: number; offset: number };
+  structuralPosition?: {
+    /** Region of the doc this anchor lives in. Omitted = "body" (back-compat). */
+    region?: DocRegion;
+    /** ID of the header/footer/footnote element. Required when region != "body". */
+    regionId?: string;
+    /** Zero-based paragraph index, local to the region. */
+    paragraphIndex: number;
+    offset: number;
+  };
 };
 
 export type CanonicalCommentStatus = "open" | "addressed" | "wontfix" | "superseded";
+
+/**
+ * What kind of doc annotation produced this canonical_comment.
+ *
+ * - `comment`: a Drive comment thread (or reply within one). Author/timestamp from the API.
+ * - `suggestion_insert` / `suggestion_delete`: a Google Docs tracked-change suggestion.
+ *   Author/timestamp for the suggestion aren't surfaced by `documents.get`; resolving
+ *   them via the Drive revisions API is deferred (SPEC Phase 6). Reply threads typed
+ *   into the suggestion's sidebar entry are stored internally by Google and are not
+ *   exposed by any public API — verified empirically. Use `bun docket inspect <url>`
+ *   to confirm if you suspect a doc has discussion that's not making it through.
+ */
+export type CanonicalCommentKind = "comment" | "suggestion_insert" | "suggestion_delete";
 
 export const canonicalComment = sqliteTable(
   "canonical_comment",
@@ -158,10 +181,11 @@ export const canonicalComment = sqliteTable(
     originVersionId: text("origin_version_id")
       .notNull()
       .references(() => version.id),
-    originUserId: text("origin_user_id").notNull(),
+    originUserId: text("origin_user_id").references(() => user.id),
     originUserEmail: text("origin_user_email"),
     originUserDisplayName: text("origin_user_display_name"),
     originTimestamp: integer("origin_timestamp", { mode: "timestamp_ms" }).notNull(),
+    kind: text("kind").$type<CanonicalCommentKind>().notNull().default("comment"),
     anchor: text("anchor", { mode: "json" }).$type<CommentAnchor>().notNull(),
     body: text("body").notNull(),
     status: text("status").$type<CanonicalCommentStatus>().notNull().default("open"),
@@ -190,7 +214,10 @@ export const commentProjection = sqliteTable(
     projectionStatus: text("projection_status").$type<ProjectionStatus>().notNull(),
     lastSyncedAt: integer("last_synced_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
   },
-  (t) => [primaryKey({ columns: [t.canonicalCommentId, t.versionId] })],
+  (t) => [
+    primaryKey({ columns: [t.canonicalCommentId, t.versionId] }),
+    index("comment_projection_version_google_idx").on(t.versionId, t.googleCommentId),
+  ],
 );
 
 export type ReviewRequestStatus = "open" | "closed" | "cancelled";

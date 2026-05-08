@@ -1,6 +1,6 @@
-import { parseArgs } from "util";
+import { parseArgs } from "node:util";
 import { createProject, listAllProjects } from "../domain/project.ts";
-import { defaultUser, die, userByEmail } from "./util.ts";
+import { die, resolveUser } from "./util.ts";
 
 const USAGE = `\
 usage:
@@ -20,7 +20,7 @@ export async function run(args: string[]): Promise<void> {
     const target = positionals[0];
     if (!target) die(USAGE);
 
-    const owner = values.user ? await userByEmail(values.user) : await defaultUser();
+    const owner = await resolveUser(values.user);
     const project = await createProject({
       ownerUserId: owner.id,
       parentDocUrlOrId: target,

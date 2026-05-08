@@ -5,6 +5,10 @@ const DOCS_BASE = "https://docs.googleapis.com/v1";
 export interface TextRun {
   content: string;
   textStyle?: Record<string, unknown>;
+  /** Suggestion IDs marking this run as a *proposed* insertion (text not yet accepted). */
+  suggestedInsertionIds?: string[];
+  /** Suggestion IDs marking this run as a *proposed* deletion (text still in body, struck through). */
+  suggestedDeletionIds?: string[];
 }
 
 export interface ParagraphElement {
@@ -27,15 +31,44 @@ export interface StructuralElement {
   tableOfContents?: Record<string, unknown>;
 }
 
+export interface Header {
+  headerId?: string;
+  content?: StructuralElement[];
+}
+
+export interface Footer {
+  footerId?: string;
+  content?: StructuralElement[];
+}
+
+export interface Footnote {
+  footnoteId?: string;
+  content?: StructuralElement[];
+}
+
 export interface Document {
   documentId: string;
   title: string;
   body?: { content: StructuralElement[] };
+  headers?: Record<string, Header>;
+  footers?: Record<string, Footer>;
+  footnotes?: Record<string, Footnote>;
   revisionId?: string;
 }
 
 export async function getDocument(tp: TokenProvider, documentId: string): Promise<Document> {
   return authedJson(tp, `${DOCS_BASE}/documents/${encodeURIComponent(documentId)}`);
+}
+
+export async function createDocument(
+  tp: TokenProvider,
+  opts: { title: string },
+): Promise<Document> {
+  return authedJson(tp, `${DOCS_BASE}/documents`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: opts.title }),
+  });
 }
 
 export type BatchUpdateRequest = Record<string, unknown>;
@@ -86,6 +119,43 @@ export function extractPlainText(doc: Document): string {
     for (const pe of el.paragraph?.elements ?? []) {
       if (pe.textRun?.content) out += pe.textRun.content;
     }
+  }
+  return out;
+}
+
+export interface ParagraphText {
+  /** Zero-based index among paragraph structural elements (skipping tables, section breaks, etc.). */
+  paragraphIndex: number;
+  /** Concatenated text-run content, with the trailing newline stripped. */
+  text: string;
+  /** Doc-coordinate startIndex of the structural element (for batchUpdate). */
+  startIndex: number;
+  /** Doc-coordinate endIndex of the structural element (exclusive). */
+  endIndex: number;
+}
+
+/**
+ * Walk the document body and return one entry per paragraph with its plain text and
+ * doc-coordinate range. Skips tables, section breaks, and TOC entries — anchoring v1
+ * targets prose paragraphs only (per SPEC §11: image/table anchoring is out of scope).
+ */
+export function extractParagraphs(doc: Document): ParagraphText[] {
+  const out: ParagraphText[] = [];
+  let i = 0;
+  for (const el of doc.body?.content ?? []) {
+    if (!el.paragraph) continue;
+    let text = "";
+    for (const pe of el.paragraph.elements ?? []) {
+      if (pe.textRun?.content) text += pe.textRun.content;
+    }
+    if (text.endsWith("\n")) text = text.slice(0, -1);
+    out.push({
+      paragraphIndex: i,
+      text,
+      startIndex: el.startIndex ?? 0,
+      endIndex: el.endIndex ?? 0,
+    });
+    i++;
   }
   return out;
 }

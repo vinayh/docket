@@ -46,7 +46,7 @@ export async function createVersion(opts: {
   }
 
   const copy = await copyFile(tp, proj.parentDocId, {
-    name: `[docket ${label}] ${parentFile.name}`,
+    name: `[Docket ${label}] ${parentFile.name}`,
   });
 
   const doc = await getDocument(tp, copy.id);

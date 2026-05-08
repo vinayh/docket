@@ -1,0 +1,1 @@
+ALTER TABLE `canonical_comment` ADD `kind` text DEFAULT 'comment' NOT NULL;
