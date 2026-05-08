@@ -1,5 +1,7 @@
 # Docket
 
+[![codecov](https://codecov.io/gh/vinayh/docket/graph/badge.svg?token=V4MG527SMV)](https://codecov.io/gh/vinayh/docket)
+
 Tracking comments on Google Docs with 'forks' (sidebar add-on, browser extension, and eventual Slack bot).
 
 See [`SPEC.md`](./SPEC.md) for the full design. Status: **Phase 1 complete** (core engine, CLI-driven). Phase 2 (HTTP API + extension capture + Drive Picker) up next.
