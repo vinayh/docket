@@ -5,6 +5,9 @@ import { run as runInspect } from "./inspect.ts";
 import { run as runProject } from "./project.ts";
 import { run as runVersion } from "./version.ts";
 import { run as runComments } from "./comments.ts";
+import { run as runReanchor } from "./reanchor.ts";
+import { run as runOverlay, runDerivative } from "./overlay.ts";
+import { run as runWatcher } from "./watcher.ts";
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
   connect: runConnect,
@@ -14,6 +17,10 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   project: runProject,
   version: runVersion,
   comments: runComments,
+  reanchor: runReanchor,
+  overlay: runOverlay,
+  derivative: runDerivative,
+  watcher: runWatcher,
 };
 
 const [name, ...rest] = process.argv.slice(2);

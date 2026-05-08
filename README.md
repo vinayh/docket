@@ -2,23 +2,23 @@
 
 Tracking comments on Google Docs with 'forks' (sidebar add-on, browser extension, and eventual Slack bot).
 
-See [`SPEC.md`](./SPEC.md) for the full design. Status: **Phase 1 in progress** (core engine).
+See [`SPEC.md`](./SPEC.md) for the full design. Status: **Phase 1 complete** (core engine, CLI-driven). Phase 2 (HTTP API + extension capture + Drive Picker) up next.
 
 ## Build phases
 
 Tracking [`SPEC.md` §12](./SPEC.md#12-build-sequence). Phases 1–4 are the MVP (driven from the in-doc add-on plus magic-link handlers for external reviewers); the Slack bot lands in Phase 5.
 
-- [ ] **Phase 1**: core engine. Project/version model, doc-copy + overlay application, canonical comment store, reanchoring engine, doc-watcher. CLI for testing.
+- [x] **Phase 1**: core engine. Project/version model, doc-copy + overlay application, canonical comment store, reanchoring engine, doc-watcher. CLI for testing.
   - [x] Drizzle schema for all 12 tables (§4)
   - [x] Envelope-encrypted refresh-token storage
   - [x] Google OAuth flow + `TokenProvider` with auto-refresh
   - [x] Drive + Docs API wrappers
   - [x] Project + Version primitives (creating projects from a parent doc, snapshotting versions)
   - [x] Canonical comment ingestion (Drive `comments.list` + Docs API tracked-change suggestions across body/headers/footers/footnotes into `canonical_comment` + `comment_projection`, idempotent)
-  - [ ] Reanchoring engine
-  - [ ] Overlay model + applier
-  - [ ] Drive push-notification doc-watcher
-  - [ ] Phase-1 CLI
+  - [x] Reanchoring engine (paragraph-hash + quoted-text → fuzzy LCS fallback → orphan, with confidence score)
+  - [x] Overlay model + applier (overlay/operation primitives, plan with per-op confidence, derivative = copy + batchUpdate)
+  - [x] Drive push-notification doc-watcher (`drive.files.watch` channel store, push handler, polling fallback, channel renewer)
+  - [x] Phase-1 CLI
 - [ ] **Phase 2**: backend HTTP API + browser extension (capture) + minimal web entry points.
   - [ ] `Bun.serve` HTTP API with per-user API tokens
   - [ ] OAuth callback + Drive Picker host page
@@ -90,6 +90,19 @@ bun docket version create <project-id> [--label v1]       snapshot the parent in
 bun docket version list <project-id>
 bun docket comments ingest <version-id>                   pull Drive comments into the canonical store
 bun docket comments list <project-id>
+bun docket reanchor <target-version-id>                   project canonical comments onto a version
+bun docket overlay create <project-id> --name <name>      register a new overlay
+bun docket overlay list <project-id>
+bun docket overlay add-op <overlay-id> --type ...         append an op (redact|replace|insert|append)
+bun docket overlay ops <overlay-id>
+bun docket overlay apply <overlay-id> --version <id>      copy + apply overlay → derivative doc
+bun docket derivative list <project-id>
+bun docket watcher subscribe <version-id> --address ...   subscribe drive.files.watch on a version
+bun docket watcher list
+bun docket watcher unsubscribe <channel-row-id>
+bun docket watcher renew                                  renew channels nearing expiration
+bun docket watcher poll                                   polling fallback: re-ingest active versions
+bun docket watcher simulate <channel-id> [--state ...]    exercise the push handler locally
 ```
 
 The `--user <email>` flag selects which connected account acts as the doc owner; if omitted, the first user in the DB is used.

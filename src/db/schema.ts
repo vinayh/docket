@@ -259,6 +259,32 @@ export const reviewAssignment = sqliteTable(
   (t) => [primaryKey({ columns: [t.reviewRequestId, t.userId] })],
 );
 
+/**
+ * Active Drive `files.watch` channel for a version's Google Doc. One row per
+ * (version × active channel). Operational state (not part of SPEC §4's data model);
+ * the doc-watcher reads it to renew expiring channels and to map an inbound
+ * push notification's channel id back to the version it covers.
+ */
+export const driveWatchChannel = sqliteTable(
+  "drive_watch_channel",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    versionId: text("version_id")
+      .notNull()
+      .references(() => version.id, { onDelete: "cascade" }),
+    channelId: text("channel_id").notNull().unique(),
+    resourceId: text("resource_id").notNull(),
+    /** Random per-channel secret echoed back as `X-Goog-Channel-Token`. */
+    token: text("token"),
+    address: text("address").notNull(),
+    expiration: integer("expiration", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+    lastEventAt: integer("last_event_at", { mode: "timestamp_ms" }),
+    lastSyncedAt: integer("last_synced_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [index("drive_watch_version_idx").on(t.versionId)],
+);
+
 export const auditLog = sqliteTable(
   "audit_log",
   {

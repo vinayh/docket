@@ -25,8 +25,12 @@ src/
     project.ts         createProject / getProject / list*
     version.ts         createVersion (copies parent doc, hashes snapshot) / list / archive
     anchor.ts          buildAnchor (quoted text → paragraph hash + structural offset)
+    reanchor.ts        reanchor (source CommentAnchor + target Document → confidence + status)
     suggestions.ts     extractSuggestions (Docs body → tracked-change spans)
     comments.ts        ingestVersionComments (Drive comments + suggestions → canonical_comment)
+    project_comments.ts projectCommentsOntoVersion (run reanchor for every canonical comment)
+    overlay.ts         overlay/op CRUD, planOverlay (pure), applyOverlayAsDerivative
+    watcher.ts         drive.files.watch subscribe/unsubscribe/handle, polling fallback, renewer
   cli/                 thin parse-and-call shells over src/domain/, via a single dispatcher
     index.ts           subcommand dispatcher (`bun docket <cmd>`)
     util.ts            shared helpers (default user, etc.)
@@ -37,6 +41,9 @@ src/
     project.ts         project create / list
     version.ts         version create / list
     comments.ts        comments ingest / list
+    reanchor.ts        reanchor <target-version-id>
+    overlay.ts         overlay create / list / add-op / ops / apply; derivative list
+    watcher.ts         watcher subscribe / list / unsubscribe / renew / poll / simulate
   api/                 Bun.serve HTTP routes (added when surfaces start consuming)
   surfaces/            Slack bot / Workspace add-on / browser extension (later phases)
 drizzle/               generated migration SQL
