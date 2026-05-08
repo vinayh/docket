@@ -44,9 +44,15 @@ src/
     reanchor.ts        reanchor <target-version-id>
     overlay.ts         overlay create / list / add-op / ops / apply; derivative list
     watcher.ts         watcher subscribe / list / unsubscribe / renew / poll / simulate
-  api/                 Bun.serve HTTP routes (added when surfaces start consuming)
+    serve.ts           start the HTTP API (`bun docket serve [--port <n>]`)
+  api/                 Bun.serve HTTP host
+    server.ts          route table; /healthz + /oauth/{start,callback}
+    oauth.ts           OAuth start + callback handlers (in-memory state store)
   surfaces/            Slack bot / Workspace add-on / browser extension (later phases)
 drizzle/               generated migration SQL
+Dockerfile             multi-stage Bun-on-Alpine image; runs migrate then serve
+fly.toml               Fly.io app config (see README §"Deployment")
+.github/workflows/     CI: codecov upload + fly-deploy (typecheck/test gate → flyctl deploy)
 ```
 
 - **Surface** = user-facing UX. **Client** = any other API caller. Per SPEC §3, all state lives in the backend; surfaces are views.
@@ -57,6 +63,15 @@ drizzle/               generated migration SQL
 - Single dispatcher: `bun docket <subcommand>` (`src/cli/index.ts`).
 - Each subcommand exports `async function run(args: string[])` and is registered in `index.ts`.
 - Use `parseArgs` from `node:util`.
+
+## HTTP API
+
+- `bun docket serve [--port <n>]` runs the API host (`Bun.serve`, in `src/api/server.ts`). In production, the Fly container runs the same command; `PORT` and `DOCKET_DB_PATH` are set via `fly.toml`, secrets via `flyctl secrets set`.
+- Routes live in `src/api/`. The server file does `(method, pathname)` dispatch and forwards to per-route modules.
+- Public routes today: `/healthz`, `/oauth/start`, `/oauth/callback`. Anything user-authenticated lands under `/api/*` once API tokens + bearer middleware are wired (Phase-2 next step).
+- The api layer is a thin shell — domain logic stays in `src/auth/`, `src/domain/`, etc. `oauth.ts` reuses `completeOAuth` from `src/auth/connect.ts`; the CLI's `bun docket connect` does too.
+- OAuth state is held in an in-memory `Map` for now (single Fly machine, `min_machines_running = 1`). Move to DB or signed cookie when the deploy scales out.
+- Deployment is documented in [`README.md` §"Deployment"](./README.md#deployment-flyio).
 
 ## Schema migrations
 
