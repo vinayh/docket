@@ -1,8 +1,36 @@
 # Docket
 
-Structured review and version tracking of Google Docs through a sidebar add-on and Slack bot.
+Tracking comments on Google Docs with 'forks' (sidebar add-on, browser extension, and eventual Slack bot).
 
-See [`SPEC.md`](./SPEC.md) for the full design. Status: **Phase 1 in progress** — core engine.
+See [`SPEC.md`](./SPEC.md) for the full design. Status: **Phase 1 in progress** (core engine).
+
+## Build phases
+
+Tracking [`SPEC.md` §12](./SPEC.md#12-build-sequence). Phases 1–4 are the MVP (driven from the in-doc add-on plus magic-link handlers for external reviewers); the Slack bot lands in Phase 5.
+
+- [ ] **Phase 1**: core engine. Project/version model, doc-copy + overlay application, canonical comment store, reanchoring engine, doc-watcher. CLI for testing.
+  - [x] Drizzle schema for all 12 tables (§4)
+  - [x] Envelope-encrypted refresh-token storage
+  - [x] Google OAuth flow + `TokenProvider` with auto-refresh
+  - [x] Drive + Docs API wrappers
+  - [x] Project + Version primitives (creating projects from a parent doc, snapshotting versions)
+  - [x] Canonical comment ingestion (Drive `comments.list` + Docs API tracked-change suggestions across body/headers/footers/footnotes into `canonical_comment` + `comment_projection`, idempotent)
+  - [ ] Reanchoring engine
+  - [ ] Overlay model + applier
+  - [ ] Drive push-notification doc-watcher
+  - [ ] Phase-1 CLI
+- [ ] **Phase 2**: backend HTTP API + browser extension (capture) + minimal web entry points.
+  - [ ] `Bun.serve` HTTP API with per-user API tokens
+  - [ ] OAuth callback + Drive Picker host page
+  - [ ] Manifest V3 extension scaffold (Chrome/Edge/Firefox)
+  - [ ] Sidebar `MutationObserver` + kix-discussion-id matching
+  - [ ] Backend ingest endpoint resolving (docId, kix id) into the suggestion's canonical_comment
+  - [ ] Service-worker dedupe + retry queue
+- [ ] **Phase 3**: Workspace add-on (in-doc UI, snapshot/review triggers, file-scope onboarding, email notifications).
+- [ ] **Phase 4**: extension rich UI (dashboard, diff, reconciliation, overlay editor, settings) + magic-link action handlers. Closes the MVP.
+- [ ] **Phase 5**: Slack bot (chat-driven review coordination as an alternate entry point).
+- [ ] **Phase 6**: cross-org polish + extension visualization (highlights, gutter, selection capture) + suggestion author/timestamp resolution.
+- [ ] **Phase 7**: Marketplace + advanced features.
 
 ## Stack
 
@@ -78,11 +106,11 @@ bun docket connect
 
 # 2. Create a fresh doc to test against.
 #    The OAuth client gets drive.file access automatically because it created the file.
-#    A URL of a pre-existing doc you own won't work yet — drive.file is per-file (SPEC §9.2);
-#    the Drive Picker (Phase 2) and Workspace Add-on (Phase 5) are the other entry points.
+#    A URL of a pre-existing doc you own won't work yet; drive.file is per-file (SPEC §9.2).
+#    The Drive Picker (Phase 2) and Workspace Add-on (Phase 3) are the other entry points.
 bun docket doc create --seed
-# → ✓ created doc <doc-id>
-#   url: https://docs.google.com/document/d/<doc-id>/edit
+# -> created doc <doc-id>
+#    url: https://docs.google.com/document/d/<doc-id>/edit
 # Open the URL, add a few comments by highlighting text and clicking "Comment".
 
 # 3. Sanity-check the Drive/Docs wrappers.
@@ -100,34 +128,6 @@ bun docket comments list <project-id>
 ```
 
 Each `version create` copies the parent doc via Drive, names the copy `[Docket vN] <original>`, and stores a SHA-256 hash of the copy's plaintext as the snapshot fingerprint. `comments ingest` pulls Drive comments + replies, computes a canonical anchor (quoted text + paragraph hash + structural offset) against the version's doc, and is idempotent on re-run.
-
-## Build phases
-
-Tracking SPEC §12.
-
-- [ ] **Phase 1** — core engine: project/version model, doc-copy + overlay application, canonical comment store, reanchoring engine, doc-watcher. CLI for testing.
-  - [x] Drizzle schema for all 12 tables (§4)
-  - [x] Envelope-encrypted refresh-token storage
-  - [x] Google OAuth flow + `TokenProvider` with auto-refresh
-  - [x] Drive + Docs API wrappers
-  - [x] Project + Version primitives (creating projects from a parent doc, snapshotting versions)
-  - [x] Canonical comment ingestion (Drive `comments.list` + Docs API tracked-change suggestions across body/headers/footers/footnotes → `canonical_comment` + `comment_projection`, idempotent)
-  - [ ] Reanchoring engine
-  - [ ] Overlay model + applier
-  - [ ] Drive push-notification doc-watcher
-  - [ ] Phase-1 CLI
-- [ ] **Phase 2** — backend HTTP API + browser extension (capture) + minimal web entry points
-  - [ ] `Bun.serve` HTTP API with per-user API tokens
-  - [ ] OAuth callback + Drive Picker host page
-  - [ ] Manifest V3 extension scaffold (Chrome/Edge/Firefox)
-  - [ ] Sidebar `MutationObserver` + kix-discussion-id matching
-  - [ ] Backend ingest endpoint resolving (docId, kix id) → suggestion's canonical_comment
-  - [ ] Service-worker dedupe + retry queue
-- [ ] **Phase 3** — Slack bot
-- [ ] **Phase 4** — extension rich UI (dashboard, diff, reconciliation, overlay editor, settings) + magic-link action handlers — closes the MVP
-- [ ] **Phase 5** — Workspace add-on
-- [ ] **Phase 6** — cross-org polish + extension visualization (highlights, gutter, selection capture) + suggestion author/timestamp resolution
-- [ ] **Phase 7** — Marketplace, advanced features
 
 ## Contributing
 

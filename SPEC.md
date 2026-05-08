@@ -330,7 +330,7 @@ Anchor-to-index resolution happens before the batch update — that's the reanch
 
 ## 12. Build sequence
 
-Each phase delivers a coherent, demoable slice. **Phases 1–4 are the MVP** — both stated pain points and the multi-version review workflow work end-to-end, and the public-API gap around suggestion-thread replies is closed via the browser extension's capture role. Phases 5–6 are polish that materially improves UX in real research contexts. Phase 7 is "after we've seen how teams actually use it."
+Each phase delivers a coherent, demoable slice. **Phases 1–4 are the MVP** — both stated pain points and the multi-version review workflow work end-to-end, driven from the in-doc Workspace add-on (Phase 3) plus magic-link action handlers (Phase 4) for external reviewers, and the public-API gap around suggestion-thread replies closed by the browser extension's capture role. The Slack bot lands in Phase 5 once teams want a chat-driven coordination surface; phases 5–6 are polish that materially improves UX in real research contexts. Phase 7 is "after we've seen how teams actually use it."
 
 The browser extension is part of the MVP. Rationale: Google's public Docs/Drive APIs have known and likely-growing gaps (suggestion-thread replies confirmed missing; future surface changes Google ships could expose more). Treating the extension as a first-class capture surface from the start gives the project long-term flexibility as the API surface evolves. Visualization features (canvas overlays, selection capture) stay deferred to Phase 6 — they're costlier and have acceptable fallbacks.
 
@@ -376,31 +376,33 @@ The first deployable artifact beyond the CLI. Backend comes online as a network 
 
 **Features delivered**
 - Suggestion-thread replies in the canonical store, parented to the suggestion they belong to.
-- A backend HTTP API surface ready to be consumed by the Slack bot (Phase 3) and the extension's rich UI (Phase 4).
+- A backend HTTP API surface ready to be consumed by the Workspace add-on (Phase 3), the extension's rich UI (Phase 4), and the Slack bot (Phase 5).
 - Drive Picker available as the entry point for `drive.file` authorization on existing docs.
 
 **Operational notes**
 - DOM selectors in the Docs UI are not part of any contract; budget ~4–8 hours/month for selector fixups + larger refactors when Google reships the UI (~quarterly historical cadence).
 - Capture is opportunistic: it happens whenever any extension-equipped browser session views the doc. Authoring medium (mobile vs. desktop, extension vs. no extension) doesn't matter — the reply enters Google's sidebar DOM the same way for everyone, and the next extension-equipped viewer captures it. The only real loss case is a doc whose reviewers are *entirely* mobile or extension-less. Active review cycles guarantee at least one extension-equipped viewer; passive long-running docs are riskier.
-- Enterprise IT may block third-party Docs extensions; the Workspace Add-on (Phase 5) plus a "comment instead of reply-to-suggestion" UX nudge in the add-on banner are the fallback paths for those tenants.
+- Enterprise IT may block third-party Docs extensions; the Workspace Add-on (Phase 3) plus a "comment instead of reply-to-suggestion" UX nudge in the add-on banner are the fallback paths for those tenants.
 
-### Phase 3 — Slack bot
+### Phase 3 — Workspace add-on
 
-Slack becomes the primary user-facing surface for single-org reviews.
+In-Doc surface so users don't have to leave the writing experience to use Docket. Lands before the Slack bot because it's testable solo (no Slack workspace required) and unlocks the per-file `drive.file` flow for arbitrary docs the user already owns.
 
 **Components**
-- Slack event subscriptions, slash commands, and interactive payloads consuming the Phase-2 HTTP API.
-- Slack OAuth + workspace-linking flow.
-- `review_orchestrator` service (§5).
-- `notification_dispatcher` service (§5), Slack channel.
-- Identity-linking: `user.email` ↔ Slack `user.profile.email`.
-- Drive-scope onboarding affordance for Slack flows that reference unauthorized docs (§9.2).
+- Unified Workspace Add-on (CardService UI; §9.4).
+- `onFileScopeGranted` trigger handler that integrates per-file `drive.file` grants with Docket's existing token store (§9.2).
+- Apps Script identity-token verification on the backend.
+- `review_orchestrator` service (§5) — minimum surface needed to create a review request from the sidebar and project comments back on close.
+- `notification_dispatcher` service (§5), email channel — the Slack channel lands in Phase 5.
+- Named-range bookkeeping in the overlay applier so the add-on can render "comments at this paragraph" affordances.
+- UX banner on docs with active suggestions: nudges reviewers to leave a regular comment rather than typing into the suggestion's reply box, hardening the data-capture path for users without the extension installed.
 
 **Features delivered**
-- `/review-request`, `/review-status`, `/review-close` (§6.1).
-- Per-reviewer DMs and review-thread updates.
-- Home tab dashboards.
-- End-to-end single-org review cycle: request → reviewers comment → close → comments project back onto parent.
+- Inside any open Google Doc: see project status, version list, active reviews.
+- Trigger snapshots and review requests from the sidebar.
+- View canonical comment threads in the side panel; jump to the project in the browser extension.
+- First-time-doc onboarding: opening a previously-unknown doc with the add-on registers it and grants `drive.file`.
+- Per §9.4 and §9.5, in-doc highlights and selection-driven flows are deferred to Phase 6's extension visualization layer.
 
 ### Phase 4 — Extension rich UI + magic-link action handlers
 
@@ -422,23 +424,22 @@ Closes out the MVP. The browser extension grows from a capture-only background p
 - External reviewers without Docket accounts can act via one-click email links — cross-org workflows become possible.
 - Phases 1–4 together cover the MVP.
 
-### Phase 5 — Workspace add-on
+### Phase 5 — Slack bot
 
-In-Doc surface so users don't have to leave the writing experience to use Docket.
+Adds chat-driven review coordination for teams that work in Slack. The MVP (phases 1–4) already supports the full review cycle via the add-on + magic-link flow; Slack is layered on as an additional surface, not a prerequisite.
 
 **Components**
-- Unified Workspace Add-on (CardService UI; §9.4).
-- `onFileScopeGranted` trigger handler that integrates per-file `drive.file` grants with Docket's existing token store (§9.2).
-- Apps Script identity-token verification on the backend.
-- Named-range bookkeeping in the overlay applier so the add-on can render "comments at this paragraph" affordances.
-- UX banner on docs with active suggestions: nudges reviewers to leave a regular comment rather than typing into the suggestion's reply box, hardening the data-capture path for users without the extension installed.
+- Slack event subscriptions, slash commands, and interactive payloads consuming the Phase-2 HTTP API.
+- Slack OAuth + workspace-linking flow.
+- `notification_dispatcher` Slack channel (the email channel shipped in Phase 3).
+- Identity-linking: `user.email` ↔ Slack `user.profile.email`.
+- Drive-scope onboarding affordance for Slack flows that reference unauthorized docs (§9.2).
 
 **Features delivered**
-- Inside any open Google Doc: see project status, version list, active reviews.
-- Trigger snapshots and review requests from the sidebar.
-- View canonical comment threads in the side panel; jump to the project in the browser extension.
-- First-time-doc onboarding: opening a previously-unknown doc with the add-on registers it and grants `drive.file`.
-- Per §9.4 and §9.5, in-doc highlights and selection-driven flows are deferred to Phase 6's extension visualization layer.
+- `/review-request`, `/review-status`, `/review-close` (§6.1).
+- Per-reviewer DMs and review-thread updates.
+- Home tab dashboards.
+- Slack as an alternate entry point for the same single-org review cycle the add-on drives in Phase 3.
 
 ### Phase 6 — Cross-org polish + extension visualization
 
