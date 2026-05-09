@@ -20,8 +20,13 @@ const SEEN_LOCAL_LIMIT = 5_000;
 
 const docId = parseDocIdFromUrl(location.href);
 if (docId) {
+  console.log(`[docket] content script ready (doc=${docId})`);
   bootstrap(docId);
 }
+
+// Once-per-page-load summary so the user can confirm the scraper found
+// something even when no replies survive the suggestion-only filter.
+let summaryLogged = false;
 
 function bootstrap(currentDocId: string): void {
   const localSeen = new Set<string>();
@@ -46,9 +51,14 @@ async function scan(currentDocId: string, localSeen: Set<string>): Promise<void>
   const threads = scrapeThreads(document);
   if (threads.length === 0) return;
   const captures = await buildCaptures(currentDocId, threads);
-  if (captures.length === 0) return;
-
   const fresh = captures.filter((c) => !localSeen.has(c.externalId));
+  if (!summaryLogged) {
+    const sugg = threads.filter((t) => t.isSuggestion).length;
+    console.log(
+      `[docket] first scan: threads=${threads.length} suggestions=${sugg} captures=${captures.length} fresh=${fresh.length}`,
+    );
+    summaryLogged = true;
+  }
   if (fresh.length === 0) return;
 
   for (const c of fresh) localSeen.add(c.externalId);

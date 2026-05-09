@@ -42,16 +42,24 @@ interface RawThread {
 }
 
 const THREAD_ROOT_SELECTORS = [
+  ".docos-anchoreddocoview",
   '[role="region"][id^="docos-anchor-"]',
   ".docos-anchoreddocoview-rootelement",
   "[data-discussion-id]",
 ];
 
 const REPLY_SELECTORS = [
+  ".docos-anchoredreplyview",
   ".docos-replyview-comment",
   ".docos-replyview-body-with-quote",
   ".docos-anchoredreplyview-body",
 ];
+
+// Older selectors hit inner bodies / button rows; the canonical wrapper is
+// `.docos-anchoredreplyview`. Normalizing each match up to that wrapper means
+// a single reply isn't counted twice when multiple selectors find descendants
+// of the same wrapper.
+const REPLY_WRAPPER_SELECTOR = ".docos-anchoredreplyview";
 
 const QUOTE_SELECTORS = [
   ".docos-anchoredreplyview-quote-content",
@@ -60,6 +68,7 @@ const QUOTE_SELECTORS = [
 ];
 
 const BODY_SELECTORS = [
+  ".docos-anchoredreplyview-body",
   ".docos-replyview-body",
   ".docos-replyview-body-text",
   ".docos-replyview-body-with-quote .docos-replyview-body",
@@ -79,6 +88,9 @@ const TIMESTAMP_SELECTORS = [
 ];
 
 const SUGGESTION_HINTS = [
+  ".docos-replyview-suggest",
+  ".docos-accept-suggestion",
+  ".docos-reject-suggestion",
   ".docos-suggestion-card",
   ".docos-anchoredsuggestion",
   ".docos-suggestion-",
@@ -133,21 +145,23 @@ function extractKixId(root: Element): string | undefined {
 }
 
 function extractReplies(root: Element): RawReply[] {
-  const out: RawReply[] = [];
-  const seen = new Set<Element>();
+  const wrappers = new Set<Element>();
   for (const sel of REPLY_SELECTORS) {
-    for (const el of root.querySelectorAll(sel)) {
-      if (seen.has(el)) continue;
-      seen.add(el);
-      const body = pickText(el, BODY_SELECTORS) ?? el.textContent?.trim();
-      if (!body) continue;
-      const authorDisplayName = pickText(el, AUTHOR_SELECTORS);
-      const createdAt =
-        pickAttr(el, TIMESTAMP_SELECTORS, "datetime") ??
-        pickAttr(el, TIMESTAMP_SELECTORS, "data-tooltip") ??
-        pickText(el, TIMESTAMP_SELECTORS);
-      out.push({ body, authorDisplayName, createdAt });
+    for (const found of root.querySelectorAll(sel)) {
+      const wrapper = found.closest(REPLY_WRAPPER_SELECTOR) ?? found;
+      wrappers.add(wrapper);
     }
+  }
+  const out: RawReply[] = [];
+  for (const el of wrappers) {
+    const body = pickText(el, BODY_SELECTORS) ?? el.textContent?.trim();
+    if (!body) continue;
+    const authorDisplayName = pickText(el, AUTHOR_SELECTORS);
+    const createdAt =
+      pickAttr(el, TIMESTAMP_SELECTORS, "datetime") ??
+      pickAttr(el, TIMESTAMP_SELECTORS, "data-tooltip") ??
+      pickText(el, TIMESTAMP_SELECTORS);
+    out.push({ body, authorDisplayName, createdAt });
   }
   return out;
 }

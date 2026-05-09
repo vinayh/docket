@@ -7,6 +7,7 @@
   "minimum_chrome_version": "109",
   "permissions": ["storage", "alarms"],
   "host_permissions": ["https://docs.google.com/*"],
+  "optional_host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
