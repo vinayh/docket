@@ -19,6 +19,9 @@ primary_region = "lhr"
   PORT = "8787"
   DOCKET_DB_PATH = "/data/docket.db"
   NODE_ENV = "production"
+  # Public origin used to compute the Drive files.watch callback URL and to
+  # gate the in-process renew + polling loops. Update if the app is renamed.
+  DOCKET_PUBLIC_BASE_URL = "https://docket-server.fly.dev"
 
 [[mounts]]
   source = "docket_data"

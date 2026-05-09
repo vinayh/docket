@@ -2,6 +2,7 @@ import { ext } from "../shared/browser.ts";
 import type { Message } from "../shared/messages.ts";
 import { parseDocIdFromUrl } from "./ids.ts";
 import { buildCaptures, scrapeThreads } from "./sidebar-scraper.ts";
+import { setDocTitle } from "../shared/storage.ts";
 
 /**
  * Content script entry. Runs on `https://docs.google.com/document/*`. Watches
@@ -36,6 +37,7 @@ function bootstrap(currentDocId: string): void {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
+      void recordDocName(currentDocId);
       void scan(currentDocId, localSeen);
     }, DEBOUNCE_MS);
   };
@@ -45,6 +47,49 @@ function bootstrap(currentDocId: string): void {
 
   // Initial pass — sidebar may already be open at content-script-load time.
   scheduleScan();
+}
+
+/**
+ * Read the actual doc name from the Docs DOM and stash it in
+ * chrome.storage.local. The popup uses this for the Picker query because
+ * the tab/window title is locale-suffixed with " - Google Docs" (or its
+ * translation), which breaks Picker's token-AND name matching.
+ *
+ * Selectors are listed newest-first per the AGENTS.md DOM-selector
+ * contract — Docs reships ~quarterly, so we keep older selectors as
+ * fallbacks.
+ */
+const DOC_NAME_SELECTORS: readonly string[] = [
+  "input.docs-title-input-input",
+  "input.docs-title-input",
+  ".docs-title-input-input",
+  ".docs-title-input",
+];
+
+function readDocNameFromDom(): string | null {
+  for (const sel of DOC_NAME_SELECTORS) {
+    const el = document.querySelector(sel);
+    if (!el) continue;
+    const value =
+      (el as HTMLInputElement).value ??
+      (el as HTMLElement).getAttribute("value") ??
+      el.textContent ??
+      "";
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+async function recordDocName(currentDocId: string): Promise<void> {
+  const name = readDocNameFromDom();
+  if (!name) return;
+  try {
+    await setDocTitle(currentDocId, name);
+  } catch (err) {
+    // Best-effort: a storage write failure shouldn't break capture.
+    console.warn("[docket] doc-title persist failed:", err);
+  }
 }
 
 async function scan(currentDocId: string, localSeen: Set<string>): Promise<void> {

@@ -22,27 +22,31 @@ See [`SPEC.md`](./SPEC.md) for the full design and per-phase build status — [�
    bun install
    ```
 
-2. **Create a Google Cloud OAuth client.** In [console.cloud.google.com](https://console.cloud.google.com), create a project, enable the **Google Drive API** and **Google Docs API**, then create an OAuth 2.0 client (type: web application). Add `http://localhost:8787/oauth/callback` as an authorized redirect URI.
+2. **Create a Google Cloud OAuth client.** In [console.cloud.google.com](https://console.cloud.google.com), create a project, enable the **Google Drive API**, **Google Docs API**, and **Google Picker API**, then create an OAuth 2.0 client (type: web application). Add `http://localhost:8787/oauth/callback` as an authorized redirect URI **and** `http://localhost:8787` as an authorized JavaScript origin (the Picker page mints access tokens via Google Identity Services from that origin).
 
-3. **Generate a master key** for envelope encryption (32 bytes, base64-encoded):
+3. **Create a Picker API key.** In the same GCP project: APIs & Services → Credentials → "Create credentials" → API key. Restrict it to the Picker API. Note the GCP project number (Cloud Console → "Project info" → "Project number" — *not* the project ID).
+
+4. **Generate a master key** for envelope encryption (32 bytes, base64-encoded):
 
    ```sh
    bun -e 'console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"))'
    ```
 
-4. **Create `.env`** by copying `.env.example` and filling in:
+5. **Create `.env`** by copying `.env.example` and filling in:
 
    ```
    GOOGLE_CLIENT_ID=...
    GOOGLE_CLIENT_SECRET=...
    GOOGLE_REDIRECT_URI=http://localhost:8787/oauth/callback
-   DOCKET_MASTER_KEY=<base64 from step 3>
+   GOOGLE_API_KEY=...                    # picker developer key (step 3)
+   GOOGLE_PROJECT_NUMBER=...             # numeric project number (step 3)
+   DOCKET_MASTER_KEY=<base64 from step 4>
    DOCKET_DB_PATH=./docket.db
    ```
 
-   Bun loads `.env` automatically.
+   Bun loads `.env` automatically. The Picker vars are only required by the `/picker` route — the rest of the server works without them.
 
-5. **Apply migrations:**
+6. **Apply migrations:**
 
    ```sh
    bun migrate
@@ -116,8 +120,8 @@ bun docket connect
 
 # 2. Create a fresh doc to test against.
 #    drive.file access is granted automatically because the OAuth client created the file.
-#    A pre-existing doc you own won't work yet; the Drive Picker (Phase 2) and
-#    Workspace Add-on (Phase 3) are the other entry points (SPEC §9.2).
+#    For pre-existing docs you own, use the Drive Picker entry — see "Track an
+#    existing doc via the Drive Picker" below — or the Workspace Add-on (Phase 3).
 bun docket doc create --seed
 # -> created doc <doc-id>
 #    url: https://docs.google.com/document/d/<doc-id>/edit
@@ -138,6 +142,15 @@ bun docket comments list <project-id>
 ```
 
 `version create` copies the parent doc via Drive, names the copy `[Docket vN] <original>`, and stores a SHA-256 hash of the copy's plaintext as the snapshot fingerprint. `comments ingest` pulls Drive comments + replies, computes a canonical anchor (quoted text + paragraph hash + structural offset) against the version's doc, and is idempotent on re-run.
+
+## Track an existing doc via the Drive Picker
+
+The Picker is the only mechanism that grants `drive.file` access to a doc the OAuth client didn't create (SPEC §9.2). Two equivalent entry points:
+
+- **Extension popup (priority).** Open any Google Doc, click the Docket toolbar icon, click **Track this doc**. The popup opens `<backend>/picker#token=…&suggestedDocId=…&suggestedTitle=…` in a new tab; pick the same doc in the Picker and Docket registers it as a project. (Requires the extension to be configured with a backend URL + API token — see "Test the browser extension" below.)
+- **Web entry point.** Open `http://localhost:8787/picker` directly, paste your API token, click **Open Drive Picker**, pick a doc. Same end result.
+
+Both paths POST to `/api/picker/register-doc`; the response includes the new project id (or `409 already_exists` with the existing id).
 
 ## Test the browser extension
 
@@ -206,27 +219,30 @@ The Phase-2 capture extension (Manifest V3, Chrome / Edge / Firefox) lives in [`
 
 ## Deployment (Fly.io)
 
-The repo deploys as a single-region Fly.io app — see `Dockerfile` + `fly.toml`. Multi-stage Bun-on-Alpine image, 1GB volume mounted at `/data` for the SQLite file, `/healthz` check on `bun docket serve`.
+The repo deploys as a single-region Fly.io app — see `Dockerfile` + `fly.toml`. Multi-stage Bun-on-Alpine image, 1GB volume mounted at `/data` for the SQLite file, `/healthz` check on `bun docket serve`. When `DOCKET_PUBLIC_BASE_URL` is set (it is, in `fly.toml`), the running server also auto-subscribes a Drive `files.watch` channel on every new version and runs the renew (~30 min) + polling (~10 min) loops in-process — no separate cron container needed.
 
 **Initial setup (once per deployment):**
 
 1. `flyctl apps create <your-app-name>` — names are global on Fly.
 2. `flyctl volumes create docket_data --app <your-app-name> --region <region> --size 1` (e.g. `--region lhr`).
 3. Edit `fly.toml`: set `app` and `primary_region` to match.
-4. In Google Cloud Console, create a *separate* OAuth client for production (don't reuse the local one) and add `https://<your-app-name>.fly.dev/oauth/callback` to its authorized redirect URIs.
-5. Set the Fly secrets — the master-key generator is piped inline so the value never appears in your terminal:
+4. In Google Cloud Console, create a *separate* OAuth client for production (don't reuse the local one) and add `https://<your-app-name>.fly.dev/oauth/callback` to its authorized redirect URIs **and** `https://<your-app-name>.fly.dev` to its authorized JavaScript origins. Create a Picker API key in the same project (restrict to Picker API) and note the project number.
+5. Update `fly.toml`'s `DOCKET_PUBLIC_BASE_URL` to match your app hostname.
+6. Set the Fly secrets — the master-key generator is piped inline so the value never appears in your terminal:
 
    ```sh
    flyctl secrets set --app <your-app-name> \
      GOOGLE_CLIENT_ID='<prod-client-id>' \
      GOOGLE_CLIENT_SECRET='<prod-client-secret>' \
      GOOGLE_REDIRECT_URI='https://<your-app-name>.fly.dev/oauth/callback' \
+     GOOGLE_API_KEY='<picker-api-key>' \
+     GOOGLE_PROJECT_NUMBER='<gcp-project-number>' \
      DOCKET_MASTER_KEY="$(bun -e 'console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"))')"
    ```
 
    Stash the master key in a password manager too — losing it makes existing encrypted refresh tokens unrecoverable.
 
-6. `flyctl deploy --remote-only` for the first deploy.
+7. `flyctl deploy --remote-only` for the first deploy.
 
 **Auto-deploy via GitHub Actions.** `.github/workflows/fly-deploy.yml` runs on every push to `main`: typecheck → `bun test` → `flyctl deploy --remote-only`. Add the deploy token as the `FLY_API_TOKEN` repo secret:
 

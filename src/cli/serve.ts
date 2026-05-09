@@ -24,15 +24,15 @@ export async function run(args: string[]): Promise<void> {
   const server = startServer(port !== undefined ? { port } : {});
   console.log(`docket api listening on http://${server.hostname}:${server.port}`);
 
-  const shutdown = (signal: string) => {
+  const shutdown = async (signal: string) => {
     console.log(`received ${signal}, shutting down`);
-    server.stop();
+    await server.stop();
     // Close the SQLite handle so WAL is checkpointed before exit. Without
     // this, a crash window between server.stop() and process.exit() could
     // leave uncommitted WAL pages that recovery has to reapply on restart.
     sqlite.close();
     process.exit(0);
   };
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }

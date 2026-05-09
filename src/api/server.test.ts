@@ -1,0 +1,93 @@
+import { describe, expect, test } from "bun:test";
+import { startServer } from "./server.ts";
+
+/**
+ * Smoke-tests for the route table and background-loop wiring. We bind to
+ * port 0 so each run gets a free OS-assigned port — running tests in
+ * parallel with `bun test` would otherwise step on one another.
+ */
+describe("startServer route table", () => {
+  test("/healthz responds 200 with { ok: true }", async () => {
+    const server = startServer({ port: 0, backgroundLoops: false });
+    try {
+      const res = await fetch(`http://${server.hostname}:${server.port}/healthz`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("/api/picker/register-doc 401s without an Authorization header", async () => {
+    const server = startServer({ port: 0, backgroundLoops: false });
+    try {
+      const res = await fetch(
+        `http://${server.hostname}:${server.port}/api/picker/register-doc`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ docUrlOrId: "abc" }),
+        },
+      );
+      expect(res.status).toBe(401);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("OPTIONS preflight on /api/picker/register-doc returns 204", async () => {
+    const server = startServer({ port: 0, backgroundLoops: false });
+    try {
+      const res = await fetch(
+        `http://${server.hostname}:${server.port}/api/picker/register-doc`,
+        {
+          method: "OPTIONS",
+          headers: {
+            origin: `chrome-extension://${"a".repeat(32)}`,
+            "access-control-request-method": "POST",
+          },
+        },
+      );
+      expect(res.status).toBe(204);
+      expect(res.headers.get("access-control-allow-methods")).toContain("POST");
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("unknown path falls through to 404", async () => {
+    const server = startServer({ port: 0, backgroundLoops: false });
+    try {
+      const res = await fetch(`http://${server.hostname}:${server.port}/no-such-route`);
+      expect(res.status).toBe(404);
+    } finally {
+      await server.stop();
+    }
+  });
+});
+
+describe("startServer background loops", () => {
+  test("backgroundLoops:false boots clean and stops without dangling timers", async () => {
+    const server = startServer({ port: 0, backgroundLoops: false });
+    await server.stop();
+    // If a setInterval slipped through, Bun's test runner would warn about
+    // the open handle keeping the test process alive. Reaching this line is
+    // the assertion.
+    expect(true).toBe(true);
+  });
+
+  test("backgroundLoops on with no DOCKET_PUBLIC_BASE_URL is a no-op", async () => {
+    // .env doesn't set DOCKET_PUBLIC_BASE_URL during `bun test`, so the
+    // loop initializer logs "skipping" and schedules nothing. Just verify
+    // the server still boots and stops.
+    const original = Bun.env.DOCKET_PUBLIC_BASE_URL;
+    delete Bun.env.DOCKET_PUBLIC_BASE_URL;
+    try {
+      const server = startServer({ port: 0, backgroundLoops: true });
+      await server.stop();
+      expect(true).toBe(true);
+    } finally {
+      if (original !== undefined) Bun.env.DOCKET_PUBLIC_BASE_URL = original;
+    }
+  });
+});

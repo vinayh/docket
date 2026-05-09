@@ -4,6 +4,11 @@ function required(name: string): string {
   return value;
 }
 
+function optional(name: string): string | null {
+  const value = Bun.env[name];
+  return value && value.length > 0 ? value : null;
+}
+
 export const config = {
   google: {
     get clientId() {
@@ -15,9 +20,30 @@ export const config = {
     get redirectUri() {
       return required("GOOGLE_REDIRECT_URI");
     },
+    /**
+     * Drive Picker requires a public API key (developer key) and the GCP
+     * project number (`appId`), separate from the OAuth client credentials.
+     * Lazy + nullable so the server still boots without them; the picker
+     * page renders an explanatory error when either is missing.
+     */
+    get apiKey() {
+      return optional("GOOGLE_API_KEY");
+    },
+    get projectNumber() {
+      return optional("GOOGLE_PROJECT_NUMBER");
+    },
   },
   get masterKeyB64() {
     return required("DOCKET_MASTER_KEY");
   },
   dbPath: Bun.env.DOCKET_DB_PATH ?? "./docket.db",
+  /**
+   * Public origin of the Docket backend, e.g. `https://docket-server.fly.dev`.
+   * Used to compute the Drive `files.watch` callback address and to decide
+   * whether the auto-subscribe / renew loop should run. Null in dev unless
+   * the operator opts in.
+   */
+  get publicBaseUrl() {
+    return optional("DOCKET_PUBLIC_BASE_URL");
+  },
 };

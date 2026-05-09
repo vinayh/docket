@@ -11,6 +11,10 @@ const KEY_SETTINGS = "settings";
 const KEY_QUEUE = "captureQueueV2";
 const KEY_SEEN = "seenIds";
 const KEY_LAST_ERROR = "lastError";
+const KEY_DOC_TITLES = "docTitles";
+const DOC_TITLES_LIMIT = 200;
+
+type DocTitleMap = Record<string, string>;
 
 const SEEN_LIMIT_PER_DOC = 5_000;
 /** Hard cap on queued captures. Past this, the oldest items get dropped. */
@@ -155,4 +159,35 @@ export async function setLastError(message: string | null): Promise<void> {
 
 export async function getLastError(): Promise<string | null> {
   return (await get<string | null>(KEY_LAST_ERROR)) ?? null;
+}
+
+/**
+ * Per-doc title cache, populated by the content script after reading the
+ * actual doc name out of the Docs DOM. The popup reads this so the Picker
+ * "Track this doc" affordance can pre-query the doc's real name (the
+ * window/tab title is locale-suffixed with " - Google Docs" or its
+ * translated equivalent and isn't safe to use as a Picker query).
+ *
+ * Bounded at DOC_TITLES_LIMIT entries; oldest insertion order trimmed first.
+ */
+export async function setDocTitle(docId: string, title: string): Promise<void> {
+  const trimmed = title.trim();
+  if (!trimmed) return;
+  const map = (await get<DocTitleMap>(KEY_DOC_TITLES)) ?? {};
+  if (map[docId] === trimmed) return;
+  // Re-insert in iteration order so a recently-touched docId moves to the
+  // end. Set/Map would be cleaner but JSON-serialized objects are simpler
+  // here and chrome.storage.local quota isn't a concern at this size.
+  delete map[docId];
+  map[docId] = trimmed;
+  const keys = Object.keys(map);
+  if (keys.length > DOC_TITLES_LIMIT) {
+    for (const k of keys.slice(0, keys.length - DOC_TITLES_LIMIT)) delete map[k];
+  }
+  await set(KEY_DOC_TITLES, map);
+}
+
+export async function getDocTitle(docId: string): Promise<string | null> {
+  const map = await get<DocTitleMap>(KEY_DOC_TITLES);
+  return map?.[docId] ?? null;
 }

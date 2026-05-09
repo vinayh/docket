@@ -1,11 +1,18 @@
 # Docket browser extension
 
-MV3 extension for Chrome / Edge / Firefox. **Capture role only** at this
-phase — see [`SPEC.md` §6.4](../../SPEC.md#64-browser-extension). Watches the
-Google Docs discussion sidebar for replies typed into a *suggestion*'s sidebar
-entry (the public Drive/Docs APIs don't expose those — verified empirically;
-see [`SPEC.md` §11](../../SPEC.md#11-out-of-scope-for-v1)) and POSTs them to
-the Docket backend.
+MV3 extension for Chrome / Edge / Firefox. **Phase-2 scope** — see
+[`SPEC.md` §6.4](../../SPEC.md#64-browser-extension):
+
+- **Capture role.** Watches the Google Docs discussion sidebar for replies
+  typed into a *suggestion*'s sidebar entry (the public Drive/Docs APIs
+  don't expose those — verified empirically;
+  see [`SPEC.md` §11](../../SPEC.md#11-out-of-scope-for-v1)) and POSTs them
+  to the Docket backend.
+- **"Track this doc" popup.** When the active tab is a Google Doc, the
+  toolbar popup surfaces a button that opens the backend's hosted Drive
+  Picker with the open doc's id + DOM-scraped name as hints — the
+  per-file `drive.file` grant flow (SPEC §9.2). Picking the doc registers
+  it as a project on the backend.
 
 The rich-UI role (dashboards, diff viewer, reconciliation, overlay editor)
 lands in Phase 4. The visualization role (in-canvas highlights, gutter
@@ -47,6 +54,24 @@ is loadable directly:
 The popup (toolbar icon) shows the queued-capture count and the last error,
 if any. **Flush queue now** drains the queue immediately rather than waiting
 for the 1-min alarm.
+
+## How "Track this doc" works
+
+The popup (`src/popup/popup.ts`) calls `chrome.tabs.query` for the active
+tab. If the URL matches `docs.google.com/document/d/<id>`, it shows the
+**Track this doc** row labeled with the doc's actual name (from the title
+cache, see below). Clicking opens
+`<backendUrl>/picker#token=…&suggestedDocId=…&suggestedTitle=…`
+in a new tab; the Picker page POSTs to `/api/picker/register-doc` after the
+user picks the file. No `tabs` permission is needed because the manifest's
+`host_permissions: ["https://docs.google.com/*"]` already covers Docs tabs.
+
+The doc title comes from the **title cache** populated by the content
+script. Each scan calls `setDocTitle(docId, name)` (`shared/storage.ts`)
+with the value read from the title input — see `DOC_NAME_SELECTORS` in
+`docs-content.ts`. We don't use `tab.title` because Chrome localizes it
+(e.g. "<name> - Google Docs", or its translation), and the suffix tokens
+break Picker's token-AND `setQuery` matching against file names.
 
 ## How capture works
 
@@ -91,13 +116,19 @@ duplicate rows.
 
 ## DOM selector maintenance
 
-`src/content/sidebar-scraper.ts` keeps every selector in module-scope
-constants (`THREAD_ROOT_SELECTORS`, `REPLY_SELECTORS`, etc.). When Docs
-reships:
+Two selector lists, both module-scope constants, both prone to rot when
+Docs reships (~quarterly):
 
-1. Open a doc with suggestion-thread replies and inspect the sidebar.
-2. Identify the new attributes (`docos-anchor-…` ids,
-   `data-discussion-id`, etc.).
+- `src/content/sidebar-scraper.ts` — `THREAD_ROOT_SELECTORS`,
+  `REPLY_SELECTORS`, etc., for the discussion sidebar.
+- `src/content/docs-content.ts` — `DOC_NAME_SELECTORS`, for the title input
+  used by the "Track this doc" popup label and Picker query.
+
+When Docs reships:
+
+1. Open a doc with suggestion-thread replies and inspect the sidebar /
+   title input.
+2. Identify the new attributes / classes.
 3. Add new selectors to the head of the relevant array — older selectors
    stay so older Docs builds still parse.
 4. Run `bun run surfaces/extension/build.ts` and reload the unpacked
@@ -124,11 +155,11 @@ surfaces/extension/
     options/
       options.{html,css,ts} backend URL + API token
     popup/
-      popup.{html,css,ts}   queue size + flush button
+      popup.{html,css,ts}   queue size + flush button + "Track this doc"
     shared/
       browser.ts            chrome / browser API shim
       messages.ts           typed runtime messages
-      storage.ts            typed chrome.storage wrappers
+      storage.ts            typed chrome.storage wrappers (settings, queue, doc-title cache)
       types.ts              CaptureInput wire format
   static/icons/             real artwork goes here (see build.ts placeholder)
   dist/                     build output, .gitignored

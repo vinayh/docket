@@ -4,7 +4,9 @@ import { version } from "../db/schema.ts";
 import { tokenProviderForUser } from "../auth/credentials.ts";
 import { copyFile, getFile } from "../google/drive.ts";
 import { extractPlainText, getDocument } from "../google/docs.ts";
+import { config } from "../config.ts";
 import { requireProject } from "./project.ts";
+import { subscribeVersionWatch } from "./watcher.ts";
 
 export type Version = typeof version.$inferSelect;
 
@@ -61,7 +63,27 @@ export async function createVersion(opts: {
       status: "active",
     })
     .returning();
-  return inserted[0]!;
+  const ver = inserted[0]!;
+
+  // Best-effort: in production (DOCKET_PUBLIC_BASE_URL set), subscribe a
+  // Drive `files.watch` channel so the doc-watcher picks up downstream
+  // edits without operator intervention. Polling fallback covers the
+  // failure case, so we never block version creation on this.
+  void autoSubscribeWatch(ver.id);
+
+  return ver;
+}
+
+async function autoSubscribeWatch(versionId: string): Promise<void> {
+  const baseUrl = config.publicBaseUrl;
+  if (!baseUrl) return;
+  const address = baseUrl.replace(/\/+$/, "") + "/webhooks/drive";
+  try {
+    await subscribeVersionWatch({ versionId, address });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`auto-subscribe failed for version ${versionId}: ${msg}`);
+  }
 }
 
 export async function listVersions(projectId: string): Promise<Version[]> {

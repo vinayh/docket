@@ -49,13 +49,14 @@ src/
   auth/
     api-token.ts       opaque per-user tokens (sha256 hashed at rest)
   api/                 Bun.serve HTTP host
-    server.ts          route table; dispatches to per-route modules
+    server.ts          route table + in-process renew/poll loops; dispatches to per-route modules
     oauth.ts           OAuth start + callback handlers (in-memory state store)
     middleware.ts      bearer auth + JSON response helpers
-    cors.ts            permissive CORS for /api/extension/* (extension origin)
+    cors.ts            permissive CORS for cross-origin routes (extension + localhost)
     extension.ts       POST /api/extension/captures (browser-extension ingest)
     drive-webhook.ts   POST /webhooks/drive (drive.files.watch push receiver)
-    picker.ts          GET /picker (Drive Picker host page — stub today)
+    picker.ts          GET /picker (Drive Picker host page; needs GOOGLE_API_KEY + GOOGLE_PROJECT_NUMBER)
+    picker-register.ts POST /api/picker/register-doc (post-pick project registration)
   domain/
     capture.ts         resolve scraped sidebar replies → canonical_comment
   surfaces/            Slack bot / Workspace add-on / browser extension
@@ -86,22 +87,24 @@ fly.toml               Fly.io app config (see README §"Deployment")
 
 - `bun docket serve [--port <n>]` runs the API host (`Bun.serve`, in `src/api/server.ts`). In production, the Fly container runs the same command; `PORT` and `DOCKET_DB_PATH` are set via `fly.toml`, secrets via `flyctl secrets set`.
 - Routes live in `src/api/`. The server keeps a route table — register new routes there, not by branching `pathname` inline.
-- Public routes today: `/healthz`, `/oauth/start`, `/oauth/callback`, `/picker` (Drive Picker host stub).
+- Public routes today: `/healthz`, `/oauth/start`, `/oauth/callback`, `/picker` (real Drive Picker host page — needs `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`; renders a friendly error otherwise).
 - Webhooks: `POST /webhooks/drive` (Drive `files.watch` push receiver). Always responds 200 OK so Google stops retrying — channel-level errors get logged.
-- Bearer-authenticated API surface: anything under `/api/*` runs `authenticateBearer` from `src/api/middleware.ts` first. CORS is permissive on `/api/extension/*` (the extension's service worker fetches across origins). Today: `POST /api/extension/captures`.
+- Bearer-authenticated API surface: anything under `/api/*` runs `authenticateBearer` from `src/api/middleware.ts` first. CORS is permissive (allow-listed extension + localhost origins) on the cross-origin routes. Today: `POST /api/extension/captures`, `POST /api/picker/register-doc`.
 - API tokens are opaque `dkt_<base64url>` strings stored as sha256 hashes in `api_token`. Issue with `bun docket token issue --user <email>`; the plaintext is shown once. Verification short-circuits before the DB lookup if the prefix doesn't match.
-- The api layer is a thin shell — domain logic stays in `src/auth/`, `src/domain/`, etc. `oauth.ts` reuses `completeOAuth` from `src/auth/connect.ts`; the CLI's `bun docket connect` does too. `extension.ts` calls `ingestExtensionCaptures` from `src/domain/capture.ts`.
+- The api layer is a thin shell — domain logic stays in `src/auth/`, `src/domain/`, etc. `oauth.ts` reuses `completeOAuth` from `src/auth/connect.ts`; the CLI's `bun docket connect` does too. `extension.ts` calls `ingestExtensionCaptures` from `src/domain/capture.ts`. `picker-register.ts` calls `createProject` from `src/domain/project.ts`.
 - OAuth state is held in an in-memory `Map` for now (single Fly machine, `min_machines_running = 1`). Move to DB or signed cookie when the deploy scales out.
+- Background loops: `startServer` launches `renewExpiringChannels` (~30 min) and `pollAllActiveVersions` (~10 min) timers in-process when `DOCKET_PUBLIC_BASE_URL` is set. `createVersion` also auto-subscribes a Drive `files.watch` channel best-effort using that base URL. Pass `{ backgroundLoops: false }` to `startServer` in tests to keep the timers off.
 - Deployment is documented in [`README.md` §"Deployment"](./README.md#deployment-flyio).
 
 ## Browser extension (`surfaces/extension/`)
 
-- Manifest V3, shared codebase across Chrome / Edge / Firefox. Phase-2 scope is the capture role only (SPEC §6.4).
+- Manifest V3, shared codebase across Chrome / Edge / Firefox. Phase-2 scope is the capture role plus the popup "Track this doc" affordance that opens the backend's `/picker` page (Phase-2 entry into per-file `drive.file` granting; SPEC §9.2). The popup reads `tab.url` without the `tabs` permission because the manifest's `host_permissions: ["https://docs.google.com/*"]` covers Docs tabs.
 - Build with `bun run surfaces/extension/build.ts` → `dist/{chromium,firefox}/`. Manifests are kept separate (`manifest.{chromium,firefox}.json`) so target-specific keys (`browser_specific_settings`, `background.scripts` vs `service_worker`) stay declarative.
 - Content script (`src/content/`) bundles to a single non-module file (no top-level `import`/`export`); the SW + options + popup load as ES modules.
-- DOM selectors live in `surfaces/extension/src/content/sidebar-scraper.ts`. They are a moving target (Docs reships ~quarterly); add new selectors at the head of each `*_SELECTORS` array, keep older ones for back-compat. Failures are silent by design. Replies are normalized up to their outermost `.docos-anchoredreplyview` wrapper before extraction so multiple selectors hitting nested descendants of the same reply don't double-count.
+- DOM selectors live in two places: `surfaces/extension/src/content/sidebar-scraper.ts` (suggestion-thread replies) and `surfaces/extension/src/content/docs-content.ts`'s `DOC_NAME_SELECTORS` (the doc title input — used to populate the popup label and the Picker query in a locale-safe way). Both are a moving target (Docs reships ~quarterly); add new selectors at the head of the array, keep older ones for back-compat. Failures are silent by design. Replies are normalized up to their outermost `.docos-anchoredreplyview` wrapper before extraction so multiple selectors hitting nested descendants of the same reply don't double-count.
 - Bootstrap diagnostics: the content script logs one `[docket] content script ready (doc=…)` line on load and one `[docket] first scan: threads=N suggestions=N captures=N fresh=N` summary on the first non-empty scan. Keep these — they're the only signal when the queue stays at 0 and you need to know whether the script ran, the selectors matched, or the suggestion-only filter dropped everything.
 - Capture flow: content script → SW (dedupe vs `chrome.storage.local`) → POST `/api/extension/captures` with the user's API token. End-to-end idempotency is `(version_id, external_id)` on `canonical_comment`; the seen-id cache is just a perf hint.
+- Doc-title cache: every scan also calls `setDocTitle(docId, name)` (`shared/storage.ts`) using the DOM-scraped doc name. The popup reads from this map instead of the localized `tab.title` (which carries a translatable " - Google Docs" suffix that breaks Picker's token-AND query matching). First popup-open after a fresh install may show "Google Doc" until the first scan completes (~750 ms after page load).
 - **Backend origin permission.** The configured backend URL isn't known at build time, so the manifest declares `host_permissions: ["https://docs.google.com/*"]` for the content script and `optional_host_permissions: ["<all_urls>"]` for the SW's POSTs. The Options page's `Test connection` / `Save` handlers call `chrome.permissions.request({ origins: [...] })` for the typed origin (must run from a click — Chrome rejects programmatic `permissions.request` outside a user gesture). One build serves both `localhost` dev and Fly prod without manifest churn.
 - Cross-browser: a tiny `surfaces/extension/src/shared/browser.ts` shim picks `globalThis.browser ?? chrome`. Don't add `webextension-polyfill` — its 30 KB dwarfs the rest of the bundle.
 - Reloading the extension at `chrome://extensions` does not re-inject the content script into already-open doc tabs; hard-refresh the tab (Cmd-Shift-R) when iterating on the scraper.
@@ -131,7 +134,7 @@ fly.toml               Fly.io app config (see README §"Deployment")
 
 - `bun test` runs the suite; `bun run typecheck` runs `tsc --noEmit`.
 - Co-locate `*.test.ts` next to the module under test. Unit-test pure logic; exercise live Google APIs through CLI smoke commands rather than mocking `fetch`.
-- Currently unit-tested: envelope encryption (round-trip, tampering, wrong-key, version byte), OAuth URL builder (scopes, state, prompt, redirect URI), Google Doc URL/ID parsing, anchor computation (paragraph-hash stability, snippet location, context capture, first-occurrence resolution, orphan handling), suggestion extraction (insertions, deletions, multi-run coalescence, cross-paragraph spans, replace-style runs).
+- Currently unit-tested: envelope encryption (round-trip, tampering, wrong-key, version byte), OAuth URL builder (scopes, state, prompt, redirect URI), Google Doc URL/ID parsing, anchor computation (paragraph-hash stability, snippet location, context capture, first-occurrence resolution, orphan handling), suggestion extraction (insertions, deletions, multi-run coalescence, cross-paragraph spans, replace-style runs), CORS allow-list + preflight, bearer-auth middleware shape, picker-register auth gating, `startServer` route table + background-loop opt-out (binds port 0).
 
 ---
 
