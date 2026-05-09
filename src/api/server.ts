@@ -66,6 +66,17 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       "/webhooks/drive": { POST: handleDriveWebhook },
       "/api/extension/captures": corsRoute({ POST: handleCapturesPost }),
       "/api/picker/register-doc": corsRoute({ POST: handleRegisterDocPost }),
+      // Google Search Console domain verification. Required before Drive
+      // `files.watch` will accept this host as a webhook address (SPEC §9.3).
+      // The token below is from the Search Console URL-prefix flow for
+      // https://docket-server.fly.dev/. Safe to commit — it identifies the
+      // verification claim, not a credential.
+      "/google4c42fb2047912f0c.html": {
+        GET: () =>
+          new Response("google-site-verification: google4c42fb2047912f0c.html", {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      },
     },
     fetch() {
       return new Response("not found", { status: 404 });

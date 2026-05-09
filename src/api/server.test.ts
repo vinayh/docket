@@ -64,6 +64,24 @@ describe("startServer route table", () => {
       await server.stop();
     }
   });
+
+  test("Search Console verification file is served at its exact path", async () => {
+    // If you re-verify with a fresh token, update the route in server.ts
+    // *and* this test — Drive files.watch (SPEC §9.3) won't accept the host
+    // as a webhook address until verification is current.
+    const server = startServer({ port: 0, backgroundLoops: false });
+    try {
+      const res = await fetch(
+        `http://${server.hostname}:${server.port}/google4c42fb2047912f0c.html`,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(
+        "google-site-verification: google4c42fb2047912f0c.html",
+      );
+    } finally {
+      await server.stop();
+    }
+  });
 });
 
 describe("startServer background loops", () => {
