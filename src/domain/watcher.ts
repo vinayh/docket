@@ -2,12 +2,12 @@ import { asc, eq, lt, or, isNull } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import {
   driveWatchChannel,
-  project,
   version,
   type VersionStatus,
 } from "../db/schema.ts";
-import { tokenProviderForUser } from "../auth/credentials.ts";
 import { stopChannel, watchFile } from "../google/drive.ts";
+import { tokenProviderForProject } from "./project.ts";
+import { requireVersion, getVersion } from "./version.ts";
 import { ingestVersionComments, type IngestResult } from "./comments.ts";
 
 export type DriveWatchChannel = typeof driveWatchChannel.$inferSelect;
@@ -29,17 +29,8 @@ export async function subscribeVersionWatch(opts: {
   address: string;
   ttlMs?: number;
 }): Promise<DriveWatchChannel> {
-  const ver = (
-    await db.select().from(version).where(eq(version.id, opts.versionId)).limit(1)
-  )[0];
-  if (!ver) throw new Error(`version ${opts.versionId} not found`);
-
-  const proj = (
-    await db.select().from(project).where(eq(project.id, ver.projectId)).limit(1)
-  )[0];
-  if (!proj) throw new Error(`project ${ver.projectId} not found`);
-
-  const tp = tokenProviderForUser(proj.ownerUserId);
+  const ver = await requireVersion(opts.versionId);
+  const tp = await tokenProviderForProject(ver.projectId);
   const channelId = crypto.randomUUID();
   const token = crypto.randomUUID();
   const expirationMs = Date.now() + (opts.ttlMs ?? DEFAULT_CHANNEL_TTL_MS);
@@ -79,17 +70,10 @@ export async function unsubscribeVersionWatch(channelRowId: string): Promise<voi
   )[0];
   if (!row) return;
 
-  const ver = (
-    await db.select().from(version).where(eq(version.id, row.versionId)).limit(1)
-  )[0];
+  const ver = await getVersion(row.versionId);
   if (ver) {
-    const proj = (
-      await db.select().from(project).where(eq(project.id, ver.projectId)).limit(1)
-    )[0];
-    if (proj) {
-      const tp = tokenProviderForUser(proj.ownerUserId);
-      await stopChannel(tp, { id: row.channelId, resourceId: row.resourceId });
-    }
+    const tp = await tokenProviderForProject(ver.projectId);
+    await stopChannel(tp, { id: row.channelId, resourceId: row.resourceId });
   }
 
   await db.delete(driveWatchChannel).where(eq(driveWatchChannel.id, row.id));
@@ -146,14 +130,31 @@ export async function handleDriveWatchEvent(opts: {
  * Drive `comments.list` endpoint is idempotent and `ingestVersionComments` skips rows
  * that already exist.
  */
-export async function pollAllActiveVersions(): Promise<IngestResult[]> {
+export interface PollOutcome {
+  versionId: string;
+  /** Set when the per-version ingest succeeded. */
+  result?: IngestResult;
+  /** Set when the per-version ingest threw; the rest of the sweep still ran. */
+  error?: string;
+}
+
+export async function pollAllActiveVersions(): Promise<PollOutcome[]> {
   const versions = await db
     .select()
     .from(version)
     .where(eq(version.status, "active" satisfies VersionStatus));
-  const out: IngestResult[] = [];
+  const out: PollOutcome[] = [];
   for (const v of versions) {
-    out.push(await ingestVersionComments(v.id));
+    try {
+      out.push({ versionId: v.id, result: await ingestVersionComments(v.id) });
+    } catch (err) {
+      // One bad version (revoked credentials, doc trashed, transient 5xx)
+      // shouldn't stall the cron. Record and move on; the next sweep
+      // retries.
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`poll: version ${v.id} failed: ${message}`);
+      out.push({ versionId: v.id, error: message });
+    }
   }
   return out;
 }

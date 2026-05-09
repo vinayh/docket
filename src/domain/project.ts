@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { project, type ProjectSettings } from "../db/schema.ts";
 import { tokenProviderForUser } from "../auth/credentials.ts";
+import type { TokenProvider } from "../google/api.ts";
 import { getFile } from "../google/drive.ts";
 import { parseGoogleDocId } from "./google-doc-url.ts";
 
@@ -54,10 +55,34 @@ export async function getProject(id: string): Promise<Project | null> {
   return rows[0] ?? null;
 }
 
+/**
+ * Like `getProject` but throws if the row is missing. Use this for the
+ * common "look up project, fail loudly if it doesn't exist" path; reserve
+ * the nullable `getProject` for code that genuinely wants to branch on
+ * existence (e.g. "is this doc already a project?" checks).
+ */
+export async function requireProject(id: string): Promise<Project> {
+  const proj = await getProject(id);
+  if (!proj) throw new Error(`project ${id} not found`);
+  return proj;
+}
+
 export async function listProjectsForOwner(ownerUserId: string): Promise<Project[]> {
   return db.select().from(project).where(eq(project.ownerUserId, ownerUserId));
 }
 
 export async function listAllProjects(): Promise<Project[]> {
   return db.select().from(project);
+}
+
+/**
+ * Resolve a project id straight to a Drive/Docs token provider for its owner.
+ * Use this at sites whose only reason to fetch the project is to get the
+ * owner's `userId`. Sites that need other project fields should call
+ * `requireProject` directly and pass `proj.ownerUserId` to
+ * `tokenProviderForUser` themselves.
+ */
+export async function tokenProviderForProject(projectId: string): Promise<TokenProvider> {
+  const proj = await requireProject(projectId);
+  return tokenProviderForUser(proj.ownerUserId);
 }

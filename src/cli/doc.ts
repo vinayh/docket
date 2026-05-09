@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import { tokenProviderForUser } from "../auth/credentials.ts";
 import { batchUpdate, createDocument, op } from "../google/docs.ts";
 import { googleDocUrl } from "../domain/google-doc-url.ts";
-import { die, resolveUser } from "./util.ts";
+import { usage, resolveUser } from "./util.ts";
 
 const USAGE = `\
 usage:
@@ -17,7 +17,7 @@ const SEED_PARAGRAPHS = [
 
 export async function run(args: string[]): Promise<void> {
   const [sub, ...rest] = args;
-  if (sub !== "create") die(USAGE);
+  if (sub !== "create") usage(USAGE);
 
   const { values } = parseArgs({
     args: rest,

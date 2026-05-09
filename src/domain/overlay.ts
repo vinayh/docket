@@ -4,12 +4,9 @@ import {
   derivative,
   overlay,
   overlayOperation,
-  project,
-  version,
   type OverlayAnchor,
   type OverlayOpType,
 } from "../db/schema.ts";
-import { tokenProviderForUser } from "../auth/credentials.ts";
 import { copyFile, getFile } from "../google/drive.ts";
 import {
   batchUpdate,
@@ -18,6 +15,8 @@ import {
   type BatchUpdateRequest,
   type Document,
 } from "../google/docs.ts";
+import { requireProject, tokenProviderForProject } from "./project.ts";
+import { requireVersion } from "./version.ts";
 import { CLEAN_THRESHOLD, FUZZY_THRESHOLD, reanchor } from "./reanchor.ts";
 
 export type Overlay = typeof overlay.$inferSelect;
@@ -28,11 +27,7 @@ export async function createOverlay(opts: {
   projectId: string;
   name: string;
 }): Promise<Overlay> {
-  const proj = (
-    await db.select().from(project).where(eq(project.id, opts.projectId)).limit(1)
-  )[0];
-  if (!proj) throw new Error(`project ${opts.projectId} not found`);
-
+  await requireProject(opts.projectId);
   const inserted = await db
     .insert(overlay)
     .values({ projectId: opts.projectId, name: opts.name })
@@ -47,10 +42,7 @@ export async function addOverlayOperation(opts: {
   payload?: string;
   confidenceThreshold?: number;
 }): Promise<OverlayOperation> {
-  const o = (
-    await db.select().from(overlay).where(eq(overlay.id, opts.overlayId)).limit(1)
-  )[0];
-  if (!o) throw new Error(`overlay ${opts.overlayId} not found`);
+  await requireOverlay(opts.overlayId);
 
   const max = await db
     .select({ orderIndex: overlayOperation.orderIndex })
@@ -72,6 +64,17 @@ export async function addOverlayOperation(opts: {
     })
     .returning();
   return inserted[0]!;
+}
+
+export async function getOverlay(id: string): Promise<Overlay | null> {
+  const rows = await db.select().from(overlay).where(eq(overlay.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function requireOverlay(id: string): Promise<Overlay> {
+  const o = await getOverlay(id);
+  if (!o) throw new Error(`overlay ${id} not found`);
+  return o;
 }
 
 export async function listOverlays(projectId: string): Promise<Overlay[]> {
@@ -259,27 +262,15 @@ export async function applyOverlayAsDerivative(opts: {
   sourceVersionId: string;
   audienceLabel?: string;
 }): Promise<ApplyOverlayResult> {
-  const ov = (
-    await db.select().from(overlay).where(eq(overlay.id, opts.overlayId)).limit(1)
-  )[0];
-  if (!ov) throw new Error(`overlay ${opts.overlayId} not found`);
-
-  const ver = (
-    await db.select().from(version).where(eq(version.id, opts.sourceVersionId)).limit(1)
-  )[0];
-  if (!ver) throw new Error(`version ${opts.sourceVersionId} not found`);
+  const ov = await requireOverlay(opts.overlayId);
+  const ver = await requireVersion(opts.sourceVersionId);
   if (ver.projectId !== ov.projectId) {
     throw new Error(
       `overlay ${ov.id} (project ${ov.projectId}) cannot apply to version ${ver.id} (project ${ver.projectId})`,
     );
   }
 
-  const proj = (
-    await db.select().from(project).where(eq(project.id, ov.projectId)).limit(1)
-  )[0];
-  if (!proj) throw new Error(`project ${ov.projectId} not found`);
-
-  const tp = tokenProviderForUser(proj.ownerUserId);
+  const tp = await tokenProviderForProject(ov.projectId);
   const ops = await listOverlayOperations(ov.id);
 
   const sourceFile = await getFile(tp, ver.googleDocId, { fields: "id,name" });

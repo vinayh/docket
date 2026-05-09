@@ -4,7 +4,6 @@ import {
   canonicalComment,
   commentProjection,
   user,
-  version,
   type CanonicalCommentKind,
   type CommentAnchor,
   type ProjectionStatus,
@@ -15,8 +14,9 @@ import {
   type DriveComment,
   type DriveCommentReply,
 } from "../google/drive.ts";
-import { getDocument } from "../google/docs.ts";
-import { getProject } from "./project.ts";
+import { getDocument, type Document } from "../google/docs.ts";
+import { requireProject } from "./project.ts";
+import { requireVersion } from "./version.ts";
 import { buildAnchor, orphanAnchor, paragraphHash } from "./anchor.ts";
 import { extractSuggestions, type SuggestionSpan } from "./suggestions.ts";
 
@@ -27,7 +27,13 @@ export interface IngestResult {
   fetched: number;
   inserted: number;
   alreadyPresent: number;
-  skipped: number;
+  /**
+   * Drive comments / replies marked `deleted: true` by Google. We don't
+   * project those into the canonical store. Currently the only "skipped"
+   * source; named explicitly so future skip categories don't accidentally
+   * collapse into the same counter.
+   */
+  skippedDeleted: number;
   /** Subset of `inserted` that were tracked-change suggestions (insert + delete). */
   suggestionsInserted: number;
 }
@@ -43,40 +49,67 @@ export interface IngestResult {
  * intentionally ignored on ingest — quoted_file_content.value is what we anchor against.
  */
 export async function ingestVersionComments(versionId: string): Promise<IngestResult> {
-  const ver = (
-    await db.select().from(version).where(eq(version.id, versionId)).limit(1)
-  )[0];
-  if (!ver) throw new Error(`version ${versionId} not found`);
-
-  const proj = await getProject(ver.projectId);
-  if (!proj) throw new Error(`project ${ver.projectId} not found for version ${versionId}`);
-
+  const ver = await requireVersion(versionId);
+  const proj = await requireProject(ver.projectId);
   const tp = tokenProviderForUser(proj.ownerUserId);
-  const [doc, comments] = await Promise.all([
-    getDocument(tp, ver.googleDocId),
-    listComments(tp, ver.googleDocId),
-  ]);
 
   const result: IngestResult = {
     versionId,
     fetched: 0,
     inserted: 0,
     alreadyPresent: 0,
-    skipped: 0,
+    skippedDeleted: 0,
     suggestionsInserted: 0,
   };
 
-  for (const c of comments) {
+  const [doc, driveComments] = await Promise.all([
+    getDocument(tp, ver.googleDocId),
+    listComments(tp, ver.googleDocId),
+  ]);
+
+  await ingestDriveComments({
+    projectId: ver.projectId,
+    versionId,
+    doc,
+    comments: driveComments,
+    result,
+  });
+  await ingestDocSuggestions({
+    projectId: ver.projectId,
+    versionId,
+    doc,
+    result,
+  });
+  return result;
+}
+
+interface PhaseArgs {
+  projectId: string;
+  versionId: string;
+  doc: Document;
+  result: IngestResult;
+}
+
+/**
+ * Phase 1: Drive `comments.list` → canonical_comment (kind=comment) for each
+ * top-level comment, plus one row per non-deleted reply parented to it. The
+ * anchor is computed once per top-level comment and reused for its replies
+ * (replies don't carry their own quoted text in the Drive API response).
+ */
+async function ingestDriveComments(
+  args: PhaseArgs & { comments: DriveComment[] },
+): Promise<void> {
+  for (const c of args.comments) {
     if (c.deleted) {
-      result.skipped++;
+      args.result.skippedDeleted++;
       continue;
     }
-    result.fetched++;
+    args.result.fetched++;
 
-    const anchor = anchorForComment(doc, c);
+    const anchor = anchorForComment(args.doc, c);
     const parentCanonical = await upsertOne({
-      projectId: ver.projectId,
-      versionId,
+      projectId: args.projectId,
+      versionId: args.versionId,
       googleCommentId: c.id,
       kind: "comment",
       author: c.author,
@@ -84,18 +117,18 @@ export async function ingestVersionComments(versionId: string): Promise<IngestRe
       body: c.content,
       anchor,
       parentCommentId: null,
-      result,
+      result: args.result,
     });
 
     for (const reply of c.replies ?? []) {
       if (reply.deleted) {
-        result.skipped++;
+        args.result.skippedDeleted++;
         continue;
       }
-      result.fetched++;
+      args.result.fetched++;
       await upsertOne({
-        projectId: ver.projectId,
-        versionId,
+        projectId: args.projectId,
+        versionId: args.versionId,
         googleCommentId: reply.id,
         kind: "comment",
         author: reply.author,
@@ -103,17 +136,26 @@ export async function ingestVersionComments(versionId: string): Promise<IngestRe
         body: reply.content,
         anchor,
         parentCommentId: parentCanonical,
-        result,
+        result: args.result,
       });
     }
   }
+}
 
-  for (const sug of extractSuggestions(doc)) {
-    result.fetched++;
-    const insertedBefore = result.inserted;
+/**
+ * Phase 2: Docs API `documents.get` (with SUGGESTIONS_INLINE) → one
+ * canonical_comment per tracked-change span, kind=`suggestion_insert` /
+ * `suggestion_delete`. Author + timestamp aren't surfaced by the Docs API
+ * (deferred to Phase 6 via Drive `revisions.list` cross-reference), so we
+ * stamp ingestion time and a null author per SPEC §11.
+ */
+async function ingestDocSuggestions(args: PhaseArgs): Promise<void> {
+  for (const sug of extractSuggestions(args.doc)) {
+    args.result.fetched++;
+    const insertedBefore = args.result.inserted;
     await upsertOne({
-      projectId: ver.projectId,
-      versionId,
+      projectId: args.projectId,
+      versionId: args.versionId,
       googleCommentId: sug.id,
       kind: sug.kind,
       author: undefined,
@@ -121,12 +163,10 @@ export async function ingestVersionComments(versionId: string): Promise<IngestRe
       body: suggestionBody(sug),
       anchor: suggestionAnchor(sug),
       parentCommentId: null,
-      result,
+      result: args.result,
     });
-    if (result.inserted > insertedBefore) result.suggestionsInserted++;
+    if (args.result.inserted > insertedBefore) args.result.suggestionsInserted++;
   }
-
-  return result;
 }
 
 function suggestionBody(s: SuggestionSpan): string {

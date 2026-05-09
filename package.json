@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/chrome": "^0.1.42",
     "@types/diff": "^8.0.0",
     "drizzle-kit": "^0.31.10"
   },

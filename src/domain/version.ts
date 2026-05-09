@@ -1,9 +1,10 @@
 import { desc, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { project, version } from "../db/schema.ts";
+import { version } from "../db/schema.ts";
 import { tokenProviderForUser } from "../auth/credentials.ts";
 import { copyFile, getFile } from "../google/drive.ts";
 import { extractPlainText, getDocument } from "../google/docs.ts";
+import { requireProject } from "./project.ts";
 
 export type Version = typeof version.$inferSelect;
 
@@ -18,11 +19,7 @@ export async function createVersion(opts: {
   // undefined => auto-link to the most recent version; null => no parent.
   parentVersionId?: string | null;
 }): Promise<Version> {
-  const proj = (
-    await db.select().from(project).where(eq(project.id, opts.projectId)).limit(1)
-  )[0];
-  if (!proj) throw new Error(`project ${opts.projectId} not found`);
-
+  const proj = await requireProject(opts.projectId);
   const tp = tokenProviderForUser(proj.ownerUserId);
   const parentFile = await getFile(tp, proj.parentDocId, { fields: "id,name" });
 
@@ -78,6 +75,12 @@ export async function listVersions(projectId: string): Promise<Version[]> {
 export async function getVersion(id: string): Promise<Version | null> {
   const rows = await db.select().from(version).where(eq(version.id, id)).limit(1);
   return rows[0] ?? null;
+}
+
+export async function requireVersion(id: string): Promise<Version> {
+  const ver = await getVersion(id);
+  if (!ver) throw new Error(`version ${id} not found`);
+  return ver;
 }
 
 export async function archiveVersion(id: string): Promise<void> {

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Docket</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <strong>Docket</strong>
+      <button id="open-options" type="button">Options</button>
+    </header>
+    <section>
+      <p id="connection">checking…</p>
+      <dl>
+        <dt>Queued captures</dt>
+        <dd id="queue">—</dd>
+        <dt>Last error</dt>
+        <dd id="last-error">—</dd>
+      </dl>
+      <button id="flush" type="button">Flush queue now</button>
+    </section>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

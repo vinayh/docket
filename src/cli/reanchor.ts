@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { projectCommentsOntoVersion } from "../domain/project_comments.ts";
-import { die } from "./util.ts";
+import { usage } from "./util.ts";
 
 const USAGE = `\
 usage:
@@ -24,7 +24,7 @@ export async function run(args: string[]): Promise<void> {
     allowPositionals: true,
   });
   const versionId = positionals[0];
-  if (!versionId) die(USAGE);
+  if (!versionId) usage(USAGE);
 
   const r = await projectCommentsOntoVersion(versionId);
 

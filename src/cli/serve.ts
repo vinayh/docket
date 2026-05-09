@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import { startServer } from "../api/server.ts";
+import { sqlite } from "../db/client.ts";
 
 const USAGE = `\
 usage:
@@ -26,6 +27,10 @@ export async function run(args: string[]): Promise<void> {
   const shutdown = (signal: string) => {
     console.log(`received ${signal}, shutting down`);
     server.stop();
+    // Close the SQLite handle so WAL is checkpointed before exit. Without
+    // this, a crash window between server.stop() and process.exit() could
+    // leave uncommitted WAL pages that recovery has to reapply on restart.
+    sqlite.close();
     process.exit(0);
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));

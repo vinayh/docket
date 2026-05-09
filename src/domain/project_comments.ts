@@ -3,12 +3,11 @@ import { db } from "../db/client.ts";
 import {
   canonicalComment,
   commentProjection,
-  version,
   type ProjectionStatus,
 } from "../db/schema.ts";
-import { tokenProviderForUser } from "../auth/credentials.ts";
+import { tokenProviderForProject } from "./project.ts";
+import { requireVersion } from "./version.ts";
 import { getDocument } from "../google/docs.ts";
-import { getProject } from "./project.ts";
 import { reanchor, type ReanchorResult } from "./reanchor.ts";
 
 type CanonicalComment = typeof canonicalComment.$inferSelect;
@@ -40,15 +39,8 @@ export interface ProjectionRunResult {
 export async function projectCommentsOntoVersion(
   targetVersionId: string,
 ): Promise<ProjectionRunResult> {
-  const ver = (
-    await db.select().from(version).where(eq(version.id, targetVersionId)).limit(1)
-  )[0];
-  if (!ver) throw new Error(`version ${targetVersionId} not found`);
-
-  const proj = await getProject(ver.projectId);
-  if (!proj) throw new Error(`project ${ver.projectId} not found for version ${targetVersionId}`);
-
-  const tp = tokenProviderForUser(proj.ownerUserId);
+  const ver = await requireVersion(targetVersionId);
+  const tp = await tokenProviderForProject(ver.projectId);
   const doc = await getDocument(tp, ver.googleDocId);
 
   const comments = await db

@@ -155,7 +155,7 @@ Project dashboards, side-by-side diff viewer, comment reconciliation UI, overlay
 
 A Chrome / Firefox / Edge extension running on `docs.google.com/*` plus its own popup / options pages. It is the rich-UI surface for Docket; the hosted web shell (§6.3) intentionally does not duplicate any of this. The extension's responsibilities span three roles, delivered across three phases:
 
-- **Capture role (MVP — Phase 2).** The Docs UI surfaces a class of annotations that the public Drive/Docs APIs do not expose — verified empirically. Confirmed gap: replies typed into a suggestion's sidebar entry. Without an extension, this data is invisible to Docket and is permanently lost when the doc moves on. The extension is the only signal path. Each suggestion + comment + reply visible in the discussion sidebar (which is regular DOM, not canvas) is scraped, matched to the corresponding canonical_comment via the kix discussion ID embedded in DOM attributes (preferred) or by quoted-text + author + timestamp (fallback), and POSTed to the backend.
+- **Capture role (MVP — Phase 2).** The Docs UI surfaces a class of annotations that the public Drive/Docs APIs do not expose — verified empirically. Confirmed gap: replies typed into a suggestion's sidebar entry. Without an extension, this data is invisible to Docket and is permanently lost when the doc moves on. The extension is the only signal path. Each suggestion + comment + reply visible in the discussion sidebar (which is regular DOM, not canvas) is scraped, matched to the corresponding canonical_comment via the kix discussion ID embedded in DOM attributes (preferred) or by exact equality on the parent suggestion's quoted text (fallback), and POSTed to the backend.
 - **Rich-UI role (Phase 4 — closes MVP).** The extension's popup / side-panel / options pages host:
   - **Project dashboard** — versions, derivatives, review history, reviewer participation graph.
   - **Side-by-side version diff** — rendered HTML view of two versions with diffs highlighted, comments visible in the gutter. (Rendered locally in the extension; reuses Diff/Match algorithms over plaintext extracted from `documents.get`.)
@@ -169,8 +169,8 @@ The extension does not replace the Workspace Add-on. The add-on (§6.2) remains 
 
 **Capture-role responsibilities (Phase 2):**
 - Watch the discussion sidebar with a `MutationObserver`, treating it as the source of truth for annotations the API misses.
-- Scrape each visible reply on a suggestion's sidebar entry: author, timestamp, body, and the kix discussion ID it belongs to.
-- Match each scraped entry to Docket's canonical state: kix discussion ID from DOM attributes (preferred), falling back to quoted-text + author + timestamp.
+- Scrape each visible reply on a suggestion's sidebar entry: author, timestamp, body, the parent suggestion's quoted text, and the kix discussion ID the thread belongs to.
+- Match each scraped entry to Docket's canonical state: kix discussion ID from DOM attributes (preferred), falling back to exact equality against the parent suggestion's `anchor.quotedText`. If the same quoted snippet ever produces ambiguous matches in practice, fall back further to author / timestamp — no need to invest until then.
 - POST to the backend; backend inserts a `canonical_comment` (`kind=comment`, `parent_comment_id` pointing at the suggestion's row). Idempotency keyed on the DOM-side stable ID.
 - Maintain a "seen IDs" set in extension storage to avoid duplicate POSTs across page reloads.
 
@@ -334,9 +334,9 @@ Each phase delivers a coherent, demoable slice. **Phases 1–4 are the MVP** —
 
 The browser extension is part of the MVP. Rationale: Google's public Docs/Drive APIs have known and likely-growing gaps (suggestion-thread replies confirmed missing; future surface changes Google ships could expose more). Treating the extension as a first-class capture surface from the start gives the project long-term flexibility as the API surface evolves. Visualization features (canvas overlays, selection capture) stay deferred to Phase 6 — they're costlier and have acceptable fallbacks.
 
-Per-phase progress is tracked in [`README.md` §"Build phases"](./README.md#build-phases).
-
 ### Phase 1 — Core engine
+
+**Status: shipped.** ✅
 
 The headless backend that owns all Docket state. No user-facing surface yet; tested end-to-end via CLI.
 
@@ -362,6 +362,8 @@ The headless backend that owns all Docket state. No user-facing surface yet; tes
 
 ### Phase 2 — Backend HTTP API + browser extension (capture) + minimal web entry points
 
+**Status: in progress.** Shipped: Fly.io deploy + GitHub Actions auto-deploy on `main`; `bun docket serve` HTTP host with `/healthz`, `/oauth/{start,callback}`, `/picker` (route only — Picker iframe wiring still pending), `/webhooks/drive`, and `/api/extension/captures`; per-user API tokens (issue/list/revoke CLI + bearer middleware); Manifest V3 extension scaffold (Chrome / Edge / Firefox sharing one codebase) with sidebar `MutationObserver` + kix-discussion-id matching; backend ingest endpoint resolving `(docId, kix id)` → suggestion's `canonical_comment`; service-worker queue with `chrome.storage.local` dedupe + alarm-driven retry. Remaining: Drive Picker iframe + post-pick project registration; live deploy of the watch-webhook subscriber loop.
+
 The first deployable artifact beyond the CLI. Backend comes online as a network service; the extension's capture role ships, closing the suggestion-thread-reply gap (§11); the web shell is just the glue needed for OAuth + Drive Picker.
 
 **Components**
@@ -370,7 +372,7 @@ The first deployable artifact beyond the CLI. Backend comes online as a network 
 - Drive Picker host page (a small static HTML page loading Google's Picker iframe).
 - Manifest V3 browser-extension scaffold — Chrome, Edge, and Firefox sharing one codebase. Safari deferred (separate Xcode build).
 - Content script on `docs.google.com/*` watching the discussion sidebar via `MutationObserver`.
-- Sidebar-scraping logic: each visible reply yields author, timestamp, body, kix discussion ID (from DOM data attributes when available), with a quoted-text + author + timestamp fallback.
+- Sidebar-scraping logic: each visible reply yields author, timestamp, body, kix discussion ID (from DOM data attributes when available), with a parent-suggestion-quoted-text fallback for matching.
 - Backend ingest endpoint: resolves (docId, kix discussion ID) → existing canonical_comment (`kind=suggestion_*`) and inserts a new canonical_comment (`kind=comment`, `parent_comment_id` pointing to the suggestion). Idempotent on the scraped reply's stable ID.
 - Service-worker queue + local-storage dedupe for retry across tab/session.
 
@@ -385,6 +387,8 @@ The first deployable artifact beyond the CLI. Backend comes online as a network 
 - Enterprise IT may block third-party Docs extensions; the Workspace Add-on (Phase 3) plus a "comment instead of reply-to-suggestion" UX nudge in the add-on banner are the fallback paths for those tenants.
 
 ### Phase 3 — Workspace add-on
+
+**Status: not started.**
 
 In-Doc surface so users don't have to leave the writing experience to use Docket. Lands before the Slack bot because it's testable solo (no Slack workspace required) and unlocks the per-file `drive.file` flow for arbitrary docs the user already owns.
 
@@ -406,6 +410,8 @@ In-Doc surface so users don't have to leave the writing experience to use Docket
 
 ### Phase 4 — Extension rich UI + magic-link action handlers
 
+**Status: not started.**
+
 Closes out the MVP. The browser extension grows from a capture-only background process into the full Docket UI: dashboards, diff viewer, reconciliation, overlay editor, settings. The web shell adds a thin set of magic-link handlers so external reviewers can confirm review actions without an account.
 
 **Components**
@@ -426,6 +432,8 @@ Closes out the MVP. The browser extension grows from a capture-only background p
 
 ### Phase 5 — Slack bot
 
+**Status: not started.**
+
 Adds chat-driven review coordination for teams that work in Slack. The MVP (phases 1–4) already supports the full review cycle via the add-on + magic-link flow; Slack is layered on as an additional surface, not a prerequisite.
 
 **Components**
@@ -443,6 +451,8 @@ Adds chat-driven review coordination for teams that work in Slack. The MVP (phas
 
 ### Phase 6 — Cross-org polish + extension visualization
 
+**Status: not started.**
+
 Cross-org reviews become first-class; the browser extension grows beyond capture into in-canvas visualization and selection-driven authoring.
 
 **Components**
@@ -459,6 +469,8 @@ Cross-org reviews become first-class; the browser extension grows beyond capture
 - Suggestion rows carry author + timestamp instead of being null-author/ingestion-time.
 
 ### Phase 7 — Marketplace + advanced features
+
+**Status: not started.**
 
 Public availability + the long-tail features that make sense after we've watched real teams use Docket.
 

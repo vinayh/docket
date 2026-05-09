@@ -190,10 +190,24 @@ export const canonicalComment = sqliteTable(
     body: text("body").notNull(),
     status: text("status").$type<CanonicalCommentStatus>().notNull().default("open"),
     parentCommentId: text("parent_comment_id"),
+    /**
+     * DOM-side discussion thread id from the Docs canvas sidebar (e.g.
+     * `kix.<n>`). Populated by the browser-extension capture role (Phase 2)
+     * when a row corresponds to an observed sidebar thread; null for
+     * comments / suggestions ingested purely from public APIs.
+     */
+    kixDiscussionId: text("kix_discussion_id"),
+    /**
+     * Extension-side stable id used for idempotent capture POSTs. Unique per
+     * (origin_version_id, external_id) — see `canonical_comment_capture_idx`.
+     */
+    externalId: text("external_id"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
   },
   (t) => [
     index("canonical_comment_project_idx").on(t.projectId),
+    index("canonical_comment_kix_idx").on(t.originVersionId, t.kixDiscussionId),
+    index("canonical_comment_capture_idx").on(t.originVersionId, t.externalId),
     foreignKey({ columns: [t.parentCommentId], foreignColumns: [t.id] }),
   ],
 );
@@ -283,6 +297,30 @@ export const driveWatchChannel = sqliteTable(
     lastSyncedAt: integer("last_synced_at", { mode: "timestamp_ms" }),
   },
   (t) => [index("drive_watch_version_idx").on(t.versionId)],
+);
+
+/**
+ * Per-user opaque API tokens. The plaintext is `dkt_<base64url(32 bytes)>`
+ * and is shown to the user exactly once at issue time; the DB stores only a
+ * SHA-256 hash. 32 bytes of randomness gives ~256 bits of entropy, so a
+ * single-pass hash is sufficient — no key-stretch needed (these aren't
+ * passwords). Use `tokenPreview` for display in management UI ("dkt_xxxx…").
+ */
+export const apiToken = sqliteTable(
+  "api_token",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    tokenPreview: text("token_preview").notNull(),
+    label: text("label"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+    revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [index("api_token_user_idx").on(t.userId)],
 );
 
 export const auditLog = sqliteTable(

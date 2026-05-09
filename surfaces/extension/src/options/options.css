@@ -1,0 +1,93 @@
+:root {
+  color-scheme: light dark;
+  --fg: #1f2328;
+  --muted: #57606a;
+  --accent: #1f6feb;
+  --bad: #b35900;
+  --good: #1a7f37;
+  --bg: #fff;
+  --border: #d0d7de;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e6edf3;
+    --muted: #8b949e;
+    --bg: #0d1117;
+    --border: #30363d;
+  }
+}
+
+body {
+  font: 14px/1.5 system-ui, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  margin: 0;
+}
+main {
+  max-width: 520px;
+  margin: 3rem auto;
+  padding: 0 1rem;
+}
+h1 {
+  font-size: 1.4rem;
+  margin: 0 0 1rem;
+}
+p {
+  color: var(--muted);
+}
+form {
+  display: grid;
+  gap: 1rem;
+}
+label {
+  display: grid;
+  gap: 0.3rem;
+  font-weight: 600;
+}
+input {
+  font: inherit;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+small {
+  color: var(--muted);
+  font-weight: 400;
+}
+code {
+  font-family: ui-monospace, monospace;
+  background: rgba(127, 127, 127, 0.15);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+button[type="submit"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+#status {
+  min-height: 1.4em;
+  margin: 0;
+  font-weight: 600;
+}
+#status[data-tone="error"] {
+  color: var(--bad);
+}
+#status[data-tone="ok"] {
+  color: var(--good);
+}

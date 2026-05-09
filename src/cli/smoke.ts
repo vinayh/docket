@@ -3,11 +3,11 @@ import { copyFile, getFile, listComments } from "../google/drive.ts";
 import { getDocument } from "../google/docs.ts";
 import { parseGoogleDocId } from "../domain/google-doc-url.ts";
 import { extractSuggestions } from "../domain/suggestions.ts";
-import { defaultUser, die } from "./util.ts";
+import { defaultUser, usage } from "./util.ts";
 
 export async function run(args: string[]): Promise<void> {
   const arg = args[0];
-  if (!arg) die("usage: bun docket smoke <doc-url-or-id>");
+  if (!arg) usage("usage: bun docket smoke <doc-url-or-id>");
 
   const docId = parseGoogleDocId(arg);
   const u = await defaultUser();

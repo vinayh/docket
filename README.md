@@ -4,38 +4,7 @@
 
 Tracking comments on Google Docs with 'forks' (sidebar add-on, browser extension, and eventual Slack bot).
 
-See [`SPEC.md`](./SPEC.md) for the full design. Status: **Phase 1 complete + Phase 2 in progress.** The backend now ships as a Fly.io-deployed HTTP service with OAuth working end-to-end and CI auto-deploy on `main`. Per-user API tokens, the Drive Picker, the Drive watch webhook, and the browser-extension capture role are next.
-
-## Build phases
-
-Tracking [`SPEC.md` §12](./SPEC.md#12-build-sequence). Phases 1–4 are the MVP (driven from the in-doc add-on plus magic-link handlers for external reviewers); the Slack bot lands in Phase 5.
-
-- [x] **Phase 1**: core engine. Project/version model, doc-copy + overlay application, canonical comment store, reanchoring engine, doc-watcher. CLI for testing.
-  - [x] Drizzle schema for all 12 tables (§4)
-  - [x] Envelope-encrypted refresh-token storage
-  - [x] Google OAuth flow + `TokenProvider` with auto-refresh
-  - [x] Drive + Docs API wrappers
-  - [x] Project + Version primitives (creating projects from a parent doc, snapshotting versions)
-  - [x] Canonical comment ingestion (Drive `comments.list` + Docs API tracked-change suggestions across body/headers/footers/footnotes into `canonical_comment` + `comment_projection`, idempotent)
-  - [x] Reanchoring engine (paragraph-hash + quoted-text → fuzzy LCS fallback → orphan, with confidence score)
-  - [x] Overlay model + applier (overlay/operation primitives, plan with per-op confidence, derivative = copy + batchUpdate)
-  - [x] Drive push-notification doc-watcher (`drive.files.watch` channel store, push handler, polling fallback, channel renewer)
-  - [x] Phase-1 CLI
-- [ ] **Phase 2** (in progress): backend HTTP API + browser extension (capture) + minimal web entry points.
-  - [x] Fly.io deploy (`Dockerfile` + `fly.toml`) + GitHub Actions auto-deploy on `main`
-  - [x] `bun docket serve` HTTP host with `/healthz`, `/oauth/start`, `/oauth/callback`
-  - [ ] Per-user API tokens (issue/verify + bearer middleware)
-  - [ ] Drive Picker host page
-  - [ ] Drive `files.watch` webhook endpoint (`POST /webhooks/drive`)
-  - [ ] Manifest V3 extension scaffold (Chrome/Edge/Firefox)
-  - [ ] Sidebar `MutationObserver` + kix-discussion-id matching
-  - [ ] Backend ingest endpoint resolving (docId, kix id) into the suggestion's canonical_comment
-  - [ ] Service-worker dedupe + retry queue
-- [ ] **Phase 3**: Workspace add-on (in-doc UI, snapshot/review triggers, file-scope onboarding, email notifications).
-- [ ] **Phase 4**: extension rich UI (dashboard, diff, reconciliation, overlay editor, settings) + magic-link action handlers. Closes the MVP.
-- [ ] **Phase 5**: Slack bot (chat-driven review coordination as an alternate entry point).
-- [ ] **Phase 6**: cross-org polish + extension visualization (highlights, gutter, selection capture) + suggestion author/timestamp resolution.
-- [ ] **Phase 7**: Marketplace + advanced features.
+See [`SPEC.md`](./SPEC.md) for the full design and per-phase build status — [§12](./SPEC.md#12-build-sequence) tracks what's shipped, what's in-flight, and what's still ahead.
 
 ## Stack
 
@@ -109,6 +78,9 @@ bun docket watcher renew                                  renew channels nearing
 bun docket watcher poll                                   polling fallback: re-ingest active versions
 bun docket watcher simulate <channel-id> [--state ...]    exercise the push handler locally
 bun docket serve [--port <n>]                             start the HTTP API (Bun.serve)
+bun docket token issue [--user <email>] [--label <l>]     issue an API token (shown once)
+bun docket token list  [--user <email>]                   list active tokens
+bun docket token revoke <token-id>                        revoke an active token
 ```
 
 The `--user <email>` flag selects which connected account acts as the doc owner; if omitted, the first user in the DB is used.
@@ -186,6 +158,16 @@ bun docket comments list <project-id>
 ```
 
 Each `version create` copies the parent doc via Drive, names the copy `[Docket vN] <original>`, and stores a SHA-256 hash of the copy's plaintext as the snapshot fingerprint. `comments ingest` pulls Drive comments + replies, computes a canonical anchor (quoted text + paragraph hash + structural offset) against the version's doc, and is idempotent on re-run.
+
+## Browser extension
+
+The Phase-2 capture role (Manifest V3, Chrome / Edge / Firefox) lives in [`surfaces/extension/`](./surfaces/extension/) — see its [README](./surfaces/extension/README.md) for build instructions, configuration (backend URL + API token), and the DOM-selector maintenance contract. Quick start:
+
+```sh
+bun docket token issue --user <your-email>          # copy the printed token
+bun run surfaces/extension/build.ts                  # produces dist/{chromium,firefox}/
+# Load `dist/chromium` as an unpacked extension, paste the token in Options.
+```
 
 ## Contributing
 

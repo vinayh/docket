@@ -1,28 +1,56 @@
-import { eq } from "drizzle-orm";
-import { db } from "../db/client.ts";
-import { user } from "../db/schema.ts";
+import {
+  requireFirstUser,
+  requireUserByEmail,
+  resolveUserByEmailOrFirst,
+  type User,
+} from "../domain/user.ts";
 
-export type User = typeof user.$inferSelect;
+export type { User };
 
-export async function defaultUser(): Promise<User> {
-  const rows = await db.select().from(user).limit(1);
-  if (!rows[0]) {
-    throw new Error("no user in db — run `bun docket connect` first");
-  }
-  return rows[0];
+/** Shim retained so existing CLI files keep working. New code should call domain/user.ts. */
+export const defaultUser = requireFirstUser;
+export const userByEmail = requireUserByEmail;
+export const resolveUser = resolveUserByEmailOrFirst;
+
+/**
+ * Print a usage message and exit 2. Use for "wrong command-line invocation"
+ * errors — exit 2 is the Unix convention for misuse, distinct from runtime
+ * failures.
+ */
+export function usage(message: string): never {
+  console.error(message);
+  process.exit(2);
 }
 
-export async function userByEmail(email: string): Promise<User> {
-  const rows = await db.select().from(user).where(eq(user.email, email)).limit(1);
-  if (!rows[0]) throw new Error(`no user with email ${email}`);
-  return rows[0];
-}
-
-export async function resolveUser(emailOrUndefined: string | undefined): Promise<User> {
-  return emailOrUndefined ? userByEmail(emailOrUndefined) : defaultUser();
-}
-
-export function die(message: string): never {
+/**
+ * Print an operational error and exit 1. Use for runtime failures: missing
+ * DB rows the CLI was told existed, a config the operator must fix, etc.
+ */
+export function fatal(message: string): never {
   console.error(message);
   process.exit(1);
+}
+
+/** @deprecated use `usage()` for misuse, `fatal()` for runtime failures. */
+export const die = fatal;
+
+export type SubcommandHandler = (args: string[]) => Promise<void>;
+
+/**
+ * Parse `args[0]` as a subcommand name and forward the remainder to the
+ * matching handler. Centralizes the `if (!sub) die(USAGE); if (sub === "x")
+ * { … } die(USAGE);` chain that every subcommand dispatcher in `cli/`
+ * was reimplementing. If `sub` is missing or unknown, prints `text` to
+ * stderr and exits 2 (usage error).
+ */
+export async function dispatchSubcommands(
+  args: string[],
+  text: string,
+  table: Record<string, SubcommandHandler>,
+): Promise<void> {
+  const [sub, ...rest] = args;
+  if (!sub) usage(text);
+  const handler = table[sub];
+  if (!handler) usage(text);
+  await handler(rest);
 }

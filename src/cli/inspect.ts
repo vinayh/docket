@@ -1,7 +1,7 @@
 import { tokenProviderForUser } from "../auth/credentials.ts";
 import { authedFetch } from "../google/api.ts";
 import { parseGoogleDocId } from "../domain/google-doc-url.ts";
-import { defaultUser, die } from "./util.ts";
+import { defaultUser, usage } from "./util.ts";
 
 /**
  * Dumps the raw, unfiltered responses Google returns for a doc. Use this when
@@ -11,7 +11,7 @@ import { defaultUser, die } from "./util.ts";
  */
 export async function run(args: string[]): Promise<void> {
   const arg = args[0];
-  if (!arg) die("usage: bun docket inspect <doc-url-or-id>");
+  if (!arg) usage("usage: bun docket inspect <doc-url-or-id>");
 
   const docId = parseGoogleDocId(arg);
   const u = await defaultUser();

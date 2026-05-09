@@ -9,6 +9,7 @@ import { run as runReanchor } from "./reanchor.ts";
 import { run as runOverlay, runDerivative } from "./overlay.ts";
 import { run as runWatcher } from "./watcher.ts";
 import { run as runServe } from "./serve.ts";
+import { run as runToken } from "./token.ts";
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
   connect: runConnect,
@@ -23,6 +24,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   derivative: runDerivative,
   watcher: runWatcher,
   serve: runServe,
+  token: runToken,
 };
 
 const [name, ...rest] = process.argv.slice(2);
