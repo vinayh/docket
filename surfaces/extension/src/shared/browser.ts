@@ -21,7 +21,3 @@ declare global {
 
 export const ext: ChromeLike =
   (typeof globalThis.browser !== "undefined" && globalThis.browser) || chrome;
-
-export function isFirefox(): boolean {
-  return typeof globalThis.browser !== "undefined";
-}

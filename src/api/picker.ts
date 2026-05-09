@@ -22,13 +22,46 @@ import { config } from "../config.ts";
  * The same client logic is structured so the extension can later host it
  * directly inside its own popup; the page is the web fallback.
  */
+/**
+ * Security headers we set on the picker page:
+ *
+ * - `Content-Security-Policy`: locks script-src to self + the two Google CDNs
+ *   the page genuinely needs (GIS for the access-token grant + apis.google.com
+ *   for the Picker iframe). Without this, a compromised bookmarklet or any
+ *   injected `<script src>` could exfiltrate the API token from the input
+ *   field. `connect-src` allows posting back to self and Google's APIs.
+ *   `frame-src` allows the Picker iframe.
+ * - `Referrer-Policy: no-referrer`: belt-and-suspenders. The token already
+ *   lives in `location.hash` (never sent in HTTP requests) and is stripped
+ *   from the URL after read, but a no-referrer policy ensures even the
+ *   pre-replaceState path leaks nothing to third-party scripts that might
+ *   read `document.referrer` later.
+ * - `X-Content-Type-Options: nosniff`: standard hardening.
+ */
+const PICKER_HEADERS: Record<string, string> = {
+  "content-type": "text/html; charset=utf-8",
+  "cache-control": "no-store",
+  "referrer-policy": "no-referrer",
+  "x-content-type-options": "nosniff",
+  "content-security-policy": [
+    "default-src 'self'",
+    // Inline scripts: the page bundles its own JS as `<script>…</script>` (a
+    // small bootstrap and the bulk of the picker client). 'unsafe-inline' is
+    // unavoidable until that's split into a separate static asset. Allowing
+    // 'self' as a script source is harmless because there are no other JS
+    // routes on this origin.
+    "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https:",
+    "connect-src 'self' https://accounts.google.com https://www.googleapis.com",
+    "frame-src https://accounts.google.com https://docs.google.com",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+  ].join("; "),
+};
+
 export function handlePickerHost(_req: Request): Response {
-  return new Response(renderHtml(), {
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
+  return new Response(renderHtml(), { headers: PICKER_HEADERS });
 }
 
 function renderHtml(): string {

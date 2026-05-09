@@ -25,11 +25,7 @@ export async function createVersion(opts: {
   const tp = tokenProviderForUser(proj.ownerUserId);
   const parentFile = await getFile(tp, proj.parentDocId, { fields: "id,name" });
 
-  const existing = await db
-    .select({ id: version.id })
-    .from(version)
-    .where(eq(version.projectId, proj.id));
-  const label = opts.label ?? `v${existing.length + 1}`;
+  const label = opts.label ?? (await nextAutoLabel(proj.id));
 
   let parentVersionId: string | null;
   if (opts.parentVersionId === undefined) {
@@ -68,8 +64,13 @@ export async function createVersion(opts: {
   // Best-effort: in production (DOCKET_PUBLIC_BASE_URL set), subscribe a
   // Drive `files.watch` channel so the doc-watcher picks up downstream
   // edits without operator intervention. Polling fallback covers the
-  // failure case, so we never block version creation on this.
-  void autoSubscribeWatch(ver.id);
+  // failure case, so we never block version creation on this. The .catch
+  // is mandatory at the call site — even if `autoSubscribeWatch` is later
+  // refactored to throw, we don't want an unhandled rejection.
+  autoSubscribeWatch(ver.id).catch((err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`auto-subscribe failed for version ${ver.id}: ${msg}`);
+  });
 
   return ver;
 }
@@ -78,12 +79,46 @@ async function autoSubscribeWatch(versionId: string): Promise<void> {
   const baseUrl = config.publicBaseUrl;
   if (!baseUrl) return;
   const address = baseUrl.replace(/\/+$/, "") + "/webhooks/drive";
-  try {
-    await subscribeVersionWatch({ versionId, address });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`auto-subscribe failed for version ${versionId}: ${msg}`);
+  await subscribeVersionWatch({ versionId, address });
+}
+
+/**
+ * Auto-assign the next `v<N>` label for a project. We parse the integer
+ * suffix off existing labels and take MAX + 1, which is robust against:
+ *   - archived versions still occupying their label
+ *   - manual labels (skipped — any non `v\d+` label doesn't contribute)
+ *   - any prior delete (we never delete versions, but parsing MAX is the
+ *     correct primitive even if we someday do)
+ *
+ * Concurrency note: two `createVersion` calls landing simultaneously with
+ * `opts.label === undefined` can still compute the same label. There's no
+ * unique-constraint enforcement, so the second insert just succeeds with
+ * a duplicate label. This is acceptable for now — auto-labelling concurrent
+ * versions is an unusual pattern, and the operator can always pass an
+ * explicit `--label` to disambiguate.
+ */
+async function nextAutoLabel(projectId: string): Promise<string> {
+  const rows = await db
+    .select({ label: version.label })
+    .from(version)
+    .where(eq(version.projectId, projectId));
+  return pickNextLabel(rows.map((r) => r.label));
+}
+
+/**
+ * Pure helper exposed for tests: parse `v\d+` labels and return `v<MAX+1>`.
+ * Non-matching labels are ignored, so a project with `["alpha", "v1", "v3"]`
+ * yields `v4`. Empty input → `v1`.
+ */
+export function pickNextLabel(existing: string[]): string {
+  let max = 0;
+  for (const label of existing) {
+    const m = /^v(\d+)$/.exec(label);
+    if (!m) continue;
+    const n = Number.parseInt(m[1]!, 10);
+    if (Number.isFinite(n) && n > max) max = n;
   }
+  return `v${max + 1}`;
 }
 
 export async function listVersions(projectId: string): Promise<Version[]> {

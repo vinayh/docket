@@ -9,6 +9,18 @@ export async function getUserByEmail(email: string): Promise<User | null> {
   return rows[0] ?? null;
 }
 
+/**
+ * Resolve an author email to a Docket user id, returning null when the email
+ * is missing or no user exists for it. Use this for stamping `origin_user_id`
+ * on canonical_comment rows whose author may or may not be a Docket user
+ * (typical for cross-org comments and extension-captured replies).
+ */
+export async function userIdByEmail(email: string | null | undefined): Promise<string | null> {
+  if (!email) return null;
+  const u = await getUserByEmail(email);
+  return u?.id ?? null;
+}
+
 export async function requireUserByEmail(email: string): Promise<User> {
   const u = await getUserByEmail(email);
   if (!u) throw new Error(`no user with email ${email}`);

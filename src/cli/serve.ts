@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { startServer } from "../api/server.ts";
 import { sqlite } from "../db/client.ts";
+import { usage } from "./util.ts";
 
 const USAGE = `\
 usage:
@@ -16,10 +17,7 @@ export async function run(args: string[]): Promise<void> {
   });
 
   const port = values.port !== undefined ? Number(values.port) : undefined;
-  if (port !== undefined && Number.isNaN(port)) {
-    console.error(USAGE);
-    process.exit(1);
-  }
+  if (port !== undefined && Number.isNaN(port)) usage(USAGE);
 
   const server = startServer(port !== undefined ? { port } : {});
   console.log(`docket api listening on http://${server.hostname}:${server.port}`);

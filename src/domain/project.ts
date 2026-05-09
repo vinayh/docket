@@ -10,6 +10,22 @@ export const GOOGLE_DOC_MIME = "application/vnd.google-apps.document";
 
 export type Project = typeof project.$inferSelect;
 
+/**
+ * Thrown by `createProject` when the parent doc is already registered.
+ * Carries the existing project id so callers can render a "already tracked"
+ * state without parsing prose.
+ */
+export class DuplicateProjectError extends Error {
+  readonly projectId: string;
+  readonly parentDocId: string;
+  constructor(projectId: string, parentDocId: string) {
+    super(`project for doc ${parentDocId} already exists (id=${projectId})`);
+    this.name = "DuplicateProjectError";
+    this.projectId = projectId;
+    this.parentDocId = parentDocId;
+  }
+}
+
 export async function createProject(opts: {
   ownerUserId: string;
   parentDocUrlOrId: string;
@@ -23,9 +39,7 @@ export async function createProject(opts: {
     .where(eq(project.parentDocId, parentDocId))
     .limit(1);
   if (existing[0]) {
-    throw new Error(
-      `project for doc ${parentDocId} already exists (id=${existing[0].id})`,
-    );
+    throw new DuplicateProjectError(existing[0].id, parentDocId);
   }
 
   const tp = tokenProviderForUser(opts.ownerUserId);

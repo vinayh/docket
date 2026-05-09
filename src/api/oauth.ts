@@ -7,8 +7,22 @@ import { badRequest, internalError } from "./middleware.ts";
  * Phase-2 deploys run a single Fly machine (min_machines_running=1, no
  * horizontal scale-out). When that changes, move state into the DB or
  * sign it as a JWT in a cookie.
+ *
+ * Size bound: `MAX_PENDING_STATES` caps growth so an unauthenticated flood
+ * of `/oauth/start` calls can't exhaust memory in the 10-minute window
+ * before `purgeExpired` runs. Eviction policy is FIFO by insertion order
+ * (Map iteration is insertion-ordered) — the oldest state is dropped, which
+ * just makes that flow's callback fail with "invalid or expired state".
+ *
+ * Note on the agent-flagged "session-fixation" concern: this OAuth flow
+ * only stores Google refresh tokens keyed by `googleSubjectId` — it does
+ * NOT establish a Docket session. Users authenticate to the Docket API
+ * with `dkt_…` API tokens issued via CLI; the OAuth flow exists to grant
+ * Drive access for a known user. So a luring-into-callback attack causes
+ * the *attacker's* Google credentials to be stored, not user-impersonation.
  */
 const STATE_TTL_MS = 10 * 60 * 1000;
+const MAX_PENDING_STATES = 1024;
 const pendingStates = new Map<string, number>();
 
 function purgeExpired(now = Date.now()): void {
@@ -19,6 +33,14 @@ function purgeExpired(now = Date.now()): void {
 
 export function handleOauthStart(_req: Request): Response {
   purgeExpired();
+  while (pendingStates.size >= MAX_PENDING_STATES) {
+    // Drop the oldest (insertion-order iteration) to make room. A pending
+    // flow we evict will fail at callback time, which is expected under
+    // overload.
+    const oldest = pendingStates.keys().next().value;
+    if (oldest === undefined) break;
+    pendingStates.delete(oldest);
+  }
   const state = crypto.randomUUID();
   pendingStates.set(state, Date.now() + STATE_TTL_MS);
 
@@ -39,10 +61,15 @@ export async function handleOauthCallback(req: Request): Promise<Response> {
   if (error) return badRequest(`oauth error: ${error}`);
   if (!code || !state) return badRequest("missing code or state");
 
-  purgeExpired();
+  // Atomic check-and-remove: `Map.delete` returns true iff the key existed,
+  // which prevents two concurrent callbacks with the same state from both
+  // passing the existence check and racing into `completeOAuth`. Then check
+  // expiry inline (purgeExpired runs lazily, so the entry might be stale).
   const expiresAt = pendingStates.get(state);
-  if (expiresAt === undefined) return badRequest("invalid or expired state");
-  pendingStates.delete(state);
+  if (!pendingStates.delete(state)) return badRequest("invalid or expired state");
+  if (expiresAt === undefined || expiresAt < Date.now()) {
+    return badRequest("invalid or expired state");
+  }
 
   try {
     const { email, isNewUser } = await completeOAuth(code);

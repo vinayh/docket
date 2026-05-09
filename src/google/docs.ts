@@ -1,4 +1,5 @@
 import { authedJson, type TokenProvider } from "./api.ts";
+import type { DocRegion } from "../db/schema.ts";
 
 const DOCS_BASE = "https://docs.googleapis.com/v1";
 
@@ -134,15 +135,51 @@ export interface ParagraphText {
   endIndex: number;
 }
 
+export interface RegionParagraphText extends ParagraphText {
+  region: DocRegion;
+  /** Empty string for body. Header/footer/footnote id otherwise. */
+  regionId: string;
+}
+
 /**
  * Walk the document body and return one entry per paragraph with its plain text and
  * doc-coordinate range. Skips tables, section breaks, and TOC entries — anchoring v1
  * targets prose paragraphs only (per SPEC §11: image/table anchoring is out of scope).
  */
 export function extractParagraphs(doc: Document): ParagraphText[] {
+  return paragraphsOf(doc.body?.content);
+}
+
+/**
+ * Walk every region of the document — body, headers, footers, footnotes — and return
+ * one entry per paragraph tagged with its region. Use this when looking for an anchor
+ * that may live outside the body (Drive comments and tracked-change suggestions can
+ * land in any region; the Drive API doesn't expose which one for comments, so we
+ * have to scan everywhere).
+ *
+ * Note: `startIndex`/`endIndex` are doc-coordinates — for the body those are unique,
+ * but for non-body regions the same coord space can repeat. Callers using these
+ * coords for batchUpdate must stick to body paragraphs.
+ */
+export function extractAllParagraphs(doc: Document): RegionParagraphText[] {
+  const out: RegionParagraphText[] = [];
+  for (const p of paragraphsOf(doc.body?.content)) out.push({ ...p, region: "body", regionId: "" });
+  for (const [id, h] of Object.entries(doc.headers ?? {})) {
+    for (const p of paragraphsOf(h.content)) out.push({ ...p, region: "header", regionId: id });
+  }
+  for (const [id, f] of Object.entries(doc.footers ?? {})) {
+    for (const p of paragraphsOf(f.content)) out.push({ ...p, region: "footer", regionId: id });
+  }
+  for (const [id, fn] of Object.entries(doc.footnotes ?? {})) {
+    for (const p of paragraphsOf(fn.content)) out.push({ ...p, region: "footnote", regionId: id });
+  }
+  return out;
+}
+
+function paragraphsOf(content: StructuralElement[] | undefined): ParagraphText[] {
   const out: ParagraphText[] = [];
   let i = 0;
-  for (const el of doc.body?.content ?? []) {
+  for (const el of content ?? []) {
     if (!el.paragraph) continue;
     let text = "";
     for (const pe of el.paragraph.elements ?? []) {

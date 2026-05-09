@@ -1,8 +1,8 @@
 import { diffChars } from "diff";
 import type { CommentAnchor } from "../db/schema.ts";
 import type { Document } from "../google/docs.ts";
-import { extractParagraphs, type ParagraphText } from "../google/docs.ts";
-import { paragraphHash, orphanAnchor } from "./anchor.ts";
+import { extractAllParagraphs, type RegionParagraphText } from "../google/docs.ts";
+import { anchorAt, paragraphHash, orphanAnchor } from "./anchor.ts";
 
 /**
  * Result of projecting a source anchor onto a target document.
@@ -16,7 +16,7 @@ export interface ReanchorResult {
   anchor: CommentAnchor;
   confidence: number;
   status: "clean" | "fuzzy" | "orphaned";
-  paragraph?: ParagraphText;
+  paragraph?: RegionParagraphText;
   /**
    * The substring in the target paragraph that the source anchor mapped to.
    * For clean / exact matches this equals the source `quotedText`. For fuzzy
@@ -30,14 +30,18 @@ export interface ReanchorResult {
 export const CLEAN_THRESHOLD = 90;
 export const FUZZY_THRESHOLD = 50;
 
-const CONTEXT_CHARS = 32;
-
 /**
  * Locate the best match for a source anchor in `doc`. SPEC §5 algorithm:
  *  1. Same paragraph hash + exact quoted-text substring → 100 (clean).
  *  2. Exact quoted-text substring in any paragraph → 85–95 depending on context match.
  *  3. Myers-diff (jsdiff) fuzzy fallback within a paragraph → ≤ 80.
  *  4. Otherwise orphan.
+ *
+ * Region-aware: if the source anchor names a region (header/footer/footnote),
+ * we search candidates in that region first and only fall back to the rest of
+ * the doc if nothing matches. For Drive comments the Drive API doesn't expose
+ * which region they live in (kix anchor is opaque per SPEC §9), so the source
+ * region may be undefined — in that case we walk every region.
  */
 export function reanchor(doc: Document, source: CommentAnchor): ReanchorResult {
   const quoted = source.quotedText;
@@ -45,7 +49,30 @@ export function reanchor(doc: Document, source: CommentAnchor): ReanchorResult {
     return { anchor: orphanAnchor(""), confidence: 0, status: "orphaned" };
   }
 
-  const paragraphs = extractParagraphs(doc);
+  const sourceRegion = source.structuralPosition?.region ?? "body";
+  const all = extractAllParagraphs(doc);
+  const sameRegion = all.filter((p) => p.region === sourceRegion);
+
+  // Try the source's region first (precise when known). Fall through to the
+  // rest of the doc only if no match in that region — this prevents a header
+  // anchor from silently re-anchoring to body text that happens to share the
+  // quoted phrase.
+  return (
+    tryMatch(sameRegion, source, quoted) ??
+    tryMatch(
+      all.filter((p) => p.region !== sourceRegion),
+      source,
+      quoted,
+    ) ?? { anchor: orphanAnchor(quoted), confidence: 0, status: "orphaned" }
+  );
+}
+
+function tryMatch(
+  paragraphs: RegionParagraphText[],
+  source: CommentAnchor,
+  quoted: string,
+): ReanchorResult | null {
+  if (paragraphs.length === 0) return null;
 
   // Pass 1 — paragraph hash AND quoted text both intact.
   if (source.paragraphHash) {
@@ -94,9 +121,10 @@ export function reanchor(doc: Document, source: CommentAnchor): ReanchorResult {
   // same algorithm git's default `diff` uses for line-level diffs). Equal
   // segments are matches. We score by total matched chars and report a span
   // from the first to the last match, so insertions like "probably " between
-  // matched runs land inside the highlighted region.
+  // matched runs land inside the highlighted region. Confidence is capped at
+  // 80 here — by definition Pass 3 can never be "clean".
   let best: {
-    p: ParagraphText;
+    p: RegionParagraphText;
     spanStart: number;
     spanEnd: number;
     totalMatched: number;
@@ -114,15 +142,15 @@ export function reanchor(doc: Document, source: CommentAnchor): ReanchorResult {
     const confidence = Math.min(80, Math.round(ratio * 80));
     const matchLen = best.spanEnd - best.spanStart;
     return {
-      anchor: fuzzyAnchorAt(quoted, best.p, best.spanStart, matchLen),
+      anchor: anchorAt(quoted, best.p, best.spanStart, { matchLen }),
       confidence,
-      status: confidence >= CLEAN_THRESHOLD ? "clean" : "fuzzy",
+      status: "fuzzy",
       paragraph: best.p,
       matchedText: best.p.text.slice(best.spanStart, best.spanEnd),
     };
   }
 
-  return { anchor: orphanAnchor(quoted), confidence: 0, status: "orphaned" };
+  return null;
 }
 
 /**
@@ -169,41 +197,13 @@ export function matchSpan(
   return { spanStart, spanEnd, totalMatched };
 }
 
-function anchorAt(quoted: string, p: ParagraphText, offset: number): CommentAnchor {
-  const before = p.text.slice(Math.max(0, offset - CONTEXT_CHARS), offset);
-  const after = p.text.slice(offset + quoted.length, offset + quoted.length + CONTEXT_CHARS);
-  return {
-    quotedText: quoted,
-    contextBefore: before || undefined,
-    contextAfter: after || undefined,
-    paragraphHash: paragraphHash(p.text),
-    structuralPosition: { paragraphIndex: p.paragraphIndex, offset },
-  };
-}
-
-function fuzzyAnchorAt(
-  quoted: string,
-  p: ParagraphText,
-  offset: number,
-  matchLen: number,
-): CommentAnchor {
-  const before = p.text.slice(Math.max(0, offset - CONTEXT_CHARS), offset);
-  const after = p.text.slice(offset + matchLen, offset + matchLen + CONTEXT_CHARS);
-  return {
-    quotedText: quoted,
-    contextBefore: before || undefined,
-    contextAfter: after || undefined,
-    paragraphHash: paragraphHash(p.text),
-    structuralPosition: { paragraphIndex: p.paragraphIndex, offset },
-  };
-}
-
 function contextMatches(
   paragraphText: string,
   offset: number,
   quoted: string,
   source: CommentAnchor,
 ): boolean {
+  const CONTEXT_CHARS = 32;
   const sliceBefore = paragraphText.slice(Math.max(0, offset - CONTEXT_CHARS), offset);
   const sliceAfter = paragraphText.slice(
     offset + quoted.length,
@@ -219,3 +219,4 @@ function contextMatches(
     : true;
   return beforeOk && afterOk;
 }
+

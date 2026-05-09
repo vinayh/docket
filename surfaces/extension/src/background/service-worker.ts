@@ -39,17 +39,35 @@ const FLUSH_ALARM_PERIOD_MIN = 1; // every minute when there's queued work
 
 ext.runtime.onMessage.addListener(
   (message: Message, _sender, sendResponse: (r: MessageResponse) => void) => {
-    void handleMessage(message).then(sendResponse).catch((err) => {
-      console.error("[docket] message handler:", err);
-      sendResponse({
-        kind: "queue/peek",
-        queueSize: -1,
-        lastError: err instanceof Error ? err.message : String(err),
+    void handleMessage(message)
+      .then(sendResponse)
+      .catch((err) => {
+        console.error("[docket] message handler:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        // Echo the original kind so callers route the error to the same
+        // discriminant arm they were waiting on. Pre-fix this always
+        // returned a "queue/peek" shape, which mis-routed for every other
+        // message kind.
+        sendResponse(errorResponseFor(message, msg));
       });
-    });
     return true; // keep the message channel open for the async response
   },
 );
+
+function errorResponseFor(message: Message, error: string): MessageResponse {
+  switch (message.kind) {
+    case "capture/submit":
+      return { kind: "capture/submit", queuedCount: -1, error };
+    case "settings/get":
+      return { kind: "settings/get", settings: null, error };
+    case "settings/set":
+      return { kind: "settings/set", ok: true, error };
+    case "queue/flush":
+      return { kind: "queue/flush", result: { error }, error };
+    case "queue/peek":
+      return { kind: "queue/peek", queueSize: -1, lastError: error, error };
+  }
+}
 
 ext.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === FLUSH_ALARM) void flushQueue();
@@ -151,7 +169,6 @@ async function flushQueueInner(): Promise<
   }
 
   const head = queue.slice(0, FLUSH_BATCH);
-  const tail = queue.slice(FLUSH_BATCH);
 
   let result: IngestCapturesResult;
   try {
@@ -164,8 +181,7 @@ async function flushQueueInner(): Promise<
     // the head so a poisoned auth state or bad envelope doesn't loop forever.
     const message = err instanceof Error ? err.message : String(err);
     await setLastError(message);
-    const survivors = bumpAttempts(head, "batch_failure");
-    await setQueue([...survivors, ...tail]);
+    await reconcileQueue(head, "batch_failure", null);
     return { error: message };
   }
 
@@ -174,11 +190,8 @@ async function flushQueueInner(): Promise<
   // MAX_ATTEMPTS we drop it so a permanently-broken envelope can't poison
   // the head.
   const ackedIdsByDoc = new Map<string, string[]>();
-  const requeue: QueuedCapture[] = [];
-  let dropped = 0;
-  const headById = new Map(head.map((q) => [q.capture.externalId, q]));
   for (const r of result.results) {
-    const item = headById.get(r.externalId);
+    const item = head.find((h) => h.capture.externalId === r.externalId);
     if (!item) continue;
     if (
       r.status === "inserted" ||
@@ -188,43 +201,87 @@ async function flushQueueInner(): Promise<
       const list = ackedIdsByDoc.get(item.capture.docId) ?? [];
       list.push(r.externalId);
       ackedIdsByDoc.set(item.capture.docId, list);
-    } else {
-      const next = { ...item, attempts: item.attempts + 1 };
-      if (next.attempts >= MAX_ATTEMPTS) {
-        dropped++;
-        console.warn(
-          `[docket] dropping capture ${r.externalId} after ${next.attempts} attempts (last status: ${r.status}${r.message ? ", " + r.message : ""})`,
-        );
-        continue;
-      }
-      requeue.push(next);
     }
   }
 
-  await setQueue([...requeue, ...tail]);
+  const dropped = await reconcileQueue(head, "post_flush", result);
   for (const [docId, ids] of ackedIdsByDoc) await markSeen(docId, ids);
   await setLastError(summarizeAfterFlush(result.results, dropped));
   return result;
 }
 
-function bumpAttempts(items: QueuedCapture[], reason: string): QueuedCapture[] {
-  const out: QueuedCapture[] = [];
+/**
+ * Apply per-item flush dispositions back to the queue without clobbering
+ * captures that arrived during the network round-trip.
+ *
+ * Pre-fix, flush snapshotted `tail = queue.slice(FLUSH_BATCH)` *before* the
+ * await on `postCaptures`, then wrote `[...requeue, ...tail]` afterwards. Any
+ * `enqueue` call landing in between (which writes the queue itself) was
+ * silently overwritten by the trailing setQueue. The `inflightFlush` lock
+ * only serialized flush↔flush, never flush↔enqueue.
+ *
+ * The fix: re-read the queue *after* the network call and rebuild it by
+ * externalId — items in `head` that were acked are dropped; items that
+ * failed get attempts++; everything else (including items appended during
+ * the await) is preserved as-is.
+ *
+ * Returns the count of items dropped past MAX_ATTEMPTS so the caller can
+ * include it in the user-visible summary.
+ */
+async function reconcileQueue(
+  head: QueuedCapture[],
+  reason: string,
+  result: IngestCapturesResult | null,
+): Promise<number> {
+  const headIds = new Set(head.map((h) => h.capture.externalId));
+  const headById = new Map(head.map((h) => [h.capture.externalId, h]));
+
+  // Acked items get removed from the queue entirely. Unacked items in head
+  // get attempts++ and either re-queued in place or dropped. Items NOT in
+  // head (newly-enqueued during the await) are passed through untouched.
+  const ackedIds = new Set<string>();
+  if (result) {
+    for (const r of result.results) {
+      if (
+        r.status === "inserted" ||
+        r.status === "duplicate" ||
+        r.status === "orphaned"
+      ) {
+        ackedIds.add(r.externalId);
+      }
+    }
+  }
+
+  const current = await getQueue();
   let dropped = 0;
-  for (const item of items) {
-    const next = { ...item, attempts: item.attempts + 1 };
-    if (next.attempts >= MAX_ATTEMPTS) {
+  const next: QueuedCapture[] = [];
+  for (const item of current) {
+    const id = item.capture.externalId;
+    if (!headIds.has(id)) {
+      // Not in the flushed batch — newly enqueued during the network call.
+      next.push(item);
+      continue;
+    }
+    if (ackedIds.has(id)) {
+      // Acked → drop.
+      continue;
+    }
+    // In head, not acked → bump attempts (use the head snapshot for the
+    // base so two concurrent flushes never compound the bump on the same
+    // physical attempt).
+    const base = headById.get(id) ?? item;
+    const bumped: QueuedCapture = { ...base, attempts: base.attempts + 1 };
+    if (bumped.attempts >= MAX_ATTEMPTS) {
       dropped++;
       console.warn(
-        `[docket] dropping capture ${item.capture.externalId} after ${next.attempts} attempts (${reason})`,
+        `[docket] dropping capture ${id} after ${bumped.attempts} attempts (${reason})`,
       );
       continue;
     }
-    out.push(next);
+    next.push(bumped);
   }
-  if (dropped > 0) {
-    console.warn(`[docket] ${reason}: dropped ${dropped} captures past retry limit`);
-  }
-  return out;
+  await setQueue(next);
+  return dropped;
 }
 
 async function postCaptures(

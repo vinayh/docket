@@ -34,12 +34,14 @@ async function refresh(): Promise<void> {
   } satisfies Message)) as MessageResponse | undefined;
 
   const haveSettings = settings?.kind === "settings/get" && settings.settings;
-  if (haveSettings) {
-    conn.textContent = `Connected to ${settings!.settings!.backendUrl}`;
-    conn.dataset.tone = "ok";
-  } else {
+  if (!haveSettings) {
     conn.textContent = "No backend configured — open Options.";
     conn.dataset.tone = "error";
+  } else {
+    conn.textContent = `Probing ${settings!.settings!.backendUrl}…`;
+    conn.dataset.tone = "";
+    // Fire the probe, but don't block rendering of the queue/peek state on it.
+    void probeBackend(settings!.settings!.backendUrl);
   }
 
   await renderTrackButton(haveSettings ? settings!.settings! : null);
@@ -50,6 +52,47 @@ async function refresh(): Promise<void> {
   if (peek?.kind === "queue/peek") {
     queue.textContent = String(peek.queueSize);
     lastError.textContent = peek.lastError ?? "—";
+  }
+}
+
+/**
+ * Probe the configured backend's `/healthz` so the popup tells the truth
+ * about reachability instead of just echoing whatever URL is saved in
+ * settings. Pre-fix the popup showed "Connected to X" purely from saved
+ * settings, so a stopped local dev server still showed as connected — the
+ * options page's Test button was the only way to learn otherwise.
+ *
+ * Timeout is short (3s) because this gates the popup's most prominent
+ * status line. Failure modes:
+ *  - permission missing for the backend origin (user typed a URL but never
+ *    saved it via Options, so `chrome.permissions.request` never fired)
+ *  - host unreachable (server down, wrong port, DNS / network issue)
+ *  - server reachable but returns non-ok / non-`{ok:true}` body
+ */
+async function probeBackend(backendUrl: string): Promise<void> {
+  const url = new URL("/healthz", backendUrl).toString();
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) {
+      conn.textContent = `Backend ${backendUrl} responded ${res.status}`;
+      conn.dataset.tone = "error";
+      return;
+    }
+    const json = (await res.json().catch(() => null)) as { ok?: boolean } | null;
+    if (!json?.ok) {
+      conn.textContent = `Backend ${backendUrl} reachable but /healthz did not return ok`;
+      conn.dataset.tone = "error";
+      return;
+    }
+    conn.textContent = `Connected to ${backendUrl}`;
+    conn.dataset.tone = "ok";
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    conn.textContent = `Backend ${backendUrl} unreachable: ${reason}`;
+    conn.dataset.tone = "error";
   }
 }
 

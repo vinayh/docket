@@ -3,21 +3,20 @@ import { db } from "../db/client.ts";
 import {
   canonicalComment,
   commentProjection,
-  user,
   type CanonicalCommentKind,
   type CommentAnchor,
   type ProjectionStatus,
 } from "../db/schema.ts";
-import { tokenProviderForUser } from "../auth/credentials.ts";
 import {
   listComments,
   type DriveComment,
   type DriveCommentReply,
 } from "../google/drive.ts";
 import { getDocument, type Document } from "../google/docs.ts";
-import { requireProject } from "./project.ts";
+import { tokenProviderForProject } from "./project.ts";
 import { requireVersion } from "./version.ts";
-import { buildAnchor, orphanAnchor, paragraphHash } from "./anchor.ts";
+import { userIdByEmail } from "./user.ts";
+import { anchorAt, buildAnchor, orphanAnchor } from "./anchor.ts";
 import { extractSuggestions, type SuggestionSpan } from "./suggestions.ts";
 
 export type CanonicalComment = typeof canonicalComment.$inferSelect;
@@ -50,8 +49,7 @@ export interface IngestResult {
  */
 export async function ingestVersionComments(versionId: string): Promise<IngestResult> {
   const ver = await requireVersion(versionId);
-  const proj = await requireProject(ver.projectId);
-  const tp = tokenProviderForUser(proj.ownerUserId);
+  const tp = await tokenProviderForProject(ver.projectId);
 
   const result: IngestResult = {
     versionId,
@@ -176,22 +174,17 @@ function suggestionBody(s: SuggestionSpan): string {
 }
 
 function suggestionAnchor(s: SuggestionSpan): CommentAnchor {
-  const CONTEXT = 32;
-  const before = s.paragraphText.slice(Math.max(0, s.offset - CONTEXT), s.offset);
-  const afterStart = s.offset + s.length;
-  const after = s.paragraphText.slice(afterStart, afterStart + CONTEXT);
-  return {
-    quotedText: s.text,
-    contextBefore: before || undefined,
-    contextAfter: after || undefined,
-    paragraphHash: paragraphHash(s.paragraphText),
-    structuralPosition: {
-      region: s.region,
-      ...(s.region !== "body" ? { regionId: s.regionId } : {}),
+  return anchorAt(
+    s.text,
+    {
       paragraphIndex: s.paragraphIndex,
-      offset: s.offset,
+      text: s.paragraphText,
+      startIndex: 0,
+      endIndex: 0,
     },
-  };
+    s.offset,
+    { matchLen: s.length, region: s.region, regionId: s.regionId },
+  );
 }
 
 function anchorForComment(
@@ -232,15 +225,7 @@ async function upsertOne(args: UpsertArgs): Promise<string> {
     return existing[0].canonicalId;
   }
 
-  const originUserId = args.author?.emailAddress
-    ? (
-        await db
-          .select({ id: user.id })
-          .from(user)
-          .where(eq(user.email, args.author.emailAddress))
-          .limit(1)
-      )[0]?.id ?? null
-    : null;
+  const originUserId = await userIdByEmail(args.author?.emailAddress);
 
   const status: ProjectionStatus = args.anchor.structuralPosition ? "clean" : "orphaned";
   const matchConfidence = args.anchor.structuralPosition ? 100 : 0;

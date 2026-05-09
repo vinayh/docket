@@ -16,14 +16,18 @@ export async function run(_args: string[]): Promise<void> {
   console.log(`\nopen this URL in your browser to consent:\n\n${authUrl}\n`);
   console.log(`waiting for callback at ${redirect.origin}${redirect.pathname}...\n`);
 
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
     let server: ReturnType<typeof Bun.serve>;
 
-    // Schedules teardown after the response flushes, then returns it.
-    const finish = (response: Response): Response => {
+    // Schedules teardown after the response flushes, then settles the outer
+    // promise. `error` propagates through the CLI dispatcher's catch so the
+    // process exits non-zero — silent success on OAuth failure is the worst
+    // possible outcome here.
+    const finish = (response: Response, error?: Error): Response => {
       setTimeout(() => {
         server.stop();
-        resolve();
+        if (error) reject(error);
+        else resolve();
       }, 100);
       return response;
     };
@@ -40,15 +44,17 @@ export async function run(_args: string[]): Promise<void> {
         const error = u.searchParams.get("error");
 
         if (error) {
-          console.error(`oauth error: ${error}`);
-          return finish(new Response(`oauth error: ${error}`, { status: 400 }));
+          return finish(
+            new Response(`oauth error: ${error}`, { status: 400 }),
+            new Error(`oauth error: ${error}`),
+          );
         }
         if (!code || returnedState !== state) {
-          console.error("invalid callback (missing code or state mismatch)");
           return finish(
             new Response("invalid callback (missing code or state mismatch)", {
               status: 400,
             }),
+            new Error("invalid callback (missing code or state mismatch)"),
           );
         }
         try {
@@ -58,8 +64,8 @@ export async function run(_args: string[]): Promise<void> {
           );
           return finish(new Response(`Connected ${email}. You can close this tab.`));
         } catch (err) {
-          console.error("oauth completion failed:", err);
-          return finish(new Response(`error: ${(err as Error).message}`, { status: 500 }));
+          const e = err instanceof Error ? err : new Error(String(err));
+          return finish(new Response(`error: ${e.message}`, { status: 500 }), e);
         }
       },
     });

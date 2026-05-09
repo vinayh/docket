@@ -17,7 +17,7 @@ import {
 } from "../google/docs.ts";
 import { requireProject, tokenProviderForProject } from "./project.ts";
 import { requireVersion } from "./version.ts";
-import { CLEAN_THRESHOLD, FUZZY_THRESHOLD, reanchor } from "./reanchor.ts";
+import { CLEAN_THRESHOLD, reanchor } from "./reanchor.ts";
 
 export type Overlay = typeof overlay.$inferSelect;
 export type OverlayOperation = typeof overlayOperation.$inferSelect;
@@ -308,5 +308,3 @@ export async function listDerivatives(projectId: string): Promise<Derivative[]> 
     .where(eq(derivative.projectId, projectId))
     .orderBy(desc(derivative.createdAt));
 }
-
-export { CLEAN_THRESHOLD, FUZZY_THRESHOLD };

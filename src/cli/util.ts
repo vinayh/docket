@@ -31,15 +31,12 @@ export function fatal(message: string): never {
   process.exit(1);
 }
 
-/** @deprecated use `usage()` for misuse, `fatal()` for runtime failures. */
-export const die = fatal;
-
 export type SubcommandHandler = (args: string[]) => Promise<void>;
 
 /**
  * Parse `args[0]` as a subcommand name and forward the remainder to the
- * matching handler. Centralizes the `if (!sub) die(USAGE); if (sub === "x")
- * { … } die(USAGE);` chain that every subcommand dispatcher in `cli/`
+ * matching handler. Centralizes the `if (!sub) usage(USAGE); if (sub === "x")
+ * { … } usage(USAGE);` chain that every subcommand dispatcher in `cli/`
  * was reimplementing. If `sub` is missing or unknown, prints `text` to
  * stderr and exits 2 (usage error).
  */

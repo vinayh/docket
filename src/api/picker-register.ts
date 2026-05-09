@@ -5,7 +5,7 @@ import {
   jsonOk,
   unauthorized,
 } from "./middleware.ts";
-import { createProject } from "../domain/project.ts";
+import { createProject, DuplicateProjectError } from "../domain/project.ts";
 
 const MAX_BODY_BYTES = 8 * 1024;
 const MAX_FIELD_LEN = 4 * 1024;
@@ -56,20 +56,16 @@ export async function handleRegisterDocPost(req: Request): Promise<Response> {
       parentDocId: project.parentDocId,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    // `createProject` throws a recognizable string when the doc is already
-    // a project. Surface that as 409 so the page can render a friendlier
-    // "already tracked" state without parsing prose on the client.
-    const dup = /already exists \(id=([^)]+)\)/.exec(message);
-    if (dup) {
+    if (err instanceof DuplicateProjectError) {
       return new Response(
         JSON.stringify({
           error: "already_exists",
-          projectId: dup[1],
+          projectId: err.projectId,
+          parentDocId: err.parentDocId,
         }),
         { status: 409, headers: { "content-type": "application/json" } },
       );
     }
-    return internalError(message);
+    return internalError(err instanceof Error ? err.message : String(err));
   }
 }

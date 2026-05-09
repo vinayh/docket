@@ -1,6 +1,10 @@
 import type { Document } from "../google/docs.ts";
-import { extractParagraphs, type ParagraphText } from "../google/docs.ts";
-import type { CommentAnchor } from "../db/schema.ts";
+import {
+  extractAllParagraphs,
+  type ParagraphText,
+  type RegionParagraphText,
+} from "../google/docs.ts";
+import type { CommentAnchor, DocRegion } from "../db/schema.ts";
 
 const CONTEXT_CHARS = 32;
 
@@ -10,41 +14,60 @@ export function paragraphHash(text: string): string {
 
 export interface AnchorMatch {
   anchor: CommentAnchor;
-  paragraph: ParagraphText;
+  paragraph: RegionParagraphText;
 }
 
 /**
- * Compute a CommentAnchor for `quotedText` against the given document. Used both for
- * ingesting the origin-version anchor of a Drive comment and as the seed for the
- * reanchoring engine when projecting onto another version.
+ * Single source of truth for "build a CommentAnchor at paragraph + offset".
+ * Slices ±CONTEXT_CHARS of context, hashes the paragraph, fills the
+ * structuralPosition. Region info is included when the paragraph isn't body
+ * (back-compat: body anchors omit `region`/`regionId`).
  *
- * Strategy: scan paragraphs and pick the first one that contains `quotedText` as a
- * substring. Returns null if no paragraph contains it. The reanchoring engine will
- * handle fuzzy matches and orphans.
+ * `matchLen` lets fuzzy-match callers report a different end than
+ * `quoted.length` — used when the matched span includes target-side
+ * insertions between equal segments.
+ */
+export function anchorAt(
+  quoted: string,
+  paragraph: ParagraphText | RegionParagraphText,
+  offset: number,
+  opts: { matchLen?: number; region?: DocRegion; regionId?: string } = {},
+): CommentAnchor {
+  const region: DocRegion =
+    opts.region ?? ("region" in paragraph ? paragraph.region : "body");
+  const regionId =
+    opts.regionId ?? ("regionId" in paragraph ? paragraph.regionId : "");
+  const len = opts.matchLen ?? quoted.length;
+  const before = paragraph.text.slice(Math.max(0, offset - CONTEXT_CHARS), offset);
+  const after = paragraph.text.slice(offset + len, offset + len + CONTEXT_CHARS);
+  return {
+    quotedText: quoted,
+    contextBefore: before || undefined,
+    contextAfter: after || undefined,
+    paragraphHash: paragraphHash(paragraph.text),
+    structuralPosition: {
+      ...(region !== "body" ? { region, regionId } : {}),
+      paragraphIndex: paragraph.paragraphIndex,
+      offset,
+    },
+  };
+}
+
+/**
+ * Compute a CommentAnchor for `quotedText` against the given document. Walks
+ * every region (body, headers, footers, footnotes) so a comment quoted in a
+ * footer doesn't get silently mis-anchored to the body.
+ *
+ * Strategy: scan paragraphs in walk order and pick the first one that
+ * contains `quotedText` as a substring. Returns null if no paragraph
+ * contains it. The reanchoring engine handles fuzzy matches and orphans.
  */
 export function buildAnchor(doc: Document, quotedText: string): AnchorMatch | null {
   if (!quotedText) return null;
-  const paragraphs = extractParagraphs(doc);
-  for (const p of paragraphs) {
+  for (const p of extractAllParagraphs(doc)) {
     const offset = p.text.indexOf(quotedText);
     if (offset === -1) continue;
-
-    const contextBefore = p.text.slice(Math.max(0, offset - CONTEXT_CHARS), offset);
-    const contextAfter = p.text.slice(
-      offset + quotedText.length,
-      offset + quotedText.length + CONTEXT_CHARS,
-    );
-
-    return {
-      paragraph: p,
-      anchor: {
-        quotedText,
-        contextBefore: contextBefore || undefined,
-        contextAfter: contextAfter || undefined,
-        paragraphHash: paragraphHash(p.text),
-        structuralPosition: { paragraphIndex: p.paragraphIndex, offset },
-      },
-    };
+    return { paragraph: p, anchor: anchorAt(quotedText, p, offset) };
   }
   return null;
 }

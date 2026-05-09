@@ -160,9 +160,11 @@ export async function pollAllActiveVersions(): Promise<PollOutcome[]> {
 }
 
 /**
- * Renew channels whose expiration is within RENEW_HORIZON_MS. Stops the old channel,
- * subscribes a new one with the same address, and replaces the DB row. Channels with
- * no expiration recorded are renewed unconditionally.
+ * Renew channels whose expiration is within RENEW_HORIZON_MS. Subscribes a
+ * fresh channel *first*, then stops the old one — so a network blip during
+ * subscribe never leaves the version with no DB record at all. The old row is
+ * deleted only after the new channel is durably registered. Channels with no
+ * expiration recorded are renewed unconditionally.
  */
 export async function renewExpiringChannels(opts: { now?: number } = {}): Promise<{
   renewed: number;
@@ -184,15 +186,29 @@ export async function renewExpiringChannels(opts: { now?: number } = {}): Promis
   let failed = 0;
   for (const row of rows) {
     try {
-      await unsubscribeVersionWatch(row.id);
+      // Subscribe-new first. If this throws, the old row is still intact and
+      // the next sweep will retry. The polling fallback catches any inbound
+      // events we missed in between.
       await subscribeVersionWatch({
         versionId: row.versionId,
         address: row.address,
       });
+      // New channel is durably recorded — now stop the old one. We use
+      // `unsubscribeVersionWatch` so a stop-on-Google failure still removes
+      // the stale DB row (Google idempotently 200/404s repeated stops).
+      try {
+        await unsubscribeVersionWatch(row.id);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `renew: stop-old failed for channel ${row.channelId} (new channel is live): ${msg}`,
+        );
+      }
       renewed++;
     } catch (err) {
       failed++;
-      console.error(`renew failed for channel ${row.channelId}: ${err}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`renew failed for channel ${row.channelId}: ${msg}`);
     }
   }
   return { renewed, failed };

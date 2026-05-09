@@ -6,29 +6,31 @@ import {
   reanchor,
 } from "./reanchor.ts";
 import { paragraphHash } from "./anchor.ts";
-import type { Document } from "../google/docs.ts";
+import type { Document, StructuralElement } from "../google/docs.ts";
 import type { CommentAnchor } from "../db/schema.ts";
 
-function docFromParagraphs(paragraphs: string[]): Document {
+function paragraphsToContent(paragraphs: string[]): StructuralElement[] {
   let cursor = 1;
+  return paragraphs.map((text) => {
+    const start = cursor;
+    const content = text + "\n";
+    const end = start + content.length;
+    cursor = end;
+    return {
+      startIndex: start,
+      endIndex: end,
+      paragraph: {
+        elements: [{ startIndex: start, endIndex: end, textRun: { content } }],
+      },
+    };
+  });
+}
+
+function docFromParagraphs(paragraphs: string[]): Document {
   return {
     documentId: "test",
     title: "test",
-    body: {
-      content: paragraphs.map((text) => {
-        const start = cursor;
-        const content = text + "\n";
-        const end = start + content.length;
-        cursor = end;
-        return {
-          startIndex: start,
-          endIndex: end,
-          paragraph: {
-            elements: [{ startIndex: start, endIndex: end, textRun: { content } }],
-          },
-        };
-      }),
-    },
+    body: { content: paragraphsToContent(paragraphs) },
   };
 }
 
@@ -147,5 +149,117 @@ describe("reanchor", () => {
     const r = reanchor(doc, { quotedText: "" });
     expect(r.status).toBe("orphaned");
     expect(r.confidence).toBe(0);
+  });
+
+  test("Pass 3 fuzzy match never reports clean (status guard)", () => {
+    // Pre-fix the Pass 3 ternary `confidence >= CLEAN_THRESHOLD ? "clean" : "fuzzy"`
+    // was unreachable on the clean side (confidence is capped at 80) but lived
+    // in the code anyway. Regression: any time we land in Pass 3 (no exact
+    // substring match in any region), the status is "fuzzy" or "orphaned"
+    // — never "clean".
+    const targetParas = [
+      // No exact substring of the source's quotedText, but enough overlap to
+      // trigger Pass 3. Source: "the reanchoring engine is authoritative".
+      "the re-anchoring engine is authoritative — canonical anchors live elsewhere.",
+    ];
+    const doc = docFromParagraphs(targetParas);
+    const source: CommentAnchor = {
+      quotedText: "the reanchoring engine is authoritative",
+      paragraphHash: paragraphHash("ORIGINAL paragraph that no longer exists"),
+      structuralPosition: { paragraphIndex: 0, offset: 0 },
+    };
+    const r = reanchor(doc, source);
+    expect(r.status).not.toBe("clean");
+    expect(r.confidence).toBeLessThan(CLEAN_THRESHOLD);
+  });
+});
+
+describe("reanchor — region-aware", () => {
+  function docWithBodyAndHeader(opts: {
+    body: string[];
+    headerId: string;
+    headerParas: string[];
+  }): Document {
+    return {
+      documentId: "test",
+      title: "test",
+      body: { content: paragraphsToContent(opts.body) },
+      headers: {
+        [opts.headerId]: {
+          headerId: opts.headerId,
+          content: paragraphsToContent(opts.headerParas),
+        },
+      },
+    };
+  }
+
+  test("header anchor matches in target's header (not body) when both contain the quoted text", () => {
+    // Pre-fix `extractParagraphs` only walked body, so a header anchor would
+    // either fail Pass 1 (header paragraphs invisible) and slide to Pass 2
+    // against body, or just orphan. With region awareness the source's
+    // region is searched first and a header→header match wins.
+    const doc = docWithBodyAndHeader({
+      body: ["Confidential — do not share.", "Body content."],
+      headerId: "h1",
+      headerParas: ["Confidential — do not share."],
+    });
+    const headerText = "Confidential — do not share.";
+    const source: CommentAnchor = {
+      quotedText: "Confidential",
+      paragraphHash: paragraphHash(headerText),
+      structuralPosition: {
+        region: "header",
+        regionId: "h1",
+        paragraphIndex: 0,
+        offset: 0,
+      },
+    };
+    const r = reanchor(doc, source);
+    expect(r.status).toBe("clean");
+    expect(r.paragraph?.region).toBe("header");
+    expect(r.paragraph?.regionId).toBe("h1");
+  });
+
+  test("header anchor falls back to body only when its region has no match", () => {
+    // Source claims region=header but the target doc's header doesn't
+    // contain the quoted text — Pass 2 against body finds it. We accept the
+    // cross-region match (better fuzzy hit than no hit), but the result
+    // points at body, not the missing header paragraph.
+    const doc = docWithBodyAndHeader({
+      body: ["Welcome to the report."],
+      headerId: "h1",
+      headerParas: ["Different header content."],
+    });
+    const source: CommentAnchor = {
+      quotedText: "Welcome to the report.",
+      paragraphHash: paragraphHash("nope"),
+      structuralPosition: {
+        region: "header",
+        regionId: "h1",
+        paragraphIndex: 0,
+        offset: 0,
+      },
+    };
+    const r = reanchor(doc, source);
+    expect(r.paragraph?.region).toBe("body");
+    expect(r.confidence).toBeGreaterThanOrEqual(FUZZY_THRESHOLD);
+  });
+
+  test("body anchor doesn't accidentally land in a header that shares the same text", () => {
+    // Body anchor + body match available → don't migrate to a same-text
+    // header (would happen if extractAllParagraphs reordered regions).
+    const doc = docWithBodyAndHeader({
+      body: ["Confidential — do not share."],
+      headerId: "h1",
+      headerParas: ["Confidential — do not share."],
+    });
+    const bodyText = "Confidential — do not share.";
+    const source: CommentAnchor = {
+      quotedText: "Confidential",
+      paragraphHash: paragraphHash(bodyText),
+      structuralPosition: { paragraphIndex: 0, offset: 0 }, // region=body (default)
+    };
+    const r = reanchor(doc, source);
+    expect(r.paragraph?.region).toBe("body");
   });
 });

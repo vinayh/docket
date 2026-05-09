@@ -491,3 +491,53 @@ Public availability + the long-tail features that make sense after we've watched
 - Richer overlay authoring.
 - Bold/italic/color suggestions flow into the canonical comment store as first-class entries.
 - Heuristics that pre-classify comments during multi-version review cycles.
+
+## 13. Stretch goals
+
+Beyond the phased v1 plan. Docket's value compounds once the canonical comment store (§4) is treated as a first-class data product: the doc-watcher (§5) already keeps it fresh, projections already reconcile across versions, and the per-user API tokens (Phase 2) already gate access. The directions below build on that foundation. They aren't scheduled — they inform schema and API decisions today so we don't paint into a corner.
+
+### 13.1 External read API + webhooks
+
+A scoped, versioned, read-mostly HTTPS API over canonical comments, projections, and review state — distinct from the internal `/api/extension/*` surface. Same `dkt_` token auth, same project-scoped authorization (§8).
+
+Endpoint sketch:
+- `GET /api/v1/projects` — projects the caller can read.
+- `GET /api/v1/projects/:id/comments?version=&status=&since=` — canonical comments + projection state, paginated.
+- `GET /api/v1/projects/:id/versions/:vid/diff` — plaintext diff with comment anchors layered in.
+- `POST /api/v1/projects/:id/comments/:cid/status` — update canonical-comment status (open / addressed / wontfix).
+- **Webhooks**: configurable per project, fired on `comment.created`, `comment.replied`, `projection.resolved`, `review_request.closed`. Payload is the affected canonical row plus a stable cursor; consumers reconcile against `since=` polls during downtime.
+
+This unblocks third-party dashboards, internal data-warehouse mirrors, and lightweight automations ("post to Slack when a v2 comment goes orphaned") without each consumer reimplementing the doc-watcher.
+
+### 13.2 MCP server
+
+A Model Context Protocol server exposing canonical state as MCP resources + tools. Drops Docket into any MCP-aware agent (Claude Desktop, IDE plugins, CLI agents) so an LLM can answer "which reviewers blocked v2?" or "summarize the unaddressed comments on this doc" with grounded data instead of pasted context.
+
+Surface:
+- **Resources:** project summary, version diffs, canonical comment threads (one URI per thread, paginated indexes per project).
+- **Tools:** `search_comments`, `summarize_review_request`, `mark_comment_addressed`, `create_version_checkpoint`, `request_review`. Side-effects are scoped to the caller's user; the same authorization model as §8 applies.
+- **Auth:** the same `dkt_` per-user tokens issued today, exchanged on first MCP handshake.
+
+Implementation is a thin shell over `src/domain/*` — same code paths the HTTP API and CLI already use. No new state, no new credential model.
+
+### 13.3 In-browser AI tools
+
+The browser extension (§6.4) grows a side-panel chat backed by an LLM, with the canonical store wired in as live context (via §13.2's MCP server, or directly through the Phase-4 React app's existing API client). Use cases:
+
+- **Triage assist.** *"Which v2 comments are addressed by the v2 → v3 diff?"* — the LLM has comment threads + diff in context and proposes a status update per comment that the user accepts/rejects in the reconciliation UI.
+- **Reply drafting.** Selecting a comment opens a panel where the LLM drafts a reply grounded in the surrounding doc text and prior thread; the user edits before posting back as a regular Drive comment.
+- **Author co-review.** Before requesting a review, the author asks the LLM to flag passages likely to draw the same kinds of comments past reviewers left on this project — backed by the cross-version canonical history.
+- **"Explain this comment in context"** for late-joining reviewers: pulls the parent suggestion, the surrounding paragraph, and any cross-version replies into a single summary.
+
+Privacy posture: the LLM only sees what the calling user can already see. Doc body is fetched fresh per turn through Docket's existing `drive.file`-scoped credentials; nothing is sent to the model provider that the user couldn't already export themselves. Provider choice (Claude / OpenAI / local) lives in the extension's settings; default is "ask before sending."
+
+### 13.4 Why this lands well on Docket specifically
+
+Generic LLM-on-Docs integrations exist, but they all start with "paste a doc URL and we'll read it." Docket's edge:
+
+- **Cross-version memory.** Canonical comments persist across forks and versions, so AI tools can reason about "what changed between v1 and v2 *with respect to the open feedback*" — not just text diffs.
+- **Authoritative status.** `canonical_comment.status` is the single source of truth for what's open vs. addressed; LLMs don't have to infer it from prose.
+- **Live data.** The doc-watcher (§5) keeps state fresh within minutes of any edit. AI tools subscribed via §13.1 webhooks see the same updates the human surfaces do.
+- **Anchored context.** Each comment carries quoted text + paragraph hash + structural offset (§9.1), so LLMs can quote the right passage back to the user without guessing.
+
+These also tighten the acceptance bar for the read API and MCP shapes above — both must surface the cross-version, status-aware view that makes the AI integrations differentiated.

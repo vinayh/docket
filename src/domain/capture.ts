@@ -2,11 +2,13 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import {
   canonicalComment,
+  project,
   version,
   type CanonicalCommentKind,
   type CommentAnchor,
 } from "../db/schema.ts";
 import { orphanAnchor } from "./anchor.ts";
+import { userIdByEmail } from "./user.ts";
 
 /**
  * One scraped reply from the Docs discussion sidebar. Sent in batches by the
@@ -75,8 +77,16 @@ const PARENT_KINDS: CanonicalCommentKind[] = [
   "suggestion_delete",
 ];
 
+/**
+ * Ingest a batch of extension-captured replies, scoped to the authenticated
+ * user. Every capture's `docId` is resolved to a version *belonging to a
+ * project owned by `authUserId`* — this prevents one user with an API token
+ * from injecting comments into another user's project just by knowing that
+ * project's Google Doc id.
+ */
 export async function ingestExtensionCaptures(
   captures: CaptureInput[],
+  authUserId: string,
 ): Promise<IngestCapturesResult> {
   const out: IngestCapturesResult = {
     results: [],
@@ -89,7 +99,7 @@ export async function ingestExtensionCaptures(
 
   for (const c of captures) {
     try {
-      const r = await ingestOne(c);
+      const r = await ingestOne(c, authUserId);
       out.results.push(r);
       if (r.status === "inserted") out.inserted++;
       else if (r.status === "duplicate") out.duplicate++;
@@ -108,7 +118,7 @@ export async function ingestExtensionCaptures(
   return out;
 }
 
-async function ingestOne(c: CaptureInput): Promise<CaptureResult> {
+async function ingestOne(c: CaptureInput, authUserId: string): Promise<CaptureResult> {
   if (!c.externalId || !c.docId || !c.body) {
     return {
       externalId: c.externalId,
@@ -117,8 +127,11 @@ async function ingestOne(c: CaptureInput): Promise<CaptureResult> {
     };
   }
 
-  const ver = await pickActiveVersion(c.docId);
+  const ver = await pickActiveVersion(c.docId, authUserId);
   if (!ver) {
+    // Cross-tenant: either no version exists for this doc, or the existing
+    // version belongs to a project the caller doesn't own. Same response
+    // either way — never leak whether some other user is tracking this doc.
     return { externalId: c.externalId, status: "version_unknown" };
   }
 
@@ -144,12 +157,14 @@ async function ingestOne(c: CaptureInput): Promise<CaptureResult> {
   const anchor = parent?.anchor ?? orphanAnchor(c.parentQuotedText ?? "");
   const originTimestamp = resolveTimestamp(c, parent);
 
+  const originUserId = await userIdByEmail(c.authorEmail);
+
   const inserted = await db
     .insert(canonicalComment)
     .values({
       projectId: ver.projectId,
       originVersionId: ver.id,
-      originUserId: null,
+      originUserId,
       originUserEmail: c.authorEmail ?? null,
       originUserDisplayName: c.authorDisplayName ?? null,
       originTimestamp,
@@ -170,18 +185,32 @@ async function ingestOne(c: CaptureInput): Promise<CaptureResult> {
 }
 
 /**
- * Resolve the doc id the extension saw to a version Docket tracks. Prefer the
- * most recent active version pointing at that Google Doc — covers both the
- * parent doc (versions that *are* the parent are not indexed by parentDocId,
- * but if a version has been snapshotted it points at the copy) and forks.
+ * Resolve the doc id the extension saw to a version Docket tracks **owned by
+ * the authenticated user**. Prefer the most recent active version pointing at
+ * that Google Doc — covers both the parent doc (versions that *are* the
+ * parent are not indexed by parentDocId, but if a version has been
+ * snapshotted it points at the copy) and forks.
+ *
+ * Joining `version` to `project` and constraining `project.ownerUserId` is
+ * what enforces tenancy: without it, any user with a valid API token could
+ * inject canonical_comment rows into another user's project simply by
+ * supplying that project's Google Doc id.
  */
 async function pickActiveVersion(
   docId: string,
+  authUserId: string,
 ): Promise<{ id: string; projectId: string } | null> {
   const rows = await db
     .select({ id: version.id, projectId: version.projectId })
     .from(version)
-    .where(and(eq(version.googleDocId, docId), eq(version.status, "active")))
+    .innerJoin(project, eq(project.id, version.projectId))
+    .where(
+      and(
+        eq(version.googleDocId, docId),
+        eq(version.status, "active"),
+        eq(project.ownerUserId, authUserId),
+      ),
+    )
     .orderBy(desc(version.createdAt))
     .limit(1);
   return rows[0] ?? null;

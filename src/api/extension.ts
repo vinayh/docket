@@ -31,7 +31,7 @@ export async function handleCapturesPost(req: Request): Promise<Response> {
     return badRequest(`batch too large: ${captures.length} > ${MAX_BATCH}`);
   }
 
-  const result = await ingestExtensionCaptures(captures);
+  const result = await ingestExtensionCaptures(captures, auth.userId);
   return jsonOk(result);
 }
 
