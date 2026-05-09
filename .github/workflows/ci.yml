@@ -26,6 +26,11 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/lcov.info
+          # `flags: unit` tags this upload so the nightly `integration.yml`
+          # workflow can upload its own report under `flags: integration`.
+          # Codecov merges flagged reports into the project total and lets
+          # you filter the dashboard by flag.
+          flags: unit
           fail_ci_if_error: false
 
   deploy:

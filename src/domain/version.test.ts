@@ -1,5 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { pickNextLabel } from "./version.ts";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { cleanDb, seedProject, seedUser, seedVersion } from "../../test/db.ts";
+import {
+  archiveVersion,
+  getVersion,
+  listVersions,
+  pickNextLabel,
+  requireVersion,
+} from "./version.ts";
 
 describe("pickNextLabel", () => {
   test("empty project starts at v1", () => {
@@ -31,5 +38,42 @@ describe("pickNextLabel", () => {
 
   test("does not match v-prefixed strings with non-digit suffixes", () => {
     expect(pickNextLabel(["v1.0", "v2-rc"])).toBe("v1");
+  });
+});
+
+describe("getVersion / requireVersion / listVersions / archiveVersion", () => {
+  beforeEach(cleanDb);
+
+  test("getVersion returns null for missing rows", async () => {
+    expect(await getVersion(crypto.randomUUID())).toBeNull();
+  });
+
+  test("requireVersion throws with the missing id", async () => {
+    const id = crypto.randomUUID();
+    await expect(requireVersion(id)).rejects.toThrow(new RegExp(id));
+  });
+
+  test("listVersions orders newest-first", async () => {
+    const u = await seedUser();
+    const p = await seedProject({ ownerUserId: u.id });
+    const v1 = await seedVersion({ projectId: p.id, createdByUserId: u.id, label: "v1" });
+    // bun:sqlite stores createdAt as ms — wait one tick to avoid identical
+    // timestamps on fast hardware.
+    await new Promise((r) => setTimeout(r, 5));
+    const v2 = await seedVersion({ projectId: p.id, createdByUserId: u.id, label: "v2" });
+
+    const ordered = await listVersions(p.id);
+    expect(ordered.map((v) => v.id)).toEqual([v2.id, v1.id]);
+  });
+
+  test("archiveVersion flips status to archived", async () => {
+    const u = await seedUser();
+    const p = await seedProject({ ownerUserId: u.id });
+    const v = await seedVersion({ projectId: p.id, createdByUserId: u.id });
+    expect(v.status).toBe("active");
+
+    await archiveVersion(v.id);
+    const after = await requireVersion(v.id);
+    expect(after.status).toBe("archived");
   });
 });

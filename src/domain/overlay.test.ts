@@ -1,5 +1,16 @@
-import { describe, expect, test } from "bun:test";
-import { endOfBodyIndex, flattenPlan, planOverlay } from "./overlay.ts";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { cleanDb, seedProject, seedUser } from "../../test/db.ts";
+import {
+  addOverlayOperation,
+  createOverlay,
+  endOfBodyIndex,
+  flattenPlan,
+  getOverlay,
+  listOverlayOperations,
+  listOverlays,
+  planOverlay,
+  requireOverlay,
+} from "./overlay.ts";
 import type { Document } from "../google/docs.ts";
 import type { OverlayAnchor } from "../db/schema.ts";
 
@@ -163,6 +174,123 @@ describe("planOverlay", () => {
     const plan = planOverlay(ops, doc);
     expect(plan.ops[0]!.status).toBe("skipped");
     expect(plan.ops[0]!.reason).toContain("confidence");
+  });
+
+  test("append with no payload is skipped", () => {
+    const ops = [op({ type: "append", orderIndex: 0, payload: null })];
+    const plan = planOverlay(ops, doc);
+    expect(plan.ops[0]!.status).toBe("skipped");
+    expect(plan.ops[0]!.reason).toBe("empty payload");
+    expect(plan.ops[0]!.requests).toEqual([]);
+  });
+
+  test("insert with empty payload is skipped even when the anchor matches", () => {
+    const ops = [
+      op({
+        type: "insert",
+        orderIndex: 0,
+        anchor: { quotedText: "First paragraph" },
+        payload: "",
+      }),
+    ];
+    const plan = planOverlay(ops, doc);
+    expect(plan.ops[0]!.status).toBe("skipped");
+    expect(plan.ops[0]!.reason).toBe("empty payload");
+  });
+
+  test("replace with empty payload becomes a delete-only request", () => {
+    const ops = [
+      op({
+        type: "replace",
+        orderIndex: 0,
+        anchor: { quotedText: "First paragraph" },
+        payload: "",
+      }),
+    ];
+    const plan = planOverlay(ops, doc);
+    expect(plan.ops[0]!.requests).toHaveLength(1);
+    expect(plan.ops[0]!.requests[0]).toMatchObject({ deleteContentRange: {} });
+  });
+});
+
+describe("overlay CRUD", () => {
+  beforeEach(cleanDb);
+
+  test("createOverlay rejects an unknown projectId", async () => {
+    await expect(
+      createOverlay({ projectId: crypto.randomUUID(), name: "ext-launch" }),
+    ).rejects.toThrow(/project/);
+  });
+
+  test("getOverlay null + requireOverlay throws for missing ids", async () => {
+    expect(await getOverlay(crypto.randomUUID())).toBeNull();
+    const id = crypto.randomUUID();
+    await expect(requireOverlay(id)).rejects.toThrow(new RegExp(id));
+  });
+
+  test("createOverlay round-trips and listOverlays orders newest-first", async () => {
+    const u = await seedUser();
+    const p = await seedProject({ ownerUserId: u.id });
+
+    const ov1 = await createOverlay({ projectId: p.id, name: "first" });
+    await new Promise((r) => setTimeout(r, 5));
+    const ov2 = await createOverlay({ projectId: p.id, name: "second" });
+
+    expect((await getOverlay(ov1.id))?.name).toBe("first");
+    const list = await listOverlays(p.id);
+    expect(list.map((o) => o.id)).toEqual([ov2.id, ov1.id]);
+  });
+
+  test("addOverlayOperation auto-increments orderIndex from -1", async () => {
+    const u = await seedUser();
+    const p = await seedProject({ ownerUserId: u.id });
+    const ov = await createOverlay({ projectId: p.id, name: "ext" });
+
+    const op0 = await addOverlayOperation({
+      overlayId: ov.id,
+      type: "redact",
+      anchor: { quotedText: "alpha" },
+    });
+    const op1 = await addOverlayOperation({
+      overlayId: ov.id,
+      type: "append",
+      anchor: { quotedText: "" },
+      payload: " — fin",
+    });
+    const op2 = await addOverlayOperation({
+      overlayId: ov.id,
+      type: "insert",
+      anchor: { quotedText: "alpha" },
+      payload: " (note)",
+      confidenceThreshold: 90,
+    });
+
+    expect(op0.orderIndex).toBe(0);
+    expect(op1.orderIndex).toBe(1);
+    expect(op2.orderIndex).toBe(2);
+
+    // listOverlayOperations returns ascending orderIndex.
+    const listed = await listOverlayOperations(ov.id);
+    expect(listed.map((o) => o.orderIndex)).toEqual([0, 1, 2]);
+    expect(listed[2]!.confidenceThreshold).toBe(90);
+    expect(listed[1]!.payload).toBe(" — fin");
+  });
+
+  test("addOverlayOperation rejects an unknown overlayId", async () => {
+    await expect(
+      addOverlayOperation({
+        overlayId: crypto.randomUUID(),
+        type: "append",
+        anchor: { quotedText: "" },
+      }),
+    ).rejects.toThrow(/overlay/);
+  });
+
+  test("listOverlayOperations returns [] for an overlay with no ops", async () => {
+    const u = await seedUser();
+    const p = await seedProject({ ownerUserId: u.id });
+    const ov = await createOverlay({ projectId: p.id, name: "empty" });
+    expect(await listOverlayOperations(ov.id)).toEqual([]);
   });
 });
 

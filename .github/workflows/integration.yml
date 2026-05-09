@@ -1,0 +1,45 @@
+name: Integration
+
+# Live-Google integration tests. Runs separately from CI:
+#   - workflow_dispatch: manual trigger from the Actions tab
+#   - schedule: nightly at 07:00 UTC
+# Not gated on every push — Google quotas are per-project, and a Google-side
+# outage shouldn't block unrelated PRs. Codecov merges the report uploaded
+# here (flag: integration) with the unit report from ci.yml (flag: unit) into
+# the project total.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * *"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+
+      - name: Run integration tests with coverage
+        run: bun test test/smoke.integration.test.ts --coverage --coverage-reporter=lcov --coverage-dir=coverage
+        env:
+          GOOGLE_CI_REFRESH_TOKEN: ${{ secrets.GOOGLE_CI_REFRESH_TOKEN }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REDIRECT_URI: http://localhost:8787/oauth/callback
+          DOCKET_MASTER_KEY: ${{ secrets.DOCKET_MASTER_KEY }}
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/lcov.info
+          flags: integration
+          fail_ci_if_error: false

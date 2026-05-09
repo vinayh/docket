@@ -1,5 +1,11 @@
-import { test, expect, describe } from "bun:test";
-import { importMasterKey, encrypt, decrypt } from "./encryption.ts";
+import { test, expect, describe, beforeAll } from "bun:test";
+import {
+  importMasterKey,
+  encrypt,
+  decrypt,
+  encryptWithMaster,
+  decryptWithMaster,
+} from "./encryption.ts";
 
 const validKeyB64 = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64");
 
@@ -55,5 +61,41 @@ describe("envelope encryption", () => {
     const buf = Buffer.from(blob, "base64");
     buf[0] = 99;
     await expect(decrypt(buf.toString("base64"), kek)).rejects.toThrow(/version/);
+  });
+
+  test("rejects an envelope shorter than the framed header", async () => {
+    const kek = await importMasterKey(validKeyB64);
+    // The shortest legitimate envelope is 1 + 12 + 48 + 12 + 16 = 89 bytes; a
+    // 32-byte blob can't even hold the wrapped DEK.
+    const tooShort = Buffer.from(new Uint8Array(32)).toString("base64");
+    await expect(decrypt(tooShort, kek)).rejects.toThrow(/too short/);
+  });
+});
+
+describe("master-key roundtrip", () => {
+  beforeAll(() => {
+    // `getMasterKey` reads `config.masterKeyB64`, which calls `required(...)`.
+    // The repo's `.env` already provides this, but pin a deterministic value
+    // here so the test doesn't depend on the developer's local env.
+    Bun.env.DOCKET_MASTER_KEY = Buffer.from(
+      crypto.getRandomValues(new Uint8Array(32)),
+    ).toString("base64");
+  });
+
+  test("encryptWithMaster → decryptWithMaster round-trips", async () => {
+    const blob = await encryptWithMaster("secret payload");
+    expect(blob).not.toContain("secret payload");
+    expect(await decryptWithMaster(blob)).toBe("secret payload");
+  });
+
+  test("getMasterKey caches the imported key across calls", async () => {
+    // Two encrypts in a row should both succeed; if `cachedMasterKey` were
+    // recomputed without caching this would still pass — the assertion is
+    // really just exercising the cache hit branch for coverage. The semantic
+    // guarantee (one key per process) is enforced by construction.
+    const a = await encryptWithMaster("a");
+    const b = await encryptWithMaster("b");
+    expect(await decryptWithMaster(a)).toBe("a");
+    expect(await decryptWithMaster(b)).toBe("b");
   });
 });

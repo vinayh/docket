@@ -1,0 +1,25 @@
+coverage:
+  status:
+    project:
+      default:
+        # Don't fail the PR check on small drift — codecov is informational,
+        # not a gate. Adjust once the integration suite stabilizes.
+        target: auto
+        threshold: 1%
+
+# Two parallel uploads merge into the project total:
+#   - `unit`: ci.yml on every push/PR (mocked transports + temp-DB)
+#   - `integration`: integration.yml on workflow_dispatch + nightly cron
+#     (live Google APIs)
+# Each flag is filterable from the codecov dashboard.
+flags:
+  unit:
+    paths:
+      - src/
+    carryforward: false
+  integration:
+    paths:
+      - src/
+    # Carry forward keeps the most recent integration coverage visible
+    # between nightly runs (so PR checks aren't penalized for missing it).
+    carryforward: true

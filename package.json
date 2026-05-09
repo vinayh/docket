@@ -8,6 +8,7 @@
     "migrate": "bun src/db/migrate.ts",
     "test": "bun test",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage",
+    "test:integration": "bun test test/smoke.integration.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
