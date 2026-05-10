@@ -66,6 +66,23 @@ describe("getVersion / requireVersion / listVersions / archiveVersion", () => {
     expect(ordered.map((v) => v.id)).toEqual([v2.id, v1.id]);
   });
 
+  test("listVersions returns [] for a project with no versions", async () => {
+    const u = await seedUser();
+    const p = await seedProject({ ownerUserId: u.id });
+    expect(await listVersions(p.id)).toEqual([]);
+  });
+
+  test("listVersions is scoped to its project (no cross-project leak)", async () => {
+    const u = await seedUser();
+    const a = await seedProject({ ownerUserId: u.id });
+    const b = await seedProject({ ownerUserId: u.id });
+    const va = await seedVersion({ projectId: a.id, createdByUserId: u.id, label: "v1" });
+    await seedVersion({ projectId: b.id, createdByUserId: u.id, label: "v1" });
+
+    const inA = await listVersions(a.id);
+    expect(inA.map((v) => v.id)).toEqual([va.id]);
+  });
+
   test("archiveVersion flips status to archived", async () => {
     const u = await seedUser();
     const p = await seedProject({ ownerUserId: u.id });

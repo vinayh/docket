@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { cleanDb, seedProject, seedUser } from "../../test/db.ts";
+import {
+  cleanDb,
+  seedDerivative,
+  seedOverlay,
+  seedProject,
+  seedUser,
+  seedVersion,
+} from "../../test/db.ts";
 import {
   addOverlayOperation,
   createOverlay,
   endOfBodyIndex,
   flattenPlan,
   getOverlay,
+  listDerivatives,
   listOverlayOperations,
   listOverlays,
   planOverlay,
@@ -291,6 +299,54 @@ describe("overlay CRUD", () => {
     const p = await seedProject({ ownerUserId: u.id });
     const ov = await createOverlay({ projectId: p.id, name: "empty" });
     expect(await listOverlayOperations(ov.id)).toEqual([]);
+  });
+});
+
+describe("listDerivatives", () => {
+  beforeEach(cleanDb);
+
+  test("empty project → empty array", async () => {
+    const u = await seedUser();
+    const p = await seedProject({ ownerUserId: u.id });
+    expect(await listDerivatives(p.id)).toEqual([]);
+  });
+
+  test("orders newest-first and is scoped to its project", async () => {
+    const u = await seedUser();
+    const a = await seedProject({ ownerUserId: u.id });
+    const b = await seedProject({ ownerUserId: u.id });
+    const vA = await seedVersion({ projectId: a.id, createdByUserId: u.id });
+    const vB = await seedVersion({ projectId: b.id, createdByUserId: u.id });
+    const ovA = await seedOverlay({ projectId: a.id });
+    const ovB = await seedOverlay({ projectId: b.id });
+
+    const d1 = await seedDerivative({
+      projectId: a.id,
+      versionId: vA.id,
+      overlayId: ovA.id,
+      audienceLabel: "first",
+    });
+    // bun:sqlite stores createdAt as ms — wait a tick so the order test is
+    // stable on fast hardware.
+    await new Promise((r) => setTimeout(r, 5));
+    const d2 = await seedDerivative({
+      projectId: a.id,
+      versionId: vA.id,
+      overlayId: ovA.id,
+      audienceLabel: "second",
+    });
+
+    // Wrong-project derivative — must not leak in.
+    await seedDerivative({
+      projectId: b.id,
+      versionId: vB.id,
+      overlayId: ovB.id,
+      audienceLabel: "other-project",
+    });
+
+    const list = await listDerivatives(a.id);
+    expect(list.map((d) => d.id)).toEqual([d2.id, d1.id]);
+    expect(list.map((d) => d.audienceLabel)).toEqual(["second", "first"]);
   });
 });
 

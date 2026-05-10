@@ -6,6 +6,7 @@ import {
   listAllProjects,
   listProjectsForOwner,
   requireProject,
+  tokenProviderForProject,
 } from "./project.ts";
 
 beforeEach(cleanDb);
@@ -49,6 +50,23 @@ describe("listProjectsForOwner / listAllProjects", () => {
 
     const all = await listAllProjects();
     expect(all).toHaveLength(3);
+  });
+});
+
+describe("tokenProviderForProject", () => {
+  test("throws when the project doesn't exist", async () => {
+    const id = crypto.randomUUID();
+    await expect(tokenProviderForProject(id)).rejects.toThrow(new RegExp(id));
+  });
+
+  test("returns a TokenProvider scoped to the project's owner without hitting Drive", async () => {
+    // We never call `getAccessToken` here — the contract is just "build a
+    // TokenProvider for the owner." Refresh-on-401 + `loadRefreshToken`
+    // belong to `tokenProviderForUser`'s own tests.
+    const u = await seedUser();
+    const p = await seedProject({ ownerUserId: u.id });
+    const tp = await tokenProviderForProject(p.id);
+    expect(typeof tp.getAccessToken).toBe("function");
   });
 });
 
