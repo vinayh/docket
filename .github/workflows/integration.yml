@@ -1,4 +1,4 @@
-name: Integration
+name: app
 
 # Live-Google integration tests. Runs separately from CI:
 #   - workflow_dispatch: manual trigger from the Actions tab
@@ -17,7 +17,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  integration:
+  integration-with-live-google:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
