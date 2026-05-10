@@ -6,29 +6,7 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <header>
-      <strong>Docket</strong>
-      <button id="open-options" type="button">Options</button>
-    </header>
-    <main id="main">
-      <p class="muted" id="initial">Loading…</p>
-    </main>
-    <iframe
-      id="picker-frame"
-      title="Drive Picker"
-      hidden
-    ></iframe>
-    <details id="diagnostics">
-      <summary>Diagnostics</summary>
-      <p id="connection" class="muted">checking…</p>
-      <dl>
-        <dt>Queued captures</dt>
-        <dd id="queue">—</dd>
-        <dt>Last error</dt>
-        <dd id="last-error">—</dd>
-      </dl>
-      <button id="flush" type="button">Flush queue now</button>
-    </details>
-    <script type="module" src="./main.ts"></script>
+    <div id="app"></div>
+    <script type="module" src="./main.tsx"></script>
   </body>
 </html>

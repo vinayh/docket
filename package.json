@@ -18,6 +18,7 @@
     "ext:zip:firefox": "cd surfaces/extension && wxt zip -b firefox"
   },
   "devDependencies": {
+    "@preact/preset-vite": "^2.10.5",
     "@types/bun": "latest",
     "@types/chrome": "^0.1.42",
     "@types/diff": "^8.0.0",
@@ -28,7 +29,9 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@preact/signals": "^2.9.0",
     "diff": "^9.0.0",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "preact": "^10.29.1"
   }
 }

@@ -1,4 +1,5 @@
 import { defineConfig } from "wxt";
+import preact from "@preact/preset-vite";
 
 /**
  * WXT config. Replaces the hand-rolled `build.ts` + dual `manifest.*.json`
@@ -16,6 +17,13 @@ export default defineConfig({
   // Default is `.output/`, but Finder + the Chrome "Load Unpacked" picker
   // hide leading-dot dirs.
   outDir: "dist",
+  // Preact powers the popup only (see entrypoints/popup/). Options, SW,
+  // content script, and the picker sandbox stay plain TS — the preset is
+  // a Vite plugin so it applies repo-wide, but only popup files import
+  // anything Preact-shaped, so the others are unaffected.
+  vite: () => ({
+    plugins: [preact()],
+  }),
   manifest: ({ browser }) => ({
     name: "Docket",
     short_name: "Docket",
