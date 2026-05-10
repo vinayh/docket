@@ -270,7 +270,7 @@ async function openSandboxedPicker(tab: ActiveDocTab): Promise<void> {
   if (!cfg) {
     renderError(
       tab,
-      "Picker is not configured on the backend (GOOGLE_API_KEY / GOOGLE_PROJECT_NUMBER missing).",
+      "Picker is not configured on the backend (GOOGLE_CLIENT_ID / GOOGLE_API_KEY / GOOGLE_PROJECT_NUMBER missing).",
     );
     return;
   }
@@ -359,14 +359,18 @@ function iframeLoaded(frame: HTMLIFrameElement): Promise<void> {
   });
 }
 
-async function completeRegistration(docId: string, _name: string): Promise<void> {
+async function completeRegistration(docId: string, name: string): Promise<void> {
   const tab = pickerCurrentTab;
   if (!tab) return;
   pickerFrame.hidden = true;
   setPickerStatus("");
   main.replaceChildren();
+  // Prefer the doc name returned by the Picker — that's what the user just
+  // clicked. `tab.title` is the originally-open Docs tab, which can differ
+  // if they picked something other than the doc they had open.
+  const heading = name || tab.title || "Google Doc";
   main.append(
-    titleEl(tab.title || "Google Doc"),
+    titleEl(heading),
     el("p", { class: "muted" }, "Registering with Docket…"),
   );
 

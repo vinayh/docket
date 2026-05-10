@@ -105,9 +105,12 @@ function send(msg: Outbound): void {
 function maybeReady(): void {
   if (gapiReady && gsiReady && !initialized) {
     initialized = true;
+    cancelDeadline();
     send({ type: "ready" });
   }
 }
+
+const SCRIPT_LOAD_DEADLINE_MS = 10_000;
 
 const gapiCheck = setInterval(() => {
   if (window.gapi) {
@@ -125,6 +128,21 @@ const gsiCheck = setInterval(() => {
     maybeReady();
   }
 }, 100);
+
+// Without this, a CSP block / network failure / ad-blocker on
+// apis.google.com or accounts.google.com would leave the iframe polling
+// forever and the popup stuck on "Loading Picker…" with no retry path.
+const loadDeadline = setTimeout(() => {
+  if (gapiReady && gsiReady) return;
+  clearInterval(gapiCheck);
+  clearInterval(gsiCheck);
+  const missing = [!gapiReady && "gapi", !gsiReady && "gsi"].filter(Boolean).join("+");
+  send({ type: "error", message: `picker scripts failed to load (${missing})` });
+}, SCRIPT_LOAD_DEADLINE_MS);
+
+function cancelDeadline(): void {
+  clearTimeout(loadDeadline);
+}
 
 window.addEventListener("message", (ev: MessageEvent<Inbound>) => {
   const data = ev.data;

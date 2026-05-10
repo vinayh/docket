@@ -27,9 +27,7 @@ export type Message =
 /**
  * Each response carries the same `kind` as its request so callers can route
  * cleanly. `error` is optional on every variant: if set, treat the rest of
- * the fields as undefined/unreliable. Pre-fix, the listener fell back to a
- * `kind: "queue/peek"` shape on every error regardless of the original
- * kind, which mis-routed errors for `settings/set` and `capture/submit`.
+ * the fields as undefined/unreliable.
  */
 export type MessageResponse =
   | { kind: "capture/submit"; queuedCount: number; error?: string }

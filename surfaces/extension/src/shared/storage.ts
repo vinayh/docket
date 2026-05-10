@@ -102,7 +102,7 @@ export async function setQueue(q: QueuedCapture[]): Promise<void> {
 function isQuotaExceeded(err: unknown): boolean {
   if (!err) return false;
   const message = err instanceof Error ? err.message : String(err);
-  return /QUOTA|quota/i.test(message);
+  return /quota/i.test(message);
 }
 
 /**

@@ -1,12 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { cleanDb, seedProject, seedUser } from "../../test/db.ts";
+import { issueApiToken } from "../auth/api-token.ts";
 import { handleDocSyncPost } from "./doc-sync.ts";
 
 /**
- * Format-level paths only: the auth check fires before the DB lookup, and
- * `readDocId` validates the body before hitting domain code. The success
- * path requires a live Drive token, which the unit test environment
- * doesn't have — that's exercised through the CLI / smoke commands.
+ * Auth + the no-version short-circuit are unit-testable without a Drive
+ * stub. The full "ingest then re-fetch" success path needs a live Drive
+ * token (or a fake `ingestVersionComments`) and is exercised through the
+ * CLI / smoke commands.
  */
+
+beforeEach(cleanDb);
 
 function postSync(body: unknown, opts?: { auth?: string }): Request {
   const headers = new Headers({ "content-type": "application/json" });
@@ -29,5 +33,38 @@ describe("handleDocSyncPost", () => {
       postSync({ docId: "abc" }, { auth: "Bearer not-a-docket-token" }),
     );
     expect(res.status).toBe(401);
+  });
+
+  test("returns the unchanged tracked-but-no-version state without calling ingest", async () => {
+    // A project exists for this doc but no version row yet — doc-sync should
+    // 200 with the current state and skip `ingestVersionComments` entirely
+    // (otherwise it'd try to hit Drive without a token and fail).
+    const u = await seedUser();
+    await seedProject({ ownerUserId: u.id, parentDocId: "doc-no-version" });
+    const { token } = await issueApiToken({ userId: u.id });
+
+    const res = await handleDocSyncPost(
+      postSync({ docId: "doc-no-version" }, { auth: `Bearer ${token}` }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      tracked: true;
+      version: unknown;
+      docId: string;
+    };
+    expect(body.tracked).toBe(true);
+    expect(body.version).toBeNull();
+    expect(body.docId).toBe("doc-no-version");
+  });
+
+  test("returns tracked:false for an unknown doc without invoking ingest", async () => {
+    const u = await seedUser();
+    const { token } = await issueApiToken({ userId: u.id });
+    const res = await handleDocSyncPost(
+      postSync({ docId: "doc-not-tracked" }, { auth: `Bearer ${token}` }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { tracked: boolean };
+    expect(body.tracked).toBe(false);
   });
 });

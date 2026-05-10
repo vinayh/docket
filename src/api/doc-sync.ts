@@ -1,9 +1,4 @@
-import {
-  authenticateBearer,
-  internalError,
-  jsonOk,
-  unauthorized,
-} from "./middleware.ts";
+import { authenticateBearer, jsonOk, unauthorized } from "./middleware.ts";
 import { readDocId } from "./doc-state.ts";
 import { getDocState } from "../domain/doc-state.ts";
 import { ingestVersionComments } from "../domain/comments.ts";
@@ -35,14 +30,11 @@ export async function handleDocSyncPost(req: Request): Promise<Response> {
     return jsonOk(before);
   }
 
-  try {
-    await ingestVersionComments(before.version.id);
-  } catch (err) {
-    return internalError(err instanceof Error ? err.message : String(err));
-  }
-
-  // Re-fetch state after ingest so the popup can reflect updated counts and
-  // lastSyncedAt without a second round-trip.
+  // Domain errors here (Drive 5xx, missing credentials) propagate to
+  // `corsRoute`'s wrapper, which renders them as a structured 500. Re-fetch
+  // state after a successful ingest so the popup reflects updated counts
+  // and lastSyncedAt without a second round-trip.
+  await ingestVersionComments(before.version.id);
   const after = await getDocState({ docId, userId: auth.userId });
   return jsonOk(after);
 }

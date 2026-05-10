@@ -1,7 +1,6 @@
 import {
   authenticateBearer,
   badRequest,
-  internalError,
   jsonOk,
   unauthorized,
 } from "./middleware.ts";
@@ -20,7 +19,9 @@ const MAX_FIELD_LEN = 4 * 1024;
  * Request:  { docUrlOrId: string }
  * Success:  200 { projectId, parentDocId }
  * Conflict: 409 { error: "already_exists", projectId, parentDocId }
- *           when the doc is already registered (regardless of which user owns it)
+ *           when the caller already owns a project for this doc. Cross-owner
+ *           collisions are intentionally not surfaced — uniqueness is scoped
+ *           per-owner, mirroring `getDocState`'s tenant isolation.
  */
 export async function handleRegisterDocPost(req: Request): Promise<Response> {
   const auth = await authenticateBearer(req);
@@ -46,6 +47,9 @@ export async function handleRegisterDocPost(req: Request): Promise<Response> {
     return badRequest("expected { docUrlOrId: string }");
   }
 
+  // Catch only the domain exception that maps to a non-500 status. Other
+  // errors (Drive 5xx, missing credentials, schema violations) propagate
+  // to `corsRoute`'s wrapper, which renders them as a structured 500.
   try {
     const project = await createProject({
       ownerUserId: auth.userId,
@@ -66,6 +70,6 @@ export async function handleRegisterDocPost(req: Request): Promise<Response> {
         { status: 409, headers: { "content-type": "application/json" } },
       );
     }
-    return internalError(err instanceof Error ? err.message : String(err));
+    throw err;
   }
 }

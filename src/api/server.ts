@@ -7,6 +7,7 @@ import { handlePickerConfig } from "./picker-config.ts";
 import { handleRegisterDocPost } from "./picker-register.ts";
 import { handleDriveWebhook } from "./drive-webhook.ts";
 import { preflight, withCors } from "./cors.ts";
+import { internalError } from "./middleware.ts";
 
 export interface ServeOptions {
   port?: number;
@@ -17,10 +18,14 @@ type Handler = (req: Request) => Response | Promise<Response>;
 type MethodHandlers = Partial<Record<"GET" | "POST" | "OPTIONS", Handler>>;
 
 /**
- * Wrap a method-keyed route table with CORS handling: every supplied
- * handler's response gets `Access-Control-Allow-*` headers stamped on, and
- * an `OPTIONS` preflight handler is auto-injected. Use for routes hit
- * cross-origin (the extension's service worker, the options page).
+ * Wrap a method-keyed route table with CORS handling and a uniform error
+ * response: every supplied handler's response gets `Access-Control-Allow-*`
+ * headers stamped on, an `OPTIONS` preflight handler is auto-injected, and
+ * any thrown error becomes a structured `internalError` JSON response with
+ * CORS headers preserved. Routes registered with `corsRoute` therefore
+ * never need their own catch-all try/catch; they catch only domain
+ * exceptions that demand a non-500 mapping (e.g. `DuplicateProjectError`
+ * → 409).
  */
 function corsRoute(handlers: MethodHandlers): MethodHandlers {
   const out: MethodHandlers = { OPTIONS: preflight };
@@ -28,7 +33,16 @@ function corsRoute(handlers: MethodHandlers): MethodHandlers {
     keyof MethodHandlers,
     Handler,
   ][]) {
-    out[method] = async (req: Request) => withCors(req, await handler(req));
+    out[method] = async (req: Request) => {
+      let res: Response;
+      try {
+        res = await handler(req);
+      } catch (err) {
+        console.error(`[${method} ${new URL(req.url).pathname}] error:`, err);
+        res = internalError(err instanceof Error ? err.message : String(err));
+      }
+      return withCors(req, res);
+    };
   }
   return out;
 }

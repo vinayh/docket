@@ -48,9 +48,7 @@ ext.runtime.onMessage.addListener(
         console.error("[docket] message handler:", err);
         const msg = err instanceof Error ? err.message : String(err);
         // Echo the original kind so callers route the error to the same
-        // discriminant arm they were waiting on. Pre-fix this always
-        // returned a "queue/peek" shape, which mis-routed for every other
-        // message kind.
+        // discriminant arm they were waiting on.
         sendResponse(errorResponseFor(message, msg));
       });
     return true; // keep the message channel open for the async response
@@ -238,19 +236,19 @@ async function flushQueueInner(): Promise<
 }
 
 /**
- * Apply per-item flush dispositions back to the queue without clobbering
- * captures that arrived during the network round-trip.
+ * Apply per-item flush dispositions back to the queue. Re-reads the queue
+ * post-network and rebuilds it by externalId: items in `head` that were
+ * acked are dropped, items that failed get attempts++, items not in `head`
+ * (newly enqueued during the network round-trip) are preserved.
  *
- * Pre-fix, flush snapshotted `tail = queue.slice(FLUSH_BATCH)` *before* the
- * await on `postCaptures`, then wrote `[...requeue, ...tail]` afterwards. Any
- * `enqueue` call landing in between (which writes the queue itself) was
- * silently overwritten by the trailing setQueue. The `inflightFlush` lock
- * only serialized flush↔flush, never flush↔enqueue.
- *
- * The fix: re-read the queue *after* the network call and rebuild it by
- * externalId — items in `head` that were acked are dropped; items that
- * failed get attempts++; everything else (including items appended during
- * the await) is preserved as-is.
+ * Note: this is not fully race-free. `inflightFlush` serializes
+ * flush↔flush, but a concurrent `enqueue` can still interleave its own
+ * `getQueue → setQueue` between this function's read and write, in which
+ * case the trailing `setQueue` would overwrite the enqueue's append. In
+ * practice `chrome.storage.local` operations land sequentially enough that
+ * this is rare, but the only durable fix is a single in-memory mutex
+ * covering all queue mutations. Acceptable trade-off for now: the loss
+ * shows up as a missed capture, which the next scan re-emits.
  *
  * Returns the count of items dropped past MAX_ATTEMPTS so the caller can
  * include it in the user-visible summary.
@@ -311,27 +309,46 @@ async function reconcileQueue(
   return dropped;
 }
 
-async function postCaptures(
+/**
+ * Authenticated POST helper. One place for: URL build, auth header,
+ * friendly 401/403 message, body-prefix-on-error, JSON parse. Every SW
+ * fetch wrapper that authenticates with the user's API token routes
+ * through here so a single missing/expired token yields the same prompt
+ * everywhere.
+ */
+async function postJson<T>(
+  path: string,
+  body: unknown,
   settings: Settings,
-  captures: CaptureInput[],
-): Promise<IngestCapturesResult> {
-  const url = new URL("/api/extension/captures", settings.backendUrl).toString();
+): Promise<T> {
+  const url = new URL(path, settings.backendUrl).toString();
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${settings.apiToken}`,
     },
-    body: JSON.stringify({ captures }),
+    body: JSON.stringify(body),
   });
   if (res.status === 401 || res.status === 403) {
-    throw new Error(`auth rejected (${res.status}) — check your API token`);
+    throw new Error("API token rejected — issue a new one");
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`backend ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`${path} ${res.status}: ${text.slice(0, 200)}`);
   }
-  return (await res.json()) as IngestCapturesResult;
+  return (await res.json()) as T;
+}
+
+function postCaptures(
+  settings: Settings,
+  captures: CaptureInput[],
+): Promise<IngestCapturesResult> {
+  return postJson<IngestCapturesResult>(
+    "/api/extension/captures",
+    { captures },
+    settings,
+  );
 }
 
 /**
@@ -343,39 +360,13 @@ async function postCaptures(
 async function fetchDocState(docId: string): Promise<DocState | null> {
   const settings = await getSettings();
   if (!settings) return null;
-  const url = new URL("/api/extension/doc-state", settings.backendUrl).toString();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${settings.apiToken}`,
-    },
-    body: JSON.stringify({ docId }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`doc-state ${res.status}: ${text.slice(0, 200)}`);
-  }
-  return (await res.json()) as DocState;
+  return postJson<DocState>("/api/extension/doc-state", { docId }, settings);
 }
 
 async function runDocSync(docId: string): Promise<DocState | null> {
   const settings = await getSettings();
   if (!settings) return null;
-  const url = new URL("/api/extension/doc-sync", settings.backendUrl).toString();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${settings.apiToken}`,
-    },
-    body: JSON.stringify({ docId }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`doc-sync ${res.status}: ${text.slice(0, 200)}`);
-  }
-  return (await res.json()) as DocState;
+  return postJson<DocState>("/api/extension/doc-sync", { docId }, settings);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { project, type ProjectSettings } from "../db/schema.ts";
 import { tokenProviderForUser } from "../auth/credentials.ts";
@@ -36,7 +36,12 @@ export async function createProject(opts: {
   const existing = await db
     .select()
     .from(project)
-    .where(eq(project.parentDocId, parentDocId))
+    .where(
+      and(
+        eq(project.parentDocId, parentDocId),
+        eq(project.ownerUserId, opts.ownerUserId),
+      ),
+    )
     .limit(1);
   if (existing[0]) {
     throw new DuplicateProjectError(existing[0].id, parentDocId);
