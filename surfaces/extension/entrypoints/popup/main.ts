@@ -1,13 +1,13 @@
-import { ext } from "../shared/browser.ts";
-import type { Message, MessageResponse } from "../shared/messages.ts";
-import { parseDocIdFromUrl } from "../content/ids.ts";
-import { getDocTitle } from "../shared/storage.ts";
+import { browser } from "wxt/browser";
+import type { Message, MessageResponse } from "../../utils/messages.ts";
+import { parseDocIdFromUrl } from "../../utils/ids.ts";
+import { getDocTitle } from "../../utils/storage.ts";
 import type {
   DocState,
   PickerConfig,
   RegisterDocResult,
   Settings,
-} from "../shared/types.ts";
+} from "../../utils/types.ts";
 
 /**
  * Popup state machine. Three primary states for the active doc — untracked,
@@ -40,7 +40,7 @@ interface ActiveDocTab {
 void boot();
 
 openOptionsBtn.addEventListener("click", () => {
-  ext.runtime.openOptionsPage();
+  browser.runtime.openOptionsPage();
 });
 
 flushBtn.addEventListener("click", async () => {
@@ -78,7 +78,7 @@ async function getSettings(): Promise<Settings | null> {
 }
 
 async function getActiveDocTab(): Promise<ActiveDocTab | null> {
-  const tabs = await ext.tabs.query({ active: true, currentWindow: true });
+  const tabs = await browser.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
   if (!tab?.url) return null;
   const docId = parseDocIdFromUrl(tab.url);
@@ -134,7 +134,7 @@ function renderNoSettings(): void {
   main.replaceChildren();
   const open = button("Open Options", {
     primary: true,
-    onClick: () => ext.runtime.openOptionsPage(),
+    onClick: () => browser.runtime.openOptionsPage(),
   });
   main.append(
     el("p", { class: "muted" }, "Configure your Docket backend URL and API token to get started."),
@@ -260,7 +260,7 @@ async function openBackendPickerTab(tab: ActiveDocTab): Promise<void> {
   });
   if (tab.title) params.set("suggestedTitle", tab.title);
   const base = settings.backendUrl.replace(/\/+$/, "");
-  await ext.tabs.create({ url: `${base}/picker#${params.toString()}` });
+  await browser.tabs.create({ url: `${base}/picker#${params.toString()}` });
   window.close();
 }
 
@@ -442,7 +442,7 @@ async function probeBackend(backendUrl: string): Promise<void> {
 }
 
 function sendMessage(msg: Message): Promise<MessageResponse | undefined> {
-  return ext.runtime.sendMessage(msg) as Promise<MessageResponse | undefined>;
+  return browser.runtime.sendMessage(msg) as Promise<MessageResponse | undefined>;
 }
 
 function el(

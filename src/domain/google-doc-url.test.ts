@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { parseGoogleDocId, googleDocUrl } from "./google-doc-url.ts";
-import { parseDocIdFromUrl } from "../../surfaces/extension/src/content/ids.ts";
+import { parseDocIdFromUrl } from "../../surfaces/extension/utils/ids.ts";
 
 describe("parseGoogleDocId", () => {
   test("extracts id from a standard edit URL", () => {

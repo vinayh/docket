@@ -1,4 +1,4 @@
-import { ext } from "./browser.ts";
+import { browser } from "wxt/browser";
 import type { CaptureInput, Settings } from "./types.ts";
 
 /**
@@ -37,12 +37,12 @@ export interface QueuedCapture {
 }
 
 async function get<T>(key: string): Promise<T | undefined> {
-  const out = await ext.storage.local.get(key);
+  const out = await browser.storage.local.get(key);
   return out[key] as T | undefined;
 }
 
 async function set<T>(key: string, value: T): Promise<void> {
-  await ext.storage.local.set({ [key]: value });
+  await browser.storage.local.set({ [key]: value });
 }
 
 export async function getSettings(): Promise<Settings | null> {

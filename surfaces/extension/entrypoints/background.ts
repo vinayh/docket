@@ -1,5 +1,6 @@
-import { ext } from "../shared/browser.ts";
-import type { Message, MessageResponse } from "../shared/messages.ts";
+import { defineBackground } from "wxt/utils/define-background";
+import { browser } from "wxt/browser";
+import type { Message, MessageResponse } from "../utils/messages.ts";
 import {
   appendToQueue,
   filterUnseen,
@@ -13,7 +14,7 @@ import {
   setQueue,
   setSettings,
   type QueuedCapture,
-} from "../shared/storage.ts";
+} from "../utils/storage.ts";
 import type {
   CaptureInput,
   CaptureResult,
@@ -22,7 +23,7 @@ import type {
   PickerConfig,
   RegisterDocResult,
   Settings,
-} from "../shared/types.ts";
+} from "../utils/types.ts";
 
 /**
  * MV3 service worker. Three concerns:
@@ -40,20 +41,40 @@ const FLUSH_BATCH = 25;
 const FLUSH_ALARM = "docket-flush";
 const FLUSH_ALARM_PERIOD_MIN = 1; // every minute when there's queued work
 
-ext.runtime.onMessage.addListener(
-  (message: Message, _sender, sendResponse: (r: MessageResponse) => void) => {
-    void handleMessage(message)
-      .then(sendResponse)
-      .catch((err) => {
-        console.error("[docket] message handler:", err);
-        const msg = err instanceof Error ? err.message : String(err);
-        // Echo the original kind so callers route the error to the same
-        // discriminant arm they were waiting on.
-        sendResponse(errorResponseFor(message, msg));
-      });
-    return true; // keep the message channel open for the async response
-  },
-);
+export default defineBackground(() => {
+  browser.runtime.onMessage.addListener(
+    (message: Message, _sender, sendResponse: (r: MessageResponse) => void) => {
+      void handleMessage(message)
+        .then(sendResponse)
+        .catch((err) => {
+          console.error("[docket] message handler:", err);
+          const msg = err instanceof Error ? err.message : String(err);
+          // Echo the original kind so callers route the error to the same
+          // discriminant arm they were waiting on.
+          sendResponse(errorResponseFor(message, msg));
+        });
+      return true; // keep the message channel open for the async response
+    },
+  );
+
+  browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === FLUSH_ALARM) void flushQueue();
+  });
+
+  browser.runtime.onStartup.addListener(() => {
+    void ensureFlushAlarm();
+    void flushQueue();
+  });
+
+  browser.runtime.onInstalled.addListener(() => {
+    void ensureFlushAlarm();
+  });
+
+  // Eagerly start the alarm — the onInstalled listener doesn't fire on plain
+  // service-worker spin-ups, only on extension install / update.
+  void ensureFlushAlarm();
+  void getSeenIds(); // touch storage to confirm permissions early
+});
 
 function errorResponseFor(message: Message, error: string): MessageResponse {
   switch (message.kind) {
@@ -77,19 +98,6 @@ function errorResponseFor(message: Message, error: string): MessageResponse {
       return { kind: "picker/config", config: null, error };
   }
 }
-
-ext.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === FLUSH_ALARM) void flushQueue();
-});
-
-ext.runtime.onStartup.addListener(() => {
-  void ensureFlushAlarm();
-  void flushQueue();
-});
-
-ext.runtime.onInstalled.addListener(() => {
-  void ensureFlushAlarm();
-});
 
 async function handleMessage(message: Message): Promise<MessageResponse> {
   switch (message.kind) {
@@ -160,9 +168,9 @@ async function enqueue(captures: CaptureInput[]): Promise<number> {
 }
 
 async function ensureFlushAlarm(): Promise<void> {
-  const existing = await ext.alarms.get(FLUSH_ALARM);
+  const existing = await browser.alarms.get(FLUSH_ALARM);
   if (!existing) {
-    await ext.alarms.create(FLUSH_ALARM, { periodInMinutes: FLUSH_ALARM_PERIOD_MIN });
+    await browser.alarms.create(FLUSH_ALARM, { periodInMinutes: FLUSH_ALARM_PERIOD_MIN });
   }
 }
 
@@ -462,7 +470,3 @@ function summarizeAfterFlush(
   return parts.length === 0 ? null : parts.join("; ");
 }
 
-// Eagerly start the alarm — the onInstalled listener doesn't fire on plain
-// service-worker spin-ups, only on extension install / update.
-void ensureFlushAlarm();
-void getSeenIds(); // touch storage to confirm permissions early

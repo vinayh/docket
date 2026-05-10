@@ -1,8 +1,15 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable", "WebWorker"],
-    "types": ["chrome", "bun"]
+    "allowImportingTsExtensions": true,
+    "noEmit": true
   },
-  "include": ["src/**/*", "build.ts"]
+  "include": [
+    ".wxt/wxt.d.ts",
+    "wxt.config.ts",
+    "entrypoints/**/*",
+    "utils/**/*",
+    "components/**/*"
+  ]
 }

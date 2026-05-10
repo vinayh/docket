@@ -1,6 +1,6 @@
-import { ext } from "../shared/browser.ts";
-import type { Message, MessageResponse } from "../shared/messages.ts";
-import { DEFAULT_BACKEND_URL, type Settings } from "../shared/types.ts";
+import { browser } from "wxt/browser";
+import type { Message, MessageResponse } from "../../utils/messages.ts";
+import { DEFAULT_BACKEND_URL, type Settings } from "../../utils/types.ts";
 
 const form = document.getElementById("form") as HTMLFormElement;
 const backendUrl = document.getElementById("backendUrl") as HTMLInputElement;
@@ -11,7 +11,7 @@ const status = document.getElementById("status") as HTMLParagraphElement;
 void hydrate();
 
 async function hydrate(): Promise<void> {
-  const r = (await ext.runtime.sendMessage({ kind: "settings/get" } satisfies Message)) as
+  const r = (await browser.runtime.sendMessage({ kind: "settings/get" } satisfies Message)) as
     | MessageResponse
     | undefined;
   if (r?.kind === "settings/get" && r.settings) {
@@ -35,10 +35,10 @@ form.addEventListener("submit", async (ev) => {
   const perm = await ensureBackendOrigin(settings.backendUrl);
   if (!perm.ok) {
     setStatus(`Saved settings, but ${perm.reason} — the SW can't reach this backend until you grant access.`, "error");
-    await ext.runtime.sendMessage({ kind: "settings/set", settings } satisfies Message);
+    await browser.runtime.sendMessage({ kind: "settings/set", settings } satisfies Message);
     return;
   }
-  await ext.runtime.sendMessage({ kind: "settings/set", settings } satisfies Message);
+  await browser.runtime.sendMessage({ kind: "settings/set", settings } satisfies Message);
   setStatus("Saved.", "ok");
 });
 
@@ -83,9 +83,9 @@ async function ensureBackendOrigin(
   } catch {
     return { ok: false, reason: "invalid backend URL" };
   }
-  const has = await ext.permissions.contains({ origins: [pattern] });
+  const has = await browser.permissions.contains({ origins: [pattern] });
   if (has) return { ok: true };
-  const granted = await ext.permissions.request({ origins: [pattern] });
+  const granted = await browser.permissions.request({ origins: [pattern] });
   if (!granted) return { ok: false, reason: `permission denied for ${pattern}` };
   return { ok: true };
 }

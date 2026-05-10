@@ -20,19 +20,24 @@ markers, selection capture) lands in Phase 6.
 
 ## Build
 
+[WXT](https://wxt.dev) drives the build (Vite under the hood). Scripts live
+in the repo root `package.json`:
+
 ```sh
-bun run surfaces/extension/build.ts                    # both targets
-bun run surfaces/extension/build.ts --target=chromium  # one target
-bun run surfaces/extension/build.ts --watch            # rebuild on change
+bun run ext:build              # production build, Chrome/Edge target
+bun run ext:build:firefox      # production build, Firefox target
+bun run ext:dev                # dev server with HMR (Chrome/Edge)
+bun run ext:dev:firefox        # dev server with HMR (Firefox)
+bun run ext:zip                # bundle dist/<target>/ into a publishable .zip
 ```
 
-Outputs to `surfaces/extension/dist/{chromium,firefox}/`. Each dist directory
-is loadable directly:
+Outputs to `surfaces/extension/dist/{chrome-mv3,firefox-mv3}//`. Each
+output directory is loadable directly:
 
 - **Chrome / Edge:** `chrome://extensions` → enable Developer Mode → Load
-  unpacked → pick `dist/chromium`.
+  unpacked → pick `dist/chrome-mv3`.
 - **Firefox:** `about:debugging#/runtime/this-firefox` → Load Temporary
-  Add-on → pick any file inside `dist/firefox` (e.g. `manifest.json`).
+  Add-on → pick any file inside `dist/firefox-mv3` (e.g. `manifest.json`).
 
 ## Configure
 
@@ -57,7 +62,7 @@ for the 1-min alarm.
 
 ## How "Track this doc" works
 
-The popup (`src/popup/popup.ts`) calls `chrome.tabs.query` for the active
+The popup (`entrypoints/popup/main.ts`) calls `chrome.tabs.query` for the active
 tab. If the URL matches `docs.google.com/document/d/<id>`, it shows the
 **Track this doc** row labeled with the doc's actual name (from the title
 cache, see below). Clicking opens
@@ -67,15 +72,15 @@ user picks the file. No `tabs` permission is needed because the manifest's
 `host_permissions: ["https://docs.google.com/*"]` already covers Docs tabs.
 
 The doc title comes from the **title cache** populated by the content
-script. Each scan calls `setDocTitle(docId, name)` (`shared/storage.ts`)
+script. Each scan calls `setDocTitle(docId, name)` (`utils/storage.ts`)
 with the value read from the title input — see `DOC_NAME_SELECTORS` in
-`docs-content.ts`. We don't use `tab.title` because Chrome localizes it
+`entrypoints/docs.content/index.ts`. We don't use `tab.title` because Chrome localizes it
 (e.g. "<name> - Google Docs", or its translation), and the suffix tokens
 break Picker's token-AND `setQuery` matching against file names.
 
 ## How capture works
 
-`src/content/docs-content.ts` runs on `https://docs.google.com/document/*`. A
+`entrypoints/docs.content/index.ts` runs on `https://docs.google.com/document/*`. A
 `MutationObserver` (debounced at 750 ms) re-scans the discussion sidebar after
 DOM activity settles. `sidebar-scraper.ts` walks the sidebar with a tolerant
 selector list — Google Docs reships the comment UI roughly quarterly, and
@@ -119,9 +124,9 @@ duplicate rows.
 Two selector lists, both module-scope constants, both prone to rot when
 Docs reships (~quarterly):
 
-- `src/content/sidebar-scraper.ts` — `THREAD_ROOT_SELECTORS`,
+- `entrypoints/docs.content/sidebar-scraper.ts` — `THREAD_ROOT_SELECTORS`,
   `REPLY_SELECTORS`, etc., for the discussion sidebar.
-- `src/content/docs-content.ts` — `DOC_NAME_SELECTORS`, for the title input
+- `entrypoints/docs.content/index.ts` — `DOC_NAME_SELECTORS`, for the title input
   used by the "Track this doc" popup label and Picker query.
 
 When Docs reships:
@@ -131,8 +136,7 @@ When Docs reships:
 2. Identify the new attributes / classes.
 3. Add new selectors to the head of the relevant array — older selectors
    stay so older Docs builds still parse.
-4. Run `bun run surfaces/extension/build.ts` and reload the unpacked
-   extension.
+4. Run `bun run ext:build` and reload the unpacked extension.
 
 Budget: ~4–8 hours / month per
 [`SPEC.md` §6.4](../../SPEC.md#64-browser-extension).
@@ -141,28 +145,33 @@ Budget: ~4–8 hours / month per
 
 ```
 surfaces/extension/
-  manifest.chromium.json    Chrome / Edge MV3 manifest
-  manifest.firefox.json     Firefox MV3 manifest (gecko id, strict_min_version)
-  build.ts                  Bun.build pipeline → dist/{chromium,firefox}/
-  tsconfig.json             extends root; adds DOM + chrome types
-  src/
-    background/
-      service-worker.ts     queue + flush + alarm tick
-    content/
-      docs-content.ts       MutationObserver bootstrap
+  wxt.config.ts             one config, per-browser manifest via (env) callback
+  tsconfig.json             extends .wxt/tsconfig.json + DOM + WebWorker libs
+  entrypoints/
+    background.ts           defineBackground — queue + flush + alarm tick
+    docs.content/
+      index.ts              defineContentScript — MutationObserver bootstrap
       sidebar-scraper.ts    DOM heuristics (tolerant selector list)
-      ids.ts                docId parser + stable reply id hash
     options/
-      options.{html,css,ts} backend URL + API token
+      index.html            includes meta name="manifest.open_in_tab" content="true"
+      main.ts               backend URL + API token form
+      style.css
     popup/
-      popup.{html,css,ts}   queue size + flush button + "Track this doc"
-    shared/
-      browser.ts            chrome / browser API shim
-      messages.ts           typed runtime messages
-      storage.ts            typed chrome.storage wrappers (settings, queue, doc-title cache)
-      types.ts              CaptureInput wire format
-  static/icons/             real artwork goes here (see build.ts placeholder)
-  dist/                     build output, .gitignored
+      index.html            picker overlay iframe + diagnostics <details>
+      main.ts               state machine (no-settings / no-doc / untracked / tracked)
+      style.css
+    picker-sandbox.sandbox/  WXT recognizes the .sandbox.html suffix and emits
+      index.html             into the manifest's sandbox.pages (chromium only)
+      main.ts                gapi / gsi loader + Picker postMessage host
+      style.css
+  utils/
+    ids.ts                  docId parser + stable reply id hash (shared)
+    messages.ts             typed runtime messages
+    storage.ts              typed chrome.storage wrappers
+    types.ts                CaptureInput wire format
+  public/icons/             placeholder artwork — replace before publish
+  dist/                  build output, gitignored
+  .wxt/                     generated types (wxt prepare), gitignored
 ```
 
 ## Out of scope (yet)

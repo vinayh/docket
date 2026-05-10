@@ -1,8 +1,9 @@
-import { ext } from "../shared/browser.ts";
-import type { Message } from "../shared/messages.ts";
-import { parseDocIdFromUrl } from "./ids.ts";
+import { defineContentScript } from "wxt/utils/define-content-script";
+import { browser } from "wxt/browser";
+import type { Message } from "../../utils/messages.ts";
+import { parseDocIdFromUrl } from "../../utils/ids.ts";
 import { buildCaptures, scrapeThreads } from "./sidebar-scraper.ts";
-import { setDocTitle } from "../shared/storage.ts";
+import { setDocTitle } from "../../utils/storage.ts";
 
 /**
  * Content script entry. Runs on `https://docs.google.com/document/*`. Watches
@@ -19,11 +20,17 @@ import { setDocTitle } from "../shared/storage.ts";
 const DEBOUNCE_MS = 750;
 const SEEN_LOCAL_LIMIT = 5_000;
 
-const docId = parseDocIdFromUrl(location.href);
-if (docId) {
-  console.log(`[docket] content script ready (doc=${docId})`);
-  bootstrap(docId);
-}
+export default defineContentScript({
+  matches: ["https://docs.google.com/document/*"],
+  runAt: "document_idle",
+  allFrames: false,
+  main() {
+    const docId = parseDocIdFromUrl(location.href);
+    if (!docId) return;
+    console.log(`[docket] content script ready (doc=${docId})`);
+    bootstrap(docId);
+  },
+});
 
 // Once-per-page-load summary so the user can confirm the scraper found
 // something even when no replies survive the suggestion-only filter.
@@ -115,7 +122,7 @@ async function scan(currentDocId: string, localSeen: Set<string>): Promise<void>
 
   const msg: Message = { kind: "capture/submit", captures: fresh };
   try {
-    await ext.runtime.sendMessage(msg);
+    await browser.runtime.sendMessage(msg);
   } catch (err) {
     // SW may be inactive; it'll wake on next message. Re-queueing is the
     // SW's job (it persists to chrome.storage), so we don't retry here.

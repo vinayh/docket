@@ -1,5 +1,5 @@
-import type { CaptureInput } from "../shared/types.ts";
-import { stableReplyId } from "./ids.ts";
+import type { CaptureInput } from "../../utils/types.ts";
+import { stableReplyId } from "../../utils/ids.ts";
 
 /**
  * Scrape the Google Docs discussion sidebar for suggestion threads + their

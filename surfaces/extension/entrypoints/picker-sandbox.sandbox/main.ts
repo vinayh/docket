@@ -14,6 +14,8 @@
  * falls back to opening the backend `/picker` tab directly. This file is
  * Chromium-only.
  */
+export {}; // mark as module so the `declare global` below is allowed
+
 declare global {
   interface Window {
     gapi?: GapiNamespace;

@@ -9,13 +9,20 @@
     "test": "bun test",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage",
     "test:integration": "bun test test/smoke.integration.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "ext:dev": "cd surfaces/extension && wxt",
+    "ext:dev:firefox": "cd surfaces/extension && wxt -b firefox",
+    "ext:build": "cd surfaces/extension && wxt build",
+    "ext:build:firefox": "cd surfaces/extension && wxt build -b firefox",
+    "ext:zip": "cd surfaces/extension && wxt zip",
+    "ext:zip:firefox": "cd surfaces/extension && wxt zip -b firefox"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/chrome": "^0.1.42",
     "@types/diff": "^8.0.0",
-    "drizzle-kit": "^0.31.10"
+    "drizzle-kit": "^0.31.10",
+    "wxt": "^0.20.25"
   },
   "peerDependencies": {
     "typescript": "^5"
