@@ -65,10 +65,11 @@ src/
     capture.ts         resolve scraped sidebar replies → canonical_comment
   surfaces/            Slack bot / Workspace add-on / browser extension
     extension/         MV3 capture-role extension (Chrome / Edge / Firefox)
+docs/                  Astro + Preact site (marketing now, auth surface later); deploys to GitHub Pages
 drizzle/               generated migration SQL
 Dockerfile             multi-stage Bun-on-Alpine image; runs migrate then serve
 fly.toml               Fly.io app config (see README §"Deployment")
-.github/workflows/     CI: codecov upload + fly-deploy (typecheck/test gate → flyctl deploy)
+.github/workflows/     ci.yml: codecov + fly-deploy; pages.yml: build docs/ + deploy to GitHub Pages
 ```
 
 - **Surface** = user-facing UX. **Client** = any other API caller. Per SPEC §3, all state lives in the backend; surfaces are views.
@@ -99,6 +100,10 @@ fly.toml               Fly.io app config (see README §"Deployment")
 - OAuth state is held in an in-memory `Map` for now (single Fly machine, `min_machines_running = 1`). Move to DB or signed cookie when the deploy scales out.
 - Background loops: `startServer` launches `renewExpiringChannels` (~30 min) and `pollAllActiveVersions` (~10 min) timers in-process when `DOCKET_PUBLIC_BASE_URL` is set. `createVersion` also auto-subscribes a Drive `files.watch` channel best-effort using that base URL. Pass `{ backgroundLoops: false }` to `startServer` in tests to keep the timers off.
 - Deployment is documented in [`README.md` §"Deployment"](./README.md#deployment-flyio).
+
+## Frontend stack
+
+- Astro for the public site (`docs/`), WXT for the extension. Preact is the shared component layer; pull repeated UI into `surfaces/shared-ui/` on the second consumer.
 
 ## Browser extension (`surfaces/extension/`)
 

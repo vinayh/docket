@@ -1,0 +1,184 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Sidebar from "../components/Sidebar.astro";
+import Hero from "../components/Hero.astro";
+import SectionItem from "../components/SectionItem.astro";
+import CodeBlock from "../components/CodeBlock.astro";
+import InstallTabs from "../components/InstallTabs.tsx";
+import Highlight from "../components/Highlight.astro";
+import Footer from "../components/Footer.astro";
+
+const nav = [
+  { href: "#overview", label: "Overview" },
+  { href: "#install", label: "Install" },
+  { href: "#connect", label: "Connect Google" },
+  { href: "#track", label: "Track a doc" },
+  { href: "#capture", label: "Capture replies" },
+  { href: "#projects", label: "Projects & versions" },
+  { href: "#privacy", label: "Privacy" },
+  { href: "#open-source", label: "Open source" },
+  { href: "#faq", label: "FAQ" },
+];
+---
+
+<Layout>
+  <div class="mx-auto max-w-[1100px] flex">
+    <Sidebar items={nav} />
+
+    <main class="flex-1 min-w-0 px-6 sm:px-10 md:px-14 pb-12">
+      <Hero />
+
+      <SectionItem
+        num="00"
+        id="overview"
+        title="What it does."
+        lede="Docket subscribes to a Google Doc and pulls every comment, suggestion, and reply into a project you own. Versions are immutable snapshots. Comments stay anchored to text, even after edits."
+      >
+        <p>
+          The <strong>browser extension</strong> watches the docs you have open
+          and quietly sends comment activity to your backend. The <strong>CLI</strong>
+          and <strong>API</strong> let you create projects, cut versions, replay
+          comments onto a new draft, and stage edits as Suggested Edits without
+          touching your originals.
+        </p>
+        <p>
+          Designed for the working writer who does the work in Google Docs but
+          needs a system of record that <Highlight>doesn't trap your data</Highlight>.
+        </p>
+      </SectionItem>
+
+      <SectionItem
+        num="01"
+        id="install"
+        title="Install."
+        lede="One backend, one extension. The extension talks to your own backend over an opaque API token, never to a third party."
+      >
+        <p class="mb-2"><strong>Backend:</strong></p>
+        <InstallTabs
+          client:visible
+          tabs={[
+            { label: "Bun", command: "bunx --bun create docket@latest" },
+            { label: "Docker", command: "docker run -p 3000:3000 ghcr.io/vinayhiremath/docket" },
+            { label: "Fly.io", command: "fly launch --from https://github.com/vinayhiremath/docket" },
+          ]}
+        />
+        <p class="mb-2 mt-6"><strong>Extension:</strong></p>
+        <InstallTabs
+          client:visible
+          tabs={[
+            { label: "Chrome", command: "open https://chromewebstore.google.com/detail/docket" },
+            { label: "Firefox", command: "open https://addons.mozilla.org/firefox/addon/docket" },
+            { label: "Edge", command: "open https://microsoftedge.microsoft.com/addons/detail/docket" },
+          ]}
+        />
+      </SectionItem>
+
+      <SectionItem
+        num="02"
+        id="connect"
+        title="Connect your Google account."
+        lede="Docket only ever sees docs you explicitly open with the add-on, create from Docket, or pick from Drive. drive.file scope only."
+      >
+        <CodeBlock title="~/docket · connect" caption="One-time OAuth flow; refresh token is encrypted at rest.">
+<span style="color: var(--color-term-prompt);">$</span> bun docket connect
+<span style="color: #888;">→ open https://accounts.google.com/o/oauth2/v2/auth?...</span>
+<span style="color: #888;">✓ token stored for vinay@hiremath.net</span>
+        </CodeBlock>
+      </SectionItem>
+
+      <SectionItem
+        num="03"
+        id="track"
+        title="Track a doc."
+        lede="Click the extension, hit Add to Docket, pick a project. The doc becomes a v1: a frozen copy you can replay comments onto."
+      >
+        <p>
+          The picker runs sandboxed inside the extension popup. The popup posts
+          the picked file id to the backend, which copies the doc, computes a
+          content hash, and subscribes to a Drive <code>files.watch</code> push
+          channel. From here on, every comment edit shows up in your project.
+        </p>
+      </SectionItem>
+
+      <SectionItem
+        num="04"
+        id="capture"
+        title="Capture replies and suggestions."
+        lede="Suggestion threads in Google Docs are not exposed via API. Docket scrapes them from the rendered sidebar, deduplicates, and POSTs them to your backend."
+      >
+        <CodeBlock caption="Live tail of capture activity.">
+<span style="color: var(--color-term-prompt);">$</span> bun docket comments tail --project alpha
+<span style="color: #888;">[14:02:11]</span> v3 · Sandra → "I'd cut the second paragraph." (suggestion)
+<span style="color: #888;">[14:02:34]</span> v3 · Mike   → reply on §2.1 thread
+<span style="color: #888;">[14:03:01]</span> v3 · Sandra → resolved §1.4 thread
+        </CodeBlock>
+      </SectionItem>
+
+      <SectionItem
+        num="05"
+        id="projects"
+        title="Projects, versions, overlays."
+        lede="A project owns a doc. A version is an immutable snapshot. An overlay is a planned set of edits you apply as Suggested Edits on a derivative copy."
+      >
+        <p>
+          The point: your originals stay clean. Suggestions land on a derivative
+          copy that the original author can accept, reject, or ignore. Comments
+          re-anchor automatically across versions using paragraph-hash plus
+          structural offset, with confidence scoring for the cases where the
+          text moved.
+        </p>
+      </SectionItem>
+
+      <SectionItem
+        num="06"
+        id="privacy"
+        title="Privacy by default."
+        lede="Docket runs on your infrastructure. No analytics, no telemetry, no third-party calls."
+      >
+        <p>
+          Refresh tokens are envelope-encrypted with a per-row data key wrapped
+          by your master key. API tokens are <code>dkt_</code> opaque strings
+          stored as sha256 hashes. The extension only ever talks to the backend
+          URL you configure.
+        </p>
+      </SectionItem>
+
+      <SectionItem
+        num="07"
+        id="open-source"
+        title="Open source."
+        lede="MIT licensed. Self-host or run the hosted instance: same code, same data model."
+      >
+        <p>
+          Source on <a href="https://github.com/vinayhiremath/docket">GitHub</a>.
+          Issues, pull requests, and weird ideas welcome.
+        </p>
+      </SectionItem>
+
+      <SectionItem
+        num="08"
+        id="faq"
+        title="FAQ."
+      >
+        <p>
+          <strong>Why not a comments-style API?</strong> Workspace's public API
+          can read anchored comments but cannot author them, and it doesn't
+          expose suggestion-thread replies at all. Docket reads through the API
+          where it can and scrapes the rendered sidebar where it has to.
+        </p>
+        <p>
+          <strong>Does this work for non-Docs files?</strong> Not yet. Slides
+          and Sheets are on the roadmap once the comment-anchoring model
+          stabilizes for body text.
+        </p>
+        <p>
+          <strong>Can I host this myself?</strong> Yes. There's a Dockerfile
+          and a Fly.io deploy template. SQLite + Bun, single machine is fine
+          for a team.
+        </p>
+      </SectionItem>
+
+      <Footer />
+    </main>
+  </div>
+</Layout>

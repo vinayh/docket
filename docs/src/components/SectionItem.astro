@@ -1,0 +1,30 @@
+---
+interface Props {
+  num: string;
+  id: string;
+  title: string;
+  lede?: string;
+}
+const { num, id, title, lede } = Astro.props;
+---
+
+<section id={id} class="border-t rule pt-10 pb-12">
+  <div class="flex items-baseline gap-4 mb-3">
+    <span class="font-display text-2xl text-[color:var(--color-ink)] tabular-nums">{num}</span>
+    <h2 class="font-display text-2xl">{title}</h2>
+  </div>
+  {lede && (
+    <p class="text-[15px] text-[color:var(--color-ink-2)] max-w-prose mb-5">{lede}</p>
+  )}
+  <div class="prose-tight text-[15px] leading-7 text-[color:var(--color-ink-2)]">
+    <slot />
+  </div>
+</section>
+
+<style>
+  .prose-tight :global(p) { margin-bottom: 0.9rem; }
+  .prose-tight :global(p:last-child) { margin-bottom: 0; }
+  .prose-tight :global(strong) { color: var(--color-ink); font-weight: 600; }
+  .prose-tight :global(a) { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-color: var(--color-accent); }
+  .prose-tight :global(a:hover) { text-decoration-color: var(--color-ink); }
+</style>

@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cream: #f4efe4;
+  --color-cream-2: #ece6d6;
+  --color-ink: #15140f;
+  --color-ink-2: #2a2823;
+  --color-muted: #6c6960;
+  --color-rule: #d8d2c2;
+  --color-accent: #fff15c;
+  --color-accent-2: #ffd84a;
+  --color-term-bg: #0e0e0c;
+  --color-term-fg: #e7e3d6;
+  --color-term-prompt: #c8e07f;
+
+  --font-display: "Bagel Fat One", "Recoleta", "Fraunces", ui-serif, serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+html {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-feature-settings: "ss01", "cv11";
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-ink);
+}
+
+/* Scroll-margin so anchor links don't tuck under the top edge. */
+[id] {
+  scroll-margin-top: 1.5rem;
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+  line-height: 0.95;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Yellow highlighter — soft underline-ish band behind text. */
+.hl {
+  background: linear-gradient(180deg, transparent 55%, var(--color-accent) 55%);
+  padding: 0 0.15em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* Hairline rule used between sections. */
+.rule {
+  border-color: var(--color-rule);
+}
