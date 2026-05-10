@@ -93,3 +93,85 @@ export interface PickerConfig {
 export type RegisterDocResult =
   | { kind: "registered"; projectId: string; parentDocId: string; alreadyExisted: boolean }
   | { kind: "error"; message: string };
+
+/**
+ * Mirror of the backend's `ProjectDetail` (src/domain/project-detail.ts) —
+ * dashboard payload for one project. Keep field names/types in sync.
+ */
+export interface ProjectDetail {
+  project: {
+    id: string;
+    parentDocId: string;
+    ownerEmail: string | null;
+    createdAt: number;
+  };
+  versions: ProjectVersionDetail[];
+  derivatives: ProjectDerivativeDetail[];
+  reviewRequests: ProjectReviewRequestDetail[];
+}
+
+export interface ProjectVersionDetail {
+  id: string;
+  label: string;
+  googleDocId: string;
+  status: "active" | "archived";
+  parentVersionId: string | null;
+  createdAt: number;
+  commentCount: number;
+  lastSyncedAt: number | null;
+}
+
+export interface ProjectDerivativeDetail {
+  id: string;
+  versionId: string;
+  overlayId: string;
+  googleDocId: string;
+  audienceLabel: string | null;
+  createdAt: number;
+}
+
+export interface ProjectReviewRequestDetail {
+  id: string;
+  versionId: string;
+  status: "open" | "closed" | "cancelled";
+  deadline: number | null;
+  createdAt: number;
+}
+
+/**
+ * Mirror of `VersionDiffPayload` from src/domain/version-diff.ts —
+ * structured side-by-side diff payload (paragraph summaries) for two
+ * versions of the same project. Keep field names/types in sync.
+ */
+export interface VersionDiffPayload {
+  from: VersionDiffSide;
+  to: VersionDiffSide;
+}
+
+export interface VersionDiffSide {
+  versionId: string;
+  label: string;
+  googleDocId: string;
+  paragraphs: ParagraphSummary[];
+}
+
+export interface ParagraphSummary {
+  plaintext: string;
+  namedStyleType: string | null;
+  runs: RunSummary[];
+}
+
+export interface RunSummary {
+  content: string;
+  style: TextStyleSummary | null;
+}
+
+export interface TextStyleSummary {
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+  fontFamily?: string;
+  fontSizePt?: number;
+  foregroundColorHex?: string;
+}

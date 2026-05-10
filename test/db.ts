@@ -27,6 +27,8 @@ import {
   type AuthMethod,
   type CanonicalCommentKind,
   type CommentAnchor,
+  type ProjectionStatus,
+  type ReviewRequestStatus,
 } from "../src/db/schema.ts";
 
 /**
@@ -108,6 +110,103 @@ export async function seedVersion(opts: {
       createdByUserId: opts.createdByUserId,
       parentVersionId: opts.parentVersionId ?? null,
       status: "active",
+    })
+    .returning();
+  return inserted[0]!;
+}
+
+export async function seedOverlay(opts: {
+  projectId: string;
+  name?: string;
+}): Promise<typeof overlay.$inferSelect> {
+  const inserted = await db
+    .insert(overlay)
+    .values({
+      projectId: opts.projectId,
+      name: opts.name ?? "test overlay",
+    })
+    .returning();
+  return inserted[0]!;
+}
+
+export async function seedDerivative(opts: {
+  projectId: string;
+  versionId: string;
+  overlayId: string;
+  googleDocId?: string;
+  audienceLabel?: string | null;
+}): Promise<typeof derivative.$inferSelect> {
+  const inserted = await db
+    .insert(derivative)
+    .values({
+      projectId: opts.projectId,
+      versionId: opts.versionId,
+      overlayId: opts.overlayId,
+      googleDocId: opts.googleDocId ?? `doc-${crypto.randomUUID()}`,
+      audienceLabel: opts.audienceLabel ?? null,
+    })
+    .returning();
+  return inserted[0]!;
+}
+
+export async function seedReviewRequest(opts: {
+  projectId: string;
+  versionId: string;
+  createdByUserId: string;
+  status?: ReviewRequestStatus;
+  deadline?: Date | null;
+}): Promise<typeof reviewRequest.$inferSelect> {
+  const inserted = await db
+    .insert(reviewRequest)
+    .values({
+      projectId: opts.projectId,
+      versionId: opts.versionId,
+      createdByUserId: opts.createdByUserId,
+      status: opts.status ?? "open",
+      deadline: opts.deadline ?? null,
+    })
+    .returning();
+  return inserted[0]!;
+}
+
+export async function seedCommentProjection(opts: {
+  canonicalCommentId: string;
+  versionId: string;
+  projectionStatus?: ProjectionStatus;
+  lastSyncedAt?: Date;
+  googleCommentId?: string | null;
+  anchorMatchConfidence?: number | null;
+}): Promise<typeof commentProjection.$inferSelect> {
+  const inserted = await db
+    .insert(commentProjection)
+    .values({
+      canonicalCommentId: opts.canonicalCommentId,
+      versionId: opts.versionId,
+      googleCommentId: opts.googleCommentId ?? null,
+      anchorMatchConfidence: opts.anchorMatchConfidence ?? null,
+      projectionStatus: opts.projectionStatus ?? "clean",
+      lastSyncedAt: opts.lastSyncedAt ?? new Date(),
+    })
+    .returning();
+  return inserted[0]!;
+}
+
+export async function seedDriveWatchChannel(opts: {
+  versionId: string;
+  channelId?: string;
+  resourceId?: string;
+  expiration?: Date;
+  lastSyncedAt?: Date;
+}): Promise<typeof driveWatchChannel.$inferSelect> {
+  const inserted = await db
+    .insert(driveWatchChannel)
+    .values({
+      versionId: opts.versionId,
+      channelId: opts.channelId ?? `channel-${crypto.randomUUID()}`,
+      resourceId: opts.resourceId ?? `resource-${crypto.randomUUID()}`,
+      address: "https://example.com/webhooks/drive",
+      expiration: opts.expiration ?? new Date(Date.now() + 86_400_000),
+      lastSyncedAt: opts.lastSyncedAt ?? new Date(),
     })
     .returning();
   return inserted[0]!;

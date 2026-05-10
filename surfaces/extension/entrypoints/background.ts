@@ -21,8 +21,10 @@ import type {
   DocState,
   IngestCapturesResult,
   PickerConfig,
+  ProjectDetail,
   RegisterDocResult,
   Settings,
+  VersionDiffPayload,
 } from "../utils/types.ts";
 
 /**
@@ -96,6 +98,10 @@ function errorResponseFor(message: Message, error: string): MessageResponse {
       return { kind: "doc/register", result: { kind: "error", message: error }, error };
     case "picker/config":
       return { kind: "picker/config", config: null, error };
+    case "project/detail":
+      return { kind: "project/detail", detail: null, error };
+    case "version/diff":
+      return { kind: "version/diff", payload: null, error };
   }
 }
 
@@ -140,6 +146,17 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
     case "picker/config": {
       const config = await fetchPickerConfig();
       return { kind: "picker/config", config };
+    }
+    case "project/detail": {
+      const detail = await fetchProjectDetail(message.projectId);
+      return { kind: "project/detail", detail };
+    }
+    case "version/diff": {
+      const payload = await fetchVersionDiff(
+        message.fromVersionId,
+        message.toVersionId,
+      );
+      return { kind: "version/diff", payload };
     }
   }
 }
@@ -430,6 +447,55 @@ async function registerDoc(docUrlOrId: string): Promise<RegisterDocResult> {
     kind: "error",
     message: body.message ?? `register-doc failed (${res.status})`,
   };
+}
+
+/**
+ * Routes the side-panel's project-dashboard query through the SW so the API
+ * token never reaches the side-panel origin. Returns null on 404 (missing /
+ * not-owner) so the panel can render a "no such project" state without
+ * conflating it with network errors.
+ */
+async function fetchProjectDetail(projectId: string): Promise<ProjectDetail | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  const url = new URL("/api/extension/project", settings.backendUrl).toString();
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${settings.apiToken}`,
+    },
+    body: JSON.stringify({ projectId }),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`project-detail ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return (await res.json()) as ProjectDetail;
+}
+
+async function fetchVersionDiff(
+  fromVersionId: string,
+  toVersionId: string,
+): Promise<VersionDiffPayload | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  const url = new URL("/api/extension/version-diff", settings.backendUrl).toString();
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${settings.apiToken}`,
+    },
+    body: JSON.stringify({ fromVersionId, toVersionId }),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`version-diff ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return (await res.json()) as VersionDiffPayload;
 }
 
 async function fetchPickerConfig(): Promise<PickerConfig | null> {

@@ -2,14 +2,14 @@ import { useEffect, useState } from "preact/hooks";
 import { browser } from "wxt/browser";
 import { parseDocIdFromUrl } from "../../utils/ids.ts";
 import { getDocTitle } from "../../utils/storage.ts";
-import type { Message, MessageResponse } from "../../utils/messages.ts";
 import type {
   DocState,
   PickerConfig,
   RegisterDocResult,
   Settings,
 } from "../../utils/types.ts";
-import { Header } from "./Header.tsx";
+import { Header } from "../../ui/Header.tsx";
+import { sendMessage } from "../../ui/sendMessage.ts";
 import { Diagnostics } from "./Diagnostics.tsx";
 import { PickerOverlay } from "./PickerOverlay.tsx";
 import { NoSettings } from "./views/NoSettings.tsx";
@@ -291,6 +291,4 @@ async function getActiveDocTab(): Promise<ActiveDocTab | null> {
   return { docId, title };
 }
 
-export function sendMessage(msg: Message): Promise<MessageResponse | undefined> {
-  return browser.runtime.sendMessage(msg) as Promise<MessageResponse | undefined>;
-}
+export { sendMessage };

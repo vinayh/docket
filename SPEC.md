@@ -239,7 +239,7 @@ Headless backend + CLI. Drizzle schema (12 tables) on `bun:sqlite` WAL; envelope
 Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun docket serve` HTTP host with `/healthz`, `/oauth/{start,callback}`, `/picker` (real Drive Picker iframe with GIS-backed access tokens, gated on `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`), `/webhooks/drive`, `/api/extension/captures`, `/api/picker/register-doc` (bearer-auth → `createProject`). Per-user opaque API tokens (issue/list/revoke CLI + bearer middleware). MV3 extension (Chrome / Edge / Firefox sharing one codebase) with sidebar `MutationObserver` + kix-discussion-id matching plus a popup "Track this doc" button that opens the Picker page with the open doc's id+title as a hint. Service-worker queue with `chrome.storage.local` dedupe + alarm-driven retry. Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops gated on `DOCKET_PUBLIC_BASE_URL`.
 
 ### Phase 3 — Extension popup as project surface
-**Status: in progress.**
+**Status: shipped.** ✅
 
 Replaces the Workspace add-on as the lightweight "I'm in a doc, what does Docket know about it?" surface (§6.4). Same affordances, no Apps Script / CardService dependency, no separate install. The Workspace add-on is deferred to Phase 7 as a managed-device fallback.
 
@@ -264,9 +264,9 @@ Extension popup:
 
 Builds on the Phase-3 popup project surface. The popup retains the lightweight read-only view; the side-panel / options page hosts the rich React app.
 
-- React app from extension side-panel / options. Popup stays vanilla TS — opening it has to be fast and the surface is small.
-- Project dashboard: versions, derivatives, review history, reviewer participation.
-- Side-by-side version diff (HTML, computed locally from `documents.get` plaintext + diff library).
+- Preact app from extension side-panel / options. Popup stays in Preact (already; see Phase 3) — opening it has to be fast and the surface is small. The side-panel is where the heavier dashboard / diff / overlay views live.
+- Project dashboard: versions, derivatives, review history, reviewer participation. Backed by `POST /api/extension/project` (Phase-4 slice A; bearer-auth, owner-scoped composed view).
+- Side-by-side version diff. **Structured**, not plaintext: client-side renders against `documents.get` structural content (paragraphs + runs + `textStyle` + `namedStyleType` + bullet/table) so formatting changes (bold/italic, headings, list reflow, style-only edits) are visible. Two-pass diff: (1) paragraph-level alignment keyed by `(hash(plaintext), namedStyleType)`, (2) intra-paragraph run diff preserving style boundaries; style-only changes (same text, different `textStyle`) render distinctly. Backend ships structured doc payloads via `POST /api/extension/version-diff`; the diff itself runs in the side panel.
 - Comment reconciliation UI for fuzzy / orphan projections.
 - Overlay editor with live preview against the current parent.
 - Settings: notification prefs, default reviewers, Slack workspace linking.

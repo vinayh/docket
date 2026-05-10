@@ -10,6 +10,19 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 }
 
 /**
+ * Look up a user's email by id. Returns null if the row is missing — callers
+ * decide whether that's an error or a benign "no email known" outcome.
+ */
+export async function userEmailById(userId: string): Promise<string | null> {
+  const rows = await db
+    .select({ email: user.email })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  return rows[0]?.email ?? null;
+}
+
+/**
  * Resolve an author email to a Docket user id, returning null when the email
  * is missing or no user exists for it. Use this for stamping `origin_user_id`
  * on canonical_comment rows whose author may or may not be a Docket user

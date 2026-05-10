@@ -1,14 +1,12 @@
-import { and, count, desc, eq, max } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
+import { project, version } from "../db/schema.ts";
 import {
-  canonicalComment,
-  commentProjection,
-  driveWatchChannel,
-  project,
-  reviewRequest,
-  user,
-  version,
-} from "../db/schema.ts";
+  countComments,
+  countOpenReviews,
+  pickLastSyncedAt,
+} from "./stats.ts";
+import { userEmailById } from "./user.ts";
 
 /**
  * Result of a popup / extension state query for the active doc.
@@ -132,7 +130,7 @@ async function buildTrackedState(
   const lastSynced = ver ? await pickLastSyncedAt(ver.id) : null;
   const commentCount = await countComments(args.projectId);
   const openReviewCount = await countOpenReviews(args.projectId);
-  const ownerEmail = await ownerEmailFor(args.ownerUserId);
+  const ownerEmail = await userEmailById(args.ownerUserId);
 
   return {
     tracked: true,
@@ -187,60 +185,3 @@ async function pickRelevantVersion(
   return any[0] ?? null;
 }
 
-/**
- * Best available "last synced" signal for a version: prefer the watch channel's
- * lastSyncedAt (set when an inbound push triggered an ingest) and fall back to
- * the max projection lastSyncedAt (set by polling). Either source maxes out at
- * the most recent successful comment-ingest run.
- */
-async function pickLastSyncedAt(versionId: string): Promise<number | null> {
-  const watch = (
-    await db
-      .select({ ts: max(driveWatchChannel.lastSyncedAt) })
-      .from(driveWatchChannel)
-      .where(eq(driveWatchChannel.versionId, versionId))
-  )[0]?.ts;
-  const projection = (
-    await db
-      .select({ ts: max(commentProjection.lastSyncedAt) })
-      .from(commentProjection)
-      .where(eq(commentProjection.versionId, versionId))
-  )[0]?.ts;
-  const candidates: Date[] = [];
-  if (watch) candidates.push(watch);
-  if (projection) candidates.push(projection);
-  if (candidates.length === 0) return null;
-  return Math.max(...candidates.map((d) => d.getTime()));
-}
-
-async function countComments(projectId: string): Promise<number> {
-  const row = (
-    await db
-      .select({ n: count() })
-      .from(canonicalComment)
-      .where(eq(canonicalComment.projectId, projectId))
-  )[0];
-  return row?.n ?? 0;
-}
-
-async function countOpenReviews(projectId: string): Promise<number> {
-  const row = (
-    await db
-      .select({ n: count() })
-      .from(reviewRequest)
-      .where(
-        and(
-          eq(reviewRequest.projectId, projectId),
-          eq(reviewRequest.status, "open"),
-        ),
-      )
-  )[0];
-  return row?.n ?? 0;
-}
-
-async function ownerEmailFor(userId: string): Promise<string | null> {
-  const row = (
-    await db.select({ email: user.email }).from(user).where(eq(user.id, userId)).limit(1)
-  )[0];
-  return row?.email ?? null;
-}

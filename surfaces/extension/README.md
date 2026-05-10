@@ -1,6 +1,6 @@
 # Docket browser extension
 
-MV3 extension for Chrome / Edge / Firefox. **Phase-2 scope** — see
+MV3 extension for Chrome / Edge / Firefox. **Phase-3 scope** — see
 [`SPEC.md` §6.4](../../SPEC.md#64-browser-extension):
 
 - **Capture role.** Watches the Google Docs discussion sidebar for replies
@@ -8,15 +8,16 @@ MV3 extension for Chrome / Edge / Firefox. **Phase-2 scope** — see
   don't expose those — verified empirically;
   see [`SPEC.md` §11](../../SPEC.md#11-out-of-scope-for-v1)) and POSTs them
   to the Docket backend.
-- **"Track this doc" popup.** When the active tab is a Google Doc, the
-  toolbar popup surfaces a button that opens the backend's hosted Drive
-  Picker with the open doc's id + DOM-scraped name as hints — the
-  per-file `drive.file` grant flow (SPEC §9.2). Picking the doc registers
-  it as a project on the backend.
+- **Project surface (popup).** Opens to a state machine driven by the
+  active Docs tab: configure backend → open a Doc → "Add to Docket" (in-popup
+  sandboxed Drive Picker on Chromium, fallback `/picker` tab on Firefox)
+  → tracked view with role / version / comment count / last-synced /
+  "Sync now". All backend calls flow through the service worker so the
+  API token never touches the popup origin or the picker sandbox.
 
-The rich-UI role (dashboards, diff viewer, reconciliation, overlay editor)
-lands in Phase 4. The visualization role (in-canvas highlights, gutter
-markers, selection capture) lands in Phase 6.
+The rich-UI role (side-panel dashboard, diff viewer, reconciliation,
+overlay editor) lands in Phase 4. The visualization role (in-canvas
+highlights, gutter markers, selection capture) lands in Phase 6.
 
 ## Build
 
@@ -56,27 +57,47 @@ output directory is loadable directly:
 
 3. Click **Test connection** to confirm `/healthz` responds. Click **Save**.
 
-The popup (toolbar icon) shows the queued-capture count and the last error,
-if any. **Flush queue now** drains the queue immediately rather than waiting
-for the 1-min alarm.
+The popup is the primary project surface. Capture-queue diagnostics
+(size / last error / **Flush queue now**) live in a `<details>` panel at
+the bottom of every view.
 
-## How "Track this doc" works
+## How the popup project surface works
 
-The popup (`entrypoints/popup/main.ts`) calls `chrome.tabs.query` for the active
-tab. If the URL matches `docs.google.com/document/d/<id>`, it shows the
-**Track this doc** row labeled with the doc's actual name (from the title
-cache, see below). Clicking opens
-`<backendUrl>/picker#token=…&suggestedDocId=…&suggestedTitle=…`
-in a new tab; the Picker page POSTs to `/api/picker/register-doc` after the
-user picks the file. No `tabs` permission is needed because the manifest's
+The popup (`entrypoints/popup/Popup.tsx`) is a Preact state machine over a
+single `View` discriminated union. `boot()` drives the transitions:
+
+1. **No settings** → options page nudge.
+2. **No Doc tab** → muted "open a Google Doc."
+3. Active Docs tab → SW `doc/state` (`POST /api/extension/doc-state`).
+4. **Untracked** → "Add to Docket" → on Chromium, `<PickerOverlay/>`
+   mounts the sandboxed Picker iframe inside the popup. On Firefox MV3
+   (no `sandbox.pages` support), the popup detects the UA and opens
+   `<backendUrl>/picker#token=…&suggestedDocId=…&suggestedTitle=…` in a
+   new tab as fallback.
+5. After pick → SW `doc/register` (`POST /api/picker/register-doc`) → re-fetch
+   state → **Tracked** view (role, version label, comment count, last-synced,
+   "Sync now"). "Sync now" calls SW `doc/sync` (`POST /api/extension/doc-sync`),
+   which re-runs `ingestVersionComments` and returns refreshed state.
+
+The popup never holds the API token: every backend call routes through the
+service worker, which decorates requests with the configured bearer. The
+sandboxed Picker runs at `null` origin and can't reach the backend at
+all — it postMessages the picked doc id back to the popup, and the popup
+(at the `chrome-extension://...` origin allow-listed in CORS) hits
+`/api/picker/register-doc` via the SW.
+
+No `tabs` permission is needed because the manifest's
 `host_permissions: ["https://docs.google.com/*"]` already covers Docs tabs.
 
-The doc title comes from the **title cache** populated by the content
-script. Each scan calls `setDocTitle(docId, name)` (`utils/storage.ts`)
-with the value read from the title input — see `DOC_NAME_SELECTORS` in
-`entrypoints/docs.content/index.ts`. We don't use `tab.title` because Chrome localizes it
-(e.g. "<name> - Google Docs", or its translation), and the suffix tokens
-break Picker's token-AND `setQuery` matching against file names.
+The doc title (used both for the popup heading and the Picker query) comes
+from the **title cache** populated by the content script. Each scan calls
+`setDocTitle(docId, name)` (`utils/storage.ts`) with the value read from
+the title input — see `DOC_NAME_SELECTORS` in
+`entrypoints/docs.content/index.ts`. We don't use `tab.title` because Chrome
+localizes it (e.g. "<name> - Google Docs", or its translation), and the
+suffix tokens break Picker's token-AND `setQuery` matching against file
+names. First popup-open after a fresh install may show "Google Doc" until
+the first scan completes (~750 ms after page load).
 
 ## How capture works
 
@@ -157,8 +178,13 @@ surfaces/extension/
       main.ts               backend URL + API token form
       style.css
     popup/
-      index.html            picker overlay iframe + diagnostics <details>
-      main.ts               state machine (no-settings / no-doc / untracked / tracked)
+      index.html            mounts <Popup/> via main.tsx
+      main.tsx              Preact bootstrap
+      Popup.tsx             View discriminated union + async flows
+      Header.tsx            shared title row
+      Diagnostics.tsx       capture-queue <details> panel
+      PickerOverlay.tsx     iframe lifecycle + postMessage handshake
+      views/                NoSettings, NoDoc, Untracked, Tracked, ErrorView
       style.css
     picker-sandbox.sandbox/  WXT recognizes the .sandbox.html suffix and emits
       index.html             into the manifest's sandbox.pages (chromium only)

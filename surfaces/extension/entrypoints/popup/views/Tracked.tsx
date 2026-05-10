@@ -1,3 +1,4 @@
+import { browser } from "wxt/browser";
 import type { ActiveDocTab, TrackedState } from "../Popup.tsx";
 
 interface Props {
@@ -30,9 +31,42 @@ export function Tracked({ tab, state, onSync }: Props) {
         <button id="sync" type="button" onClick={onSync}>
           Sync now
         </button>
+        <button type="button" onClick={() => void openSidePanel()}>
+          Open dashboard
+        </button>
       </div>
     </>
   );
+}
+
+/**
+ * Open the side-panel from the popup's project view. On Chromium calls
+ * `chrome.sidePanel.open` with the current window; on Firefox falls back
+ * to `browser.sidebarAction.open` (no per-window arg needed). Both APIs
+ * must run synchronously inside the click handler — the popup itself
+ * closes shortly after, but the panel opens in the parent window.
+ */
+async function openSidePanel(): Promise<void> {
+  // `chrome.sidePanel` lands on Chromium MV3 ≥114; `sidebar_action` is
+  // Firefox's equivalent. wxt/browser doesn't unify the two surfaces, so
+  // we feature-detect off the runtime object. Either API must run inside
+  // the click handler — `sidePanel.open` rejects outside a user gesture.
+  const api = browser as unknown as {
+    sidePanel?: { open: (opts: { windowId: number }) => Promise<void> };
+    sidebarAction?: { open: () => Promise<void> };
+  };
+  if (api.sidePanel?.open) {
+    const win = await browser.windows.getCurrent();
+    if (win.id !== undefined) {
+      await api.sidePanel.open({ windowId: win.id });
+      window.close();
+      return;
+    }
+  }
+  if (api.sidebarAction?.open) {
+    await api.sidebarAction.open();
+    window.close();
+  }
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
