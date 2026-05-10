@@ -1,5 +1,15 @@
-import { describe, expect, test } from "bun:test";
-import { summarizeDocument } from "./version-diff.ts";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  cleanDb,
+  seedProject,
+  seedUser,
+  seedVersion,
+} from "../../test/db.ts";
+import { setFetch } from "../../test/fetch.ts";
+import { db } from "../db/client.ts";
+import { driveCredential } from "../db/schema.ts";
+import { encryptWithMaster } from "../auth/encryption.ts";
+import { getVersionDiffPayload, summarizeDocument } from "./version-diff.ts";
 import type { Document } from "../google/docs.ts";
 
 function paragraph(opts: {
@@ -37,6 +47,178 @@ function makeDoc(paragraphs: ReturnType<typeof paragraph>[]): Document {
     body: { content: paragraphs },
   };
 }
+
+const realFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
+
+async function seedDriveCredential(userId: string): Promise<void> {
+  await db.insert(driveCredential).values({
+    userId,
+    scope: "https://www.googleapis.com/auth/drive.file",
+    refreshTokenEncrypted: await encryptWithMaster("1//rt-test"),
+  });
+}
+
+/**
+ * Stub Google's `oauth2/token` refresh and `docs.googleapis.com/v1/documents/<id>`
+ * GET. Returns the doc payloads keyed by id; throws when an unexpected URL is hit
+ * so tests fail loudly if the wrong path is exercised.
+ */
+function stubGoogle(byDocId: Record<string, Document>) {
+  setFetch(async (input) => {
+    const url = String(input);
+    if (url.includes("oauth2.googleapis.com/token")) {
+      return new Response(
+        JSON.stringify({
+          access_token: "access-test",
+          expires_in: 3600,
+          token_type: "Bearer",
+          scope: "https://www.googleapis.com/auth/drive.file",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    const m = /docs\.googleapis\.com\/v1\/documents\/([^/?]+)/.exec(url);
+    if (m) {
+      const id = decodeURIComponent(m[1]!);
+      const doc = byDocId[id];
+      if (!doc) {
+        return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+      }
+      return new Response(JSON.stringify(doc), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`unexpected fetch in test: ${url}`);
+  });
+}
+
+describe("getVersionDiffPayload", () => {
+  beforeEach(cleanDb);
+
+  test("returns null when the from-version is missing", async () => {
+    const u = await seedUser();
+    const p = await seedProject({ ownerUserId: u.id });
+    const to = await seedVersion({ projectId: p.id, createdByUserId: u.id });
+    expect(
+      await getVersionDiffPayload({
+        fromVersionId: crypto.randomUUID(),
+        toVersionId: to.id,
+        userId: u.id,
+      }),
+    ).toBeNull();
+  });
+
+  test("returns null when the to-version is missing", async () => {
+    const u = await seedUser();
+    const p = await seedProject({ ownerUserId: u.id });
+    const from = await seedVersion({ projectId: p.id, createdByUserId: u.id });
+    expect(
+      await getVersionDiffPayload({
+        fromVersionId: from.id,
+        toVersionId: crypto.randomUUID(),
+        userId: u.id,
+      }),
+    ).toBeNull();
+  });
+
+  test("returns null when the caller does not own the project (cross-tenant)", async () => {
+    const owner = await seedUser();
+    const p = await seedProject({ ownerUserId: owner.id });
+    const from = await seedVersion({ projectId: p.id, createdByUserId: owner.id });
+    const to = await seedVersion({ projectId: p.id, createdByUserId: owner.id });
+
+    const other = await seedUser();
+    expect(
+      await getVersionDiffPayload({
+        fromVersionId: from.id,
+        toVersionId: to.id,
+        userId: other.id,
+      }),
+    ).toBeNull();
+  });
+
+  test("returns null when the two versions belong to different projects", async () => {
+    const u = await seedUser();
+    const a = await seedProject({ ownerUserId: u.id });
+    const b = await seedProject({ ownerUserId: u.id });
+    const va = await seedVersion({ projectId: a.id, createdByUserId: u.id });
+    const vb = await seedVersion({ projectId: b.id, createdByUserId: u.id });
+
+    expect(
+      await getVersionDiffPayload({
+        fromVersionId: va.id,
+        toVersionId: vb.id,
+        userId: u.id,
+      }),
+    ).toBeNull();
+  });
+
+  test("happy path: returns paragraph summaries for both versions", async () => {
+    const u = await seedUser();
+    await seedDriveCredential(u.id);
+    const p = await seedProject({ ownerUserId: u.id });
+    const from = await seedVersion({
+      projectId: p.id,
+      createdByUserId: u.id,
+      label: "v1",
+      googleDocId: "doc-from",
+    });
+    const to = await seedVersion({
+      projectId: p.id,
+      createdByUserId: u.id,
+      label: "v2",
+      googleDocId: "doc-to",
+    });
+
+    stubGoogle({
+      "doc-from": {
+        documentId: "doc-from",
+        title: "v1",
+        body: {
+          content: [
+            {
+              paragraph: {
+                paragraphStyle: { namedStyleType: "NORMAL_TEXT" },
+                elements: [{ textRun: { content: "hello world\n", textStyle: {} } }],
+              },
+            },
+          ],
+        },
+      },
+      "doc-to": {
+        documentId: "doc-to",
+        title: "v2",
+        body: {
+          content: [
+            {
+              paragraph: {
+                paragraphStyle: { namedStyleType: "NORMAL_TEXT" },
+                elements: [{ textRun: { content: "hello there\n", textStyle: {} } }],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const payload = await getVersionDiffPayload({
+      fromVersionId: from.id,
+      toVersionId: to.id,
+      userId: u.id,
+    });
+    expect(payload).not.toBeNull();
+    expect(payload!.from.versionId).toBe(from.id);
+    expect(payload!.from.label).toBe("v1");
+    expect(payload!.from.googleDocId).toBe("doc-from");
+    expect(payload!.from.paragraphs[0]!.plaintext).toBe("hello world");
+    expect(payload!.to.versionId).toBe(to.id);
+    expect(payload!.to.paragraphs[0]!.plaintext).toBe("hello there");
+  });
+});
 
 describe("summarizeDocument", () => {
   test("strips the trailing paragraph newline", () => {
