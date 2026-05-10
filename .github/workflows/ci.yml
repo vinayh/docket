@@ -43,6 +43,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: superfly/flyctl-actions/setup-flyctl@master
+      # Pre-start the machine so the rolling deploy doesn't try to verify
+      # HTTP health checks against a stopped VM (auto_stop_machines = "stop"
+      # + single machine deadlocks the rolling-deploy health-check wait).
+      # Idempotent: no-op if already running.
+      - run: |
+          flyctl machines list -a docket-server --json \
+            | jq -r '.[].id' \
+            | xargs -r flyctl machine start -a docket-server
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - run: flyctl deploy --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
