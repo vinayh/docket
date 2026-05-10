@@ -33,6 +33,7 @@ const JS_ENTRIES: Entry[] = [
   { source: "content/docs-content.ts", output: "content/docs-content.js" },
   { source: "options/options.ts", output: "options/options.js" },
   { source: "popup/popup.ts", output: "popup/popup.js" },
+  { source: "popup/picker-sandbox.ts", output: "popup/picker-sandbox.js" },
 ];
 
 const STATIC_ENTRIES: Entry[] = [
@@ -40,6 +41,8 @@ const STATIC_ENTRIES: Entry[] = [
   { source: "options/options.css", output: "options/options.css" },
   { source: "popup/popup.html", output: "popup/popup.html" },
   { source: "popup/popup.css", output: "popup/popup.css" },
+  { source: "popup/picker-sandbox.html", output: "popup/picker-sandbox.html" },
+  { source: "popup/picker-sandbox.css", output: "popup/picker-sandbox.css" },
 ];
 
 async function buildTarget(target: Target): Promise<void> {

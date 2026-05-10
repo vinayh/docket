@@ -1,0 +1,18 @@
+:root {
+  color-scheme: light dark;
+}
+body {
+  font: 12px/1.4 system-ui, sans-serif;
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  color: #57606a;
+  background: transparent;
+}
+@media (prefers-color-scheme: dark) {
+  body {
+    color: #8b949e;
+  }
+}
+#status[data-tone="error"] {
+  color: #b35900;
+}

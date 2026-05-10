@@ -17,7 +17,10 @@ import {
 import type {
   CaptureInput,
   CaptureResult,
+  DocState,
   IngestCapturesResult,
+  PickerConfig,
+  RegisterDocResult,
   Settings,
 } from "../shared/types.ts";
 
@@ -66,6 +69,14 @@ function errorResponseFor(message: Message, error: string): MessageResponse {
       return { kind: "queue/flush", result: { error }, error };
     case "queue/peek":
       return { kind: "queue/peek", queueSize: -1, lastError: error, error };
+    case "doc/state":
+      return { kind: "doc/state", state: null, error };
+    case "doc/sync":
+      return { kind: "doc/sync", state: null, error };
+    case "doc/register":
+      return { kind: "doc/register", result: { kind: "error", message: error }, error };
+    case "picker/config":
+      return { kind: "picker/config", config: null, error };
   }
 }
 
@@ -107,6 +118,22 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
       const queue = await getQueue();
       const lastError = await getLastError();
       return { kind: "queue/peek", queueSize: queue.length, lastError };
+    }
+    case "doc/state": {
+      const state = await fetchDocState(message.docId);
+      return { kind: "doc/state", state };
+    }
+    case "doc/sync": {
+      const state = await runDocSync(message.docId);
+      return { kind: "doc/sync", state };
+    }
+    case "doc/register": {
+      const result = await registerDoc(message.docUrlOrId);
+      return { kind: "doc/register", result };
+    }
+    case "picker/config": {
+      const config = await fetchPickerConfig();
+      return { kind: "picker/config", config };
     }
   }
 }
@@ -305,6 +332,127 @@ async function postCaptures(
     throw new Error(`backend ${res.status}: ${text.slice(0, 200)}`);
   }
   return (await res.json()) as IngestCapturesResult;
+}
+
+/**
+ * Routes the popup's "is this doc tracked?" query to the backend's
+ * doc-state endpoint. Returns null when settings are missing — the popup
+ * renders that as a configuration error rather than an unknown-doc state.
+ * Network / auth failures bubble up via the message-handler error path.
+ */
+async function fetchDocState(docId: string): Promise<DocState | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  const url = new URL("/api/extension/doc-state", settings.backendUrl).toString();
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${settings.apiToken}`,
+    },
+    body: JSON.stringify({ docId }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`doc-state ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return (await res.json()) as DocState;
+}
+
+async function runDocSync(docId: string): Promise<DocState | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  const url = new URL("/api/extension/doc-sync", settings.backendUrl).toString();
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${settings.apiToken}`,
+    },
+    body: JSON.stringify({ docId }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`doc-sync ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return (await res.json()) as DocState;
+}
+
+/**
+ * Calls /api/picker/register-doc on the popup's behalf — the sandboxed
+ * picker iframe can't reach the backend (null origin), so it postMessages
+ * the picked id up to the popup, the popup dispatches here. Maps both 200
+ * (created) and 409 already_exists into the same `registered` shape because
+ * the popup treats them identically: show "tracked, project <id>".
+ */
+async function registerDoc(docUrlOrId: string): Promise<RegisterDocResult> {
+  const settings = await getSettings();
+  if (!settings) return { kind: "error", message: "no settings configured" };
+  const url = new URL("/api/picker/register-doc", settings.backendUrl).toString();
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${settings.apiToken}`,
+      },
+      body: JSON.stringify({ docUrlOrId }),
+    });
+  } catch (err) {
+    return { kind: "error", message: err instanceof Error ? err.message : String(err) };
+  }
+  const body = (await res.json().catch(() => ({}))) as {
+    projectId?: string;
+    parentDocId?: string;
+    error?: string;
+    message?: string;
+  };
+  if (res.ok && body.projectId && body.parentDocId) {
+    return {
+      kind: "registered",
+      projectId: body.projectId,
+      parentDocId: body.parentDocId,
+      alreadyExisted: false,
+    };
+  }
+  if (res.status === 409 && body.error === "already_exists" && body.projectId && body.parentDocId) {
+    return {
+      kind: "registered",
+      projectId: body.projectId,
+      parentDocId: body.parentDocId,
+      alreadyExisted: true,
+    };
+  }
+  if (res.status === 401) {
+    return { kind: "error", message: "API token rejected — issue a new one" };
+  }
+  return {
+    kind: "error",
+    message: body.message ?? `register-doc failed (${res.status})`,
+  };
+}
+
+async function fetchPickerConfig(): Promise<PickerConfig | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  const url = new URL("/api/picker/config", settings.backendUrl).toString();
+  const res = await fetch(url, { method: "GET" });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`picker-config ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const body = (await res.json()) as {
+    clientId: string | null;
+    apiKey: string | null;
+    projectNumber: string | null;
+  };
+  if (!body.clientId || !body.apiKey || !body.projectNumber) return null;
+  return {
+    clientId: body.clientId,
+    apiKey: body.apiKey,
+    projectNumber: body.projectNumber,
+  };
 }
 
 function summarizeAfterFlush(

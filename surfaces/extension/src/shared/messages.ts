@@ -1,4 +1,11 @@
-import type { CaptureInput, IngestCapturesResult, Settings } from "./types.ts";
+import type {
+  CaptureInput,
+  DocState,
+  IngestCapturesResult,
+  PickerConfig,
+  RegisterDocResult,
+  Settings,
+} from "./types.ts";
 
 /**
  * Typed message envelope for runtime.sendMessage / runtime.onMessage between
@@ -11,7 +18,11 @@ export type Message =
   | { kind: "settings/get" }
   | { kind: "settings/set"; settings: Settings }
   | { kind: "queue/flush" }
-  | { kind: "queue/peek" };
+  | { kind: "queue/peek" }
+  | { kind: "doc/state"; docId: string }
+  | { kind: "doc/sync"; docId: string }
+  | { kind: "doc/register"; docUrlOrId: string }
+  | { kind: "picker/config" };
 
 /**
  * Each response carries the same `kind` as its request so callers can route
@@ -29,4 +40,8 @@ export type MessageResponse =
       result: IngestCapturesResult | { error: string } | null;
       error?: string;
     }
-  | { kind: "queue/peek"; queueSize: number; lastError: string | null; error?: string };
+  | { kind: "queue/peek"; queueSize: number; lastError: string | null; error?: string }
+  | { kind: "doc/state"; state: DocState | null; error?: string }
+  | { kind: "doc/sync"; state: DocState | null; error?: string }
+  | { kind: "doc/register"; result: RegisterDocResult; error?: string }
+  | { kind: "picker/config"; config: PickerConfig | null; error?: string };

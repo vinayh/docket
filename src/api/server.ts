@@ -1,6 +1,9 @@
 import { handleOauthCallback, handleOauthStart } from "./oauth.ts";
 import { handleCapturesPost } from "./extension.ts";
+import { handleDocStatePost } from "./doc-state.ts";
+import { handleDocSyncPost } from "./doc-sync.ts";
 import { handlePickerHost } from "./picker.ts";
+import { handlePickerConfig } from "./picker-config.ts";
 import { handleRegisterDocPost } from "./picker-register.ts";
 import { handleDriveWebhook } from "./drive-webhook.ts";
 import { preflight, withCors } from "./cors.ts";
@@ -34,6 +37,7 @@ function corsRoute(handlers: MethodHandlers): MethodHandlers {
  * Phase-2 HTTP API host. Public routes: `/healthz`, `/oauth/{start,callback}`,
  * `/picker`. Webhooks: `/webhooks/drive` (Drive push notifications).
  * Bearer-authenticated API surface: `/api/extension/captures`,
+ * `/api/extension/doc-state`, `/api/extension/doc-sync`,
  * `/api/picker/register-doc`. Method dispatch + 405-on-mismatch comes
  * from Bun.serve's `routes:` option; unknown paths fall through to
  * `fetch`'s 404.
@@ -65,6 +69,9 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       "/picker": { GET: handlePickerHost },
       "/webhooks/drive": { POST: handleDriveWebhook },
       "/api/extension/captures": corsRoute({ POST: handleCapturesPost }),
+      "/api/extension/doc-state": corsRoute({ POST: handleDocStatePost }),
+      "/api/extension/doc-sync": corsRoute({ POST: handleDocSyncPost }),
+      "/api/picker/config": corsRoute({ GET: handlePickerConfig }),
       "/api/picker/register-doc": corsRoute({ POST: handleRegisterDocPost }),
       // Google Search Console domain verification. Required before Drive
       // `files.watch` will accept this host as a webhook address (SPEC §9.3).

@@ -10,12 +10,17 @@
       <strong>Docket</strong>
       <button id="open-options" type="button">Options</button>
     </header>
-    <section>
-      <p id="connection">checking…</p>
-      <div id="track-row" hidden>
-        <p id="track-label" class="track-label"></p>
-        <button id="track" type="button">Track this doc</button>
-      </div>
+    <main id="main">
+      <p class="muted" id="initial">Loading…</p>
+    </main>
+    <iframe
+      id="picker-frame"
+      title="Drive Picker"
+      hidden
+    ></iframe>
+    <details id="diagnostics">
+      <summary>Diagnostics</summary>
+      <p id="connection" class="muted">checking…</p>
       <dl>
         <dt>Queued captures</dt>
         <dd id="queue">—</dd>
@@ -23,7 +28,7 @@
         <dd id="last-error">—</dd>
       </dl>
       <button id="flush" type="button">Flush queue now</button>
-    </section>
+    </details>
     <script type="module" src="popup.js"></script>
   </body>
 </html>

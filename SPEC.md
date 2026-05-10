@@ -1,543 +1,336 @@
-# Spec: Research Doc Review & Versioning Tool
+# Project Spec: Docket — Research Doc Review & Versioning
 
-Working name: 'Docket' (Referred to below as "the service.")
+## 1. Objective
 
-## 1. Purpose
+Docket helps research teams run structured review of Google Docs across drafts, audiences, and orgs without leaving Docs. It addresses three pain points:
 
-A tool for research teams to manage structured review of Google Docs across drafts, audiences, and organizations — without abandoning Google Docs as the writing surface. It addresses three concrete pain points:
+- Forking a doc for an external audience while the original keeps evolving, then integrating comments back.
+- Maintaining derivative versions with systematic edits (redactions, audience context) re-applicable as the parent changes.
+- Coordinating multi-version, multi-reviewer cycles across orgs with a clear record of who reviewed what.
 
-- Forking a doc for an external review audience while the original keeps evolving, then integrating comments back.
-- Maintaining derivative versions of a doc with systematic edits (redactions, audience-specific context) that can be re-applied as the parent changes.
-- Coordinating multi-version, multi-reviewer feedback cycles across organizations, with a clear record of who reviewed what and when.
-
-It does *not* attempt full GitHub-style branching/merging on rich text. The semantics are: snapshots, overlays, canonical comments projected across versions, and lightweight review-request workflows, perhaps using `git` as the mechanism for tracking/computing these changes.
+**Non-goal.** GitHub-style branching/merging on rich text. Semantics are: snapshots, overlays, canonical comments projected across versions, lightweight review-request workflows.
 
 ## 2. Core concepts
 
-**Project.** A long-lived workspace tied to a single canonical Google Doc (the *parent*). Owns the version history, comment graph, overlays, and review records for that doc.
-
-**Version (snapshot).** A frozen copy of the parent at a moment in time. Created when a review is requested or explicitly checkpointed. Each version is a real Google Doc, copied via the Drive API, with a recorded parent→child relationship in the service's DB.
-
-**Overlay.** A named, ordered list of content-addressed edit operations (redact, replace, insert, append) applied to a parent to produce a derivative. Stored in the service's DB, re-applicable, version-tracked.
-
-**Canonical comment.** The service's own representation of a comment thread. Stored in the DB, anchored by quoted text + structural context, projected into one or more Google Doc versions as native comments. Carries status (open / addressed / wontfix / superseded), origin metadata, and a history of which versions it has been projected into.
-
-**Review request.** A bundle of: a frozen version, a list of reviewers, a deadline, status, and a Slack/web thread for coordination. The unit users interact with when asking for feedback.
-
-**Participant.** A user of the service, authenticated via Google OAuth (light scopes) or other auth. Distinct from "doc owner," who is the participant whose Google credentials authorize the service's Drive operations on a project.
+- **Project** — long-lived workspace tied to one canonical Google Doc (the *parent*). Owns versions, comments, overlays, reviews.
+- **Version (snapshot)** — frozen Drive copy of the parent at a point in time. Real Google Doc + DB row with parent→child link.
+- **Overlay** — named, ordered list of content-addressed edit ops (redact / replace / insert / append) applied to a parent to produce a derivative.
+- **Canonical comment** — Docket's own comment-thread representation. Anchored by quoted text + structural context. Projected into Doc versions as native comments. Carries status (open / addressed / wontfix / superseded), origin metadata, history.
+- **Review request** — bundle of frozen version + reviewers + deadline + status + Slack/web thread. The unit users interact with.
+- **Participant** — Docket user, authed via Google OAuth (light scope) or other. Distinct from *doc owner* (the participant whose Drive token authorizes Docket's operations on a project).
 
 ## 3. Architecture overview
 
 Three layers:
 
-**Backend service** (the source of truth). Owns the database, runs the reanchoring engine, holds the Drive OAuth tokens for doc owners, polls/watches docs for changes, exposes a REST/GraphQL API to the surfaces.
+- **Backend** — single source of truth. Owns DB, reanchoring engine, Drive OAuth tokens, watch/poll loop, REST API.
+- **Surfaces** — read/write views: Slack bot, browser extension (rich UI + capture), Workspace add-on (in-doc Cards), web shell (OAuth + Picker + magic links + landing).
+- **Google integration layer** — Drive/Docs REST wrappers, OAuth token manager, push-notification subscriptions; lives inside the backend.
 
-**Surfaces** (read/write views onto the backend):
-- Slack bot (primary interaction surface for review coordination)
-- Browser extension (rich UI: dashboards, diff viewer, comment reconciliation, overlay editor, settings; in-doc capture of API-blind annotations like suggestion-thread replies; later: in-canvas visualization)
-- Google Workspace add-on (contextual Card-based sidebar inside Docs for users without the extension)
-- Web entry points (minimal hosted shell — OAuth callbacks, Drive Picker host, magic-link action handlers, public landing page)
-
-**Google integration layer** within the backend, handling Drive/Docs API calls, OAuth token management, and Drive push-notification subscriptions.
-
-The architectural rule: **all state lives in the backend.** Surfaces are views. A comment, version, or overlay is real because the backend says so, not because Google or Slack says so.
+**Architectural rule:** *all state lives in the backend.* A comment, version, or overlay is real because the backend says so — not because Google or Slack says so.
 
 ## 4. Data model
 
-Approximate schema, normalized:
+12 tables (`src/db/schema.ts`):
 
-**`project`**: id, parent_doc_id (Google), owner_user_id, created_at, settings (default reviewers, default overlay, etc.).
+| Table | Purpose |
+|---|---|
+| `project` | parent_doc_id, owner_user_id, settings (default reviewers, default overlay) |
+| `version` | google_doc_id, parent_version_id, label, snapshot_content_hash, status |
+| `overlay` | name, ordered ops (JSON), project |
+| `overlay_operation` | type, anchor (quoted text + context), payload, confidence_threshold |
+| `derivative` | version_id, overlay_id, google_doc_id, audience_label |
+| `canonical_comment` | origin_version_id, origin_user, anchor (text + paragraph hash + structural offset), body, status, parent_comment_id |
+| `comment_projection` | canonical_comment_id, version_id, google_comment_id, anchor_match_confidence, projection_status, last_synced_at |
+| `review_request` | project, version, status, deadline, slack_thread_ref |
+| `review_assignment` | review_request, user, status, responded_at |
+| `user` | email, google_subject_id, display_name, home_org, auth_method |
+| `drive_credential` | user, scope, encrypted refresh_token, associated_project_ids — only doc owners |
+| `audit_log` | actor, action, target, before/after for sensitive ops |
 
-**`version`**: id, project_id, google_doc_id (the copy), parent_version_id (nullable), label (e.g., "v2"), created_at, created_by_user_id, snapshot_content_hash, status (active / archived).
-
-**`overlay`**: id, project_id, name, ordered list of operations (JSON), created_at.
-
-**`overlay_operation`**: type (redact / replace / insert / append), anchor (quoted text + context for content-addressed matching), payload (replacement text, inserted content), confidence_threshold.
-
-**`derivative`**: id, project_id, version_id (the source snapshot), overlay_id, google_doc_id (the produced copy), audience_label, created_at.
-
-**`canonical_comment`**: id, project_id, origin_version_id, origin_user_id, origin_timestamp, anchor (quoted text + paragraph hash + structural position), body, status, parent_comment_id (for replies). The anchor schema is rich enough to resolve to on-screen coordinates without help from Google's APIs — see §9.1.
-
-**`comment_projection`**: canonical_comment_id, version_id, google_comment_id, anchor_match_confidence, projection_status (clean / fuzzy / orphaned / manually-resolved), last_synced_at.
-
-**`review_request`**: id, project_id, version_id, status (open / closed / cancelled), deadline, slack_thread_ref, created_at, created_by_user_id.
-
-**`review_assignment`**: review_request_id, user_id, status (pending / reviewed / changes_requested / declined), responded_at.
-
-**`user`**: id, email, google_subject_id (OAuth `sub`), display_name, home_org (derived from email domain), auth_method.
-
-**`drive_credential`**: user_id, scope, refresh_token (encrypted), associated_project_ids — only doc owners need these.
-
-**`audit_log`**: actor, action, target, before/after snapshots for sensitive operations (sharing changes, version deletions, overlay applications).
+The anchor schema is rich enough to resolve to on-screen coordinates without Google's APIs (§9.1).
 
 ## 5. Backend services
 
-**Doc-watcher.** For each project, subscribes to Drive push notifications on the parent and all active forks. Falls back to polling if the watch channel expires or fails. On change events, fetches comments via the Drive API and updates the canonical comment store. Operationally: requires verified HTTPS endpoint, channel-renewer cron, and missed-event reconciliation. See §9.3.
+- **Doc-watcher.** `drive.files.watch` per project + active forks; channel-renewer cron + polling fallback (§9.3). On event → re-fetch comments, update canonical store.
+- **Reanchoring engine.** Given an anchor + target version: exact text match (high) → fuzzy within paragraph (medium, edit distance + structural context) → orphan. Returns confidence; thresholds drive auto-project vs. surface-for-review. Docket owns anchoring end-to-end; Google's kix anchor is one input, never authoritative (§9.1).
+- **Comment projection.** Native comments authored by Docket are unanchored from Google's view (§9.1). Body is prefixed `Re: "<quoted snippet>" — <body>`. The add-on layers named ranges for "comments at this paragraph"; the extension layers on-canvas overlays.
+- **Overlay applier.** Translates ops to `documents.batchUpdate` (mapping in §9.7). Anchor → index resolution happens upstream. Below-threshold ops surface for review, not silent skip.
+- **Review orchestrator.** Lifecycle: create fork, share with reviewers, post Slack thread, notify, aggregate status, close + pull comments back.
+- **Notification dispatcher.** Routes events to Slack / add-on / web / email.
+- **Auth service.** Google OAuth + token storage/refresh; scope verification (doc owner vs. participant); cross-org identity.
 
-**Reanchoring engine.** Given a canonical comment with an anchor and a target version, finds the best match in the target. Algorithm: exact text match (high confidence) → fuzzy match within paragraph (medium, scored by edit distance and structural context) → no match (orphan, surfaced for human review). Returns a match with confidence score; backend decides automatic projection vs. manual reconciliation based on configurable thresholds.
-
-The service owns anchoring **end-to-end**. Canonical comment anchors are persisted in Docket's own schema (quoted text + paragraph hash + structural offset) rather than depending on the editor-internal anchor blob returned by the Drive API. Native comments returned by `drive.comments.list` carry an opaque kix anchor; Docket reads it as one input to reanchoring but never as an authoritative position. See §9.1 for why.
-
-**Comment projection strategy.** Projecting a canonical comment back into a Google Doc as a native comment cannot produce an anchored comment via any public API (§9.1). Native comments produced by Docket are therefore unanchored from Google's perspective — they appear in the comment side panel without an in-doc highlight. To preserve context for readers, the comment body is prefixed with the anchor's quoted text:
-
-> `Re: "the actual quoted snippet" — <canonical comment body>`
-
-For richer in-context UX, the add-on sidebar layers on a "comments at this paragraph" affordance backed by Docs API named ranges (`createNamedRange`) inserted at the projected location. Named ranges are invisible to readers but let Docket-aware surfaces render highlights, gutter markers, and click-to-jump UI. The browser extension surface (§6.4) extends this further with on-canvas overlays.
-
-**Overlay applier.** Given an overlay and a target doc, translates each operation into a `documents.batchUpdate` request via the Docs API. Anchor-to-index resolution happens before the batch update — that's the reanchoring engine's job. Operations whose anchors don't match cleanly are surfaced for review rather than silently skipped. See §9.7 for the operation-to-API mapping.
-
-**Review orchestrator.** Manages review-request lifecycles: creating forks, sharing with reviewers, posting Slack threads, sending notifications, computing aggregate status, closing requests and triggering comment pull-back.
-
-**Notification dispatcher.** Routes events to surfaces: Slack messages, add-on UI updates (via push or polling), web-app real-time updates, email fallback for users without Slack.
-
-**Auth service.** Handles Google OAuth flows, token storage and refresh, scope verification (especially the Workspace doc-owner flow vs. the lightweight participant flow), and identity verification across orgs.
-
-## 6. The surfaces
+## 6. Surfaces
 
 ### 6.1 Slack bot
 
-Primary interface for review coordination. Slash commands and interactive components.
+Primary chat surface for review coordination.
 
-**Commands:**
-- `/review-request <doc-url> @reviewers [--overlay name] [--deadline date] [--audience label]` — creates a fork (with optional overlay), shares with reviewers, posts a tracked thread in the current channel.
-- `/review-status [project|reviewer]` — dashboard of open reviews.
-- `/review-close <id>` — closes a review, pulls comments back into canonical store, projects onto current parent.
-
-**Interactive elements:**
-- Review thread message: shows version label, reviewer list with status icons, comment count, deadline, action buttons (open doc, pull comments now, extend deadline, add reviewer, close).
-- Home tab: "Reviews waiting on you" / "Your open requests" / "Recent activity."
-- DMs: per-user notifications when assigned to a review, when a comment is added, when a reviewer responds.
-
-**Cross-org behavior:** uses Slack Connect channels when both orgs have Slack and a shared channel exists. Falls back to assignment emails with magic-link actions for external reviewers without Slack access — they comment in the Google Doc directly and click a link to mark reviewed. Comment content is rendered in the Slack thread with proper attribution, regardless of how it was authored in the doc.
-
-**Drive scope note:** when a user references a doc URL in Slack that they have not previously opened with the Docket Workspace Add-on (and that Docket did not itself create), the backend has no `drive.file` access to it. The bot must direct the user through the per-file authorization flow (open the doc with the add-on, or pick it via the Drive Picker entry page) before proceeding. See §9.2.
+- **Slash commands:** `/review-request <doc-url> @reviewers [--overlay …] [--deadline …] [--audience …]`, `/review-status [project|reviewer]`, `/review-close <id>`.
+- **Interactive elements:** review-thread message (version label, reviewer status icons, comment count, deadline, action buttons); home tab ("Reviews waiting on you" / "Your open requests" / activity); DMs for assignment / new comments / reviewer responses.
+- **Cross-org:** Slack Connect when both orgs use it; magic-link assignment emails otherwise — comment in the doc, click a link to mark reviewed. Comment content rendered in the Slack thread regardless of authoring path.
+- **Drive scope.** Bot must direct user through per-file authorization (add-on or Picker) before backend touches a doc (§9.2).
 
 ### 6.2 Workspace add-on
 
-Sidebar inside Google Docs, contextual to the open doc. Built as a **unified Google Workspace Add-on** (the HTTP-backed framework — not the legacy Apps Script Editor add-on) with a UI built from CardService widgets and backed by Docket's HTTP API.
+**Deferred.** The popup project surface (§6.4, Phase 3) covers the affordances that were originally targeted at the add-on — tracked-state lookup, sync trigger, first-time onboarding via Picker. The add-on stays in scope for users who can't install the extension (managed devices, contexts where extension installs are blocked) but is off the MVP critical path. When it ships, it's a Unified Workspace Add-on (CardService; *not* the legacy Editor add-on) covering:
 
-**When the open doc is a project parent:**
-- Version list, with status per version.
-- Active review requests on each version.
-- Pending comment reanchoring (when a review was just closed and comments need merging in).
-- Buttons: "Request review," "Create version checkpoint," "Open project in extension."
-
-**When the open doc is a fork (review version or derivative):**
-- Banner: "This is v2 of [project], for [audience]" or "This is the v2 review fork — author is editing v3 in [link]."
-- Reviewer status summary.
-- Buttons: "Mark reviewed," "Open Slack thread," "Back to parent."
-
-**When the open doc is unknown to the service:**
-- Onboarding card: "Track this doc with [service]?" with a button to create a new project. This is also how `drive.file` is granted for the doc — opening the add-on triggers the `onFileScopeGranted` flow, after which Docket's OAuth client gains Drive access to that specific file.
-
-The add-on's HTTPS calls to the Docket backend carry an Apps Script identity token; the backend verifies and authorizes per-user. The add-on does not hold Drive scopes on its own — Drive access is held by the Docket OAuth client and is granted per-file through the file-scope flow described above. Per §8, this is the only Drive access Docket holds at any time.
-
-**Scope of the surface.** The CardService UI is constrained to predefined widgets (text, buttons, sections, decorated text, selection inputs, dropdowns); arbitrary HTML/JS is not available, so deeper visualizations (side-by-side diffs, rich highlight overlays) live in the browser extension (§6.4). Selection / cursor access is also limited in the unified Card model — features that depend on capturing the user's current selection (e.g., "comment on this highlighted passage") fall back to manual snippet entry in the add-on, or are deferred to the browser-extension surface. See §9.4 and §9.5.
-
-**Comment visualization.** The add-on side panel renders canonical comment threads with quoted-text snippets, projection status, and reply chains. Native comments produced by Docket appear in Google's comment side panel (unanchored, with the snippet inlined per §5). For richer "which paragraph has comments" affordance, the add-on cross-references named ranges to render a per-section comment count and a "jump to next comment" action.
-
-**Degradation:** if the user's org hasn't installed the add-on, all functionality remains available via Slack and the browser extension.
+- **On project parent:** version list + status per version, active reviews, pending reanchorings, buttons (Request review / Checkpoint / Open in extension).
+- **On fork:** banner ("This is v2 of [project] for [audience]" or "Author is editing v3 in [link]"), reviewer status, buttons (Mark reviewed / Open Slack thread / Back to parent).
+- **On unknown doc:** onboarding card. Granting scope here triggers `onFileScopeGranted` → Docket gains `drive.file` for that doc (§9.2).
+- **Auth.** Apps Script identity token verified backend-side; Drive scope held by Docket OAuth client (per §8).
+- **Constraints.** CardService widgets only — no HTML/JS, no selection access (§9.4, §9.5).
+- **Comment visualization.** Side panel renders canonical threads + projection status + reply chains. Cross-references named ranges to render per-section comment counts and "jump to next."
 
 ### 6.3 Web entry points
 
-A deliberately minimal hosted surface. The rich UI lives in the browser extension (§6.4); the web surface is just the bits that *must* be reachable via a public URL.
+Deliberately minimal — the rich UI is in the extension.
 
-- **OAuth callback handlers** for Google sign-in and Drive scope grants.
-- **Drive Picker host page** — a small HTML page that loads Google's Picker iframe; the canonical entry point for authorizing additional docs with `drive.file` (per §9.2). Linked from Slack onboarding and the extension popup.
-- **Magic-link action handlers** — one-click endpoints like `/r/<token>` that fire a single state change (mark assignment reviewed, decline, request changes, accept reconciliation, etc.) and render a confirmation page. Used in assignment emails so external reviewers can act without an account.
-- **Public landing page** — marketing/explainer for the Docket project; "install the extension" / "connect your Google account" CTAs.
+- **OAuth callback handlers** for Google sign-in + Drive scope grants.
+- **Drive Picker host page** (`/picker`) — small HTML loading Google's Picker iframe. Acts as the Firefox-MV3 fallback for the in-popup sandboxed Picker (§6.4); on Chromium the popup hosts the same Picker inline and this page is unused.
+- **Magic-link handlers** — `/r/<token>` style, one-click state changes for external reviewers; rendered confirmation page.
+- **Public landing page** — marketing/explainer with install CTAs.
 
-Project dashboards, side-by-side diff viewer, comment reconciliation UI, overlay editor, and user settings live in the browser-extension surface (§6.4), not on the web. Rationale: anyone using Docket non-trivially has the extension installed (it's required to capture suggestion-thread replies and other API-blind annotations), so duplicating a rich UI on the web for users who don't have it adds maintenance cost without serving a real population. External reviewers and other non-installed users interact via Slack messages, magic-link actions in email, and Google Docs itself — no full web SPA needed.
+Project dashboards, diff viewer, reconciliation UI, overlay editor, settings live in the extension (§6.4), not on the web.
 
-**Mobile.** A native mobile UI (and a mobile-responsive web app) is out of scope. Slack mobile covers review actions on phones; mobile-authored doc comments still ingest through the Drive API. Mobile reviewers can still author suggestion-thread replies — those replies are recovered by any later desktop viewer with the extension installed (capture is opportunistic, not author-side). The honest gap is docs whose reviewers are entirely mobile or extension-less; revisit if real-world loss rates justify a mobile companion.
+**Mobile is out of scope.** Slack mobile covers review actions; mobile-authored comments ingest through Drive.
 
 ### 6.4 Browser extension
 
-A Chrome / Firefox / Edge extension running on `docs.google.com/*` plus its own popup / options pages. It is the rich-UI surface for Docket; the hosted web shell (§6.3) intentionally does not duplicate any of this. The extension's responsibilities span three roles, delivered across three phases:
+Chrome / Firefox / Edge extension on `docs.google.com/*` + popup/options pages. Four roles across four phases:
 
-- **Capture role (MVP — Phase 2).** The Docs UI surfaces a class of annotations that the public Drive/Docs APIs do not expose — verified empirically. Confirmed gap: replies typed into a suggestion's sidebar entry. Without an extension, this data is invisible to Docket and is permanently lost when the doc moves on. The extension is the only signal path. Each suggestion + comment + reply visible in the discussion sidebar (which is regular DOM, not canvas) is scraped, matched to the corresponding canonical_comment via the kix discussion ID embedded in DOM attributes (preferred) or by exact equality on the parent suggestion's quoted text (fallback), and POSTed to the backend.
-- **Rich-UI role (Phase 4 — closes MVP).** The extension's popup / side-panel / options pages host:
-  - **Project dashboard** — versions, derivatives, review history, reviewer participation graph.
-  - **Side-by-side version diff** — rendered HTML view of two versions with diffs highlighted, comments visible in the gutter. (Rendered locally in the extension; reuses Diff/Match algorithms over plaintext extracted from `documents.get`.)
-  - **Comment reconciliation UI** — for fuzzy / orphan projections produced by the reanchoring engine (§5).
-  - **Overlay editor** — author and edit overlays, dry-run them against the current parent, see which ops resolve cleanly.
-  - **Settings** — notification prefs, default reviewers, Slack workspace linking, Google account connection.
-  All of this runs locally as a React app served from extension origin, talking to the Docket backend over HTTPS using the per-user API token issued in Phase 2.
-- **Visualization role (Phase 6).** Highlights overlaid on the doc body, gutter markers at anchor positions, hover previews, right-click "comment on selection." The doc body is `<canvas>`-rendered (§9.6), so this requires the accessibility-DOM mirror or selection-event hooks — meaningfully heavier and on a different maintenance cadence than capture/UI. Acceptable fallbacks exist for users without the extension (add-on named-range bookkeeping, in-extension diff viewer) so this can wait.
+- **Capture (Phase 2 — MVP).** `MutationObserver` on the discussion sidebar; scrapes suggestion-thread replies; matches by kix discussion ID (preferred) or quoted-text equality (fallback); POSTs to backend. Service-worker queue + `chrome.storage.local` dedupe.
+- **Project surface (Phase 3 — current).** The popup is the primary "is this doc tracked, what state is it in, sync it now, add it as a new project" surface. Reads tab URL → doc id, queries backend `/api/extension/doc-state`, branches into onboarding / tracked views. "Add to Docket" mounts a sandboxed Drive Picker iframe inline on Chromium (Firefox MV3: opens the backend `/picker` page in a tab as fallback). "Sync now" calls `/api/extension/doc-sync` to re-ingest comments. No Workspace add-on required.
+- **Rich UI (Phase 4).** React app from extension origin: project dashboard (versions, derivatives, review history, reviewer participation), side-by-side version diff (HTML, computed locally over `documents.get` plaintext), comment reconciliation UI for fuzzy/orphan projections, overlay editor with live preview, settings. Talks to backend with per-user API token.
+- **Visualization (Phase 6).** Highlights overlaid on the doc body, gutter markers, hover previews, right-click "comment on selection," native-comment-rail integration. Doc body is `<canvas>` (§9.6) — needs accessibility-DOM mirror or selection-event hooks.
 
-The extension does not replace the Workspace Add-on. The add-on (§6.2) remains the install-free in-doc surface for users who don't or can't install a browser extension (enterprise IT block, mobile, etc.); they get a degraded experience for suggestion-thread data but full functionality for the comment-driven review workflow.
+**Capture-role mechanics.**
 
-**Capture-role responsibilities (Phase 2):**
-- Watch the discussion sidebar with a `MutationObserver`, treating it as the source of truth for annotations the API misses.
-- Scrape each visible reply on a suggestion's sidebar entry: author, timestamp, body, the parent suggestion's quoted text, and the kix discussion ID the thread belongs to.
-- Match each scraped entry to Docket's canonical state: kix discussion ID from DOM attributes (preferred), falling back to exact equality against the parent suggestion's `anchor.quotedText`. If the same quoted snippet ever produces ambiguous matches in practice, fall back further to author / timestamp — no need to invest until then.
-- POST to the backend; backend inserts a `canonical_comment` (`kind=comment`, `parent_comment_id` pointing at the suggestion's row). Idempotency keyed on the DOM-side stable ID.
-- Maintain a "seen IDs" set in extension storage to avoid duplicate POSTs across page reloads.
-- Read the doc's actual name from the title-input DOM element on each scan and cache it in `chrome.storage.local`. The popup uses this for the "Track this doc" affordance — feeding it to the Picker as a `setQuery` hint — because the localized window/tab title carries a translatable " - Google Docs" suffix that breaks Picker's token-AND name matching.
+- Doc-title cache (`shared/storage.ts`) used by the popup to seed the Picker query — localized tab titles break Picker token-AND name matching.
+- Manifest declares `host_permissions: ["https://docs.google.com/*"]` + `optional_host_permissions: ["<all_urls>"]`. Options page calls `chrome.permissions.request` from a click handler.
+- Cross-browser shim picks `globalThis.browser ?? chrome`. No `webextension-polyfill`.
 
-**Picker-entry responsibility (Phase 2):**
-- Popup detects when the active tab is on `docs.google.com/document/*` and shows a "Track this doc" button. Clicking it opens the backend's `/picker` page in a new tab with the user's API token in `location.hash` (never query — keeps it out of access logs) plus the doc id and DOM-scraped title as hints. The Picker page mints a `drive.file` access token via Google Identity Services, mounts Google's Picker iframe, and POSTs the picked doc id to `/api/picker/register-doc` to register it as a project. The hosted Picker page also stands alone for users without the extension.
+**Project-surface mechanics.**
 
-**Rich-UI-role responsibilities (Phase 4):** see the bullet list above — dashboards, diff, reconciliation, overlay editor, settings. React app served from the extension origin; talks to the Docket backend with the user's API token; reads canonical state from the same backend that capture writes to.
+- Popup states (`untracked`, `tracked`, `no-doc`, `no-settings`, error/loading) dispatch from a single `boot()` based on settings + active tab URL + backend response. All backend calls go through the SW so the API token isn't duplicated to the popup origin.
+- Sandboxed Picker (Chromium): the popup loads `popup/picker-sandbox.html` in an iframe. The chromium manifest's `sandbox.pages` + `content_security_policy.sandbox` lift the regular extension_pages CSP so the iframe can load `apis.google.com` / `accounts.google.com`. The sandbox runs at `null` origin (no `chrome.*` access, not in backend CORS allow-list); it postMessages the picked doc id back to the popup, and the popup hits `/api/picker/register-doc` from its `chrome-extension://...` origin.
+- Firefox MV3 has no `sandbox.pages` support yet. The popup detects via UA token and falls back to opening `/picker` (with the API token in `location.hash`, doc id + title as `suggestedDocId` / `suggestedTitle`) in a new tab.
+- Diagnostics (`<details>`: queue size / last error / Flush) is the old popup body, retained beneath the project surface for ops use.
 
-**Visualization-role responsibilities (Phase 6):**
-- Render highlights and gutter markers anchored to canonical comment positions.
-- Capture user selection (which the unified add-on cannot do natively) for "comment on this passage" flows.
-- Inject UI into Google's native comment rail to link native and canonical threads.
-
-**Implementation cost.** Capture-role DOM selectors are exposed to Google's UI churn — budget ~4–8 hours/month for selector fixups + larger refactors when Docs reships (~quarterly). Rich-UI is a normal React app and isn't exposed to that churn. Visualization is the heaviest line: the doc body is `<canvas>` (§9.6), so coordinate mapping needs either Google's accessibility-friendly DOM mirror (Tools → Accessibility settings) or selection-event hooks. Plan quarterly visualization-side refactors when that ships.
-
-**Architectural prerequisite already met.** Docket's `CommentAnchor` schema (quoted text + paragraph hash + structural offset + region) is rich enough to resolve to on-screen coordinates without API help, so the extension can render highlights from canonical data alone. No extension-specific schema additions are needed.
-
-**Out of scope for the extension:** mobile / iPad Docs (browser extensions don't run on those clients).
+**Out of scope:** mobile / iPad Docs.
 
 ## 7. Workflows
 
-### 7.1 Single-org review request
-
-1. Author runs `/review-request` in Slack with a doc URL and reviewer list.
-2. Backend verifies the author has connected their Google account with `drive.file` scope on the doc; if not, prompts them to authorize (open with the add-on, or use the hosted Drive Picker entry — see §9.2).
-3. Backend creates a Version: copies the doc via `files.copy`, applies any specified overlay, sets sharing permissions for reviewers.
-4. Backend creates a Review Request, posts a Slack thread, DMs each reviewer.
-5. Reviewers comment natively in Google Docs. Doc-watcher ingests comments into canonical store, projecting them onto the version with proper attribution.
-6. Slack thread updates as comments arrive (configurable: per-comment notifications, or batched summaries).
-7. Reviewers click "Mark reviewed" in Slack/sidebar/web. Status updates aggregate.
-8. Author runs `/review-close` (or backend auto-closes when all reviewers are done). Comments are projected onto the current parent via the reanchoring engine; clean matches sync automatically, ambiguous/orphan comments surface in the reconciliation UI.
+### 7.1 Single-org review
+1. Author runs `/review-request` (Slack) or sidebar action (add-on).
+2. Backend verifies `drive.file` for the doc; if missing, prompt add-on flow or Picker (§9.2).
+3. Backend snapshots a version (`files.copy`), applies overlay if any, sets reviewer sharing.
+4. Backend creates review request, posts Slack thread, DMs reviewers.
+5. Reviewers comment in Docs; doc-watcher ingests → canonical store → projects to version.
+6. Slack thread updates as comments arrive (configurable: per-comment vs. batched).
+7. Reviewers click "Mark reviewed" (Slack / sidebar / web).
+8. Author runs `/review-close` (or auto-close on full reviewer set). Comments project onto current parent via reanchoring engine; clean → auto-sync, ambiguous → reconciliation UI.
 
 ### 7.2 Cross-org review
+Same as 7.1, with:
 
-Same as above, with these differences:
-
-- The shared Google Doc cross-org sharing is what gives external reviewers access to read and comment.
-- External reviewer marks review status by clicking a magic-link button in their assignment email (one click per action: reviewed / changes_requested / declined), or by accepting a Slack Connect invite if both orgs are on Slack. Identity is verified by matching the Google OAuth `sub`/email against the doc's share list.
-- Comments are still ingested via the doc owner's Drive token (no need for the external reviewer to grant any Drive scopes).
-- If the external reviewer's org has not installed the add-on, they comment in the doc directly and use magic-link actions to confirm review state.
+- External reviewer accesses via shared Drive doc link.
+- Status updated by magic-link email button or Slack Connect.
+- Comments still ingested via doc owner's Drive token (external reviewers grant no Drive scope).
 
 ### 7.3 Derivative with overlay
-
-1. Author opens overlay editor in the browser extension or the Workspace add-on sidebar, defines operations (redact section X, append context Y).
-2. Author saves overlay, names it, assigns to project.
-3. Author runs "Create derivative" with the overlay against the current parent.
-4. Backend copies parent, applies overlay via `documents.batchUpdate`, records the derivative with its source version + overlay.
-5. Author shares derivative with audience.
-6. Later, author updates parent. Author runs "Refork derivative" → backend re-copies new parent, re-applies overlay; operations whose anchors no longer match cleanly are surfaced for review.
+1. Author defines overlay ops in extension or add-on.
+2. Save + name + assign to project.
+3. Run "Create derivative" → backend copies parent, applies overlay via `documents.batchUpdate`, records derivative.
+4. Share derivative with audience.
+5. On parent update: "Refork" → re-copy + re-apply; non-matching ops surface for review.
 
 ### 7.4 Multi-version review cycle
-
-1. v1 is reviewed, comments are ingested as canonical comments anchored to v1.
-2. Author edits parent based on feedback.
-3. Author requests review on v2. Canonical comments from v1 are projected onto v2 via the reanchoring engine: clean matches show as "still open from v1"; substantially-changed text shows as "likely addressed — confirm?"; deleted-text comments show as "previous-version context" (sidebar only, not native Doc comments).
-4. v2 reviewers comment; new canonical comments are created.
-5. Author can mark v1 comments as addressed. Replies on v2 are linked to canonical comments by ID, so reply chains compose across versions.
-6. v3 review repeats the projection.
+1. v1 reviewed; canonical comments anchored to v1.
+2. Author edits parent.
+3. Author requests v2 review. v1 comments project onto v2: clean → "still open from v1"; changed → "likely addressed — confirm?"; deleted-text → "previous-version context" (sidebar only, not a native comment).
+4. v2 reviewers comment.
+5. Author marks v1 comments addressed. Replies on v2 link to canonical comments by ID — reply chains compose across versions.
+6. v3 review repeats.
 
 ## 8. Authentication and authorization
 
-**Doc owners** authorize the service with Google OAuth, scope `drive.file`, granting access to the specific docs they want managed. The service stores and refreshes tokens. This is the only Google scope the service ever holds for active doc operations. See §9.2 for the per-file semantics of `drive.file`.
+| Role | Mechanism |
+|---|---|
+| Doc owner | Google OAuth, scope `drive.file` (per-file, §9.2); refresh token encrypted at rest |
+| Participant | Google OAuth identity-only / SSO (SAML, OIDC) / magic-link email |
+| Slack identity | Slack OAuth + email match against `user.email` |
 
-**Participants** sign into the service. Acceptable methods:
-- Google OAuth with no Drive scope (just identity)
-- SSO (SAML/OIDC) for enterprise customers
-- Magic-link email auth (fallback for external reviewers without Google accounts)
+**Authorization model.** Project-scoped roles: owner / collaborator / reviewer / observer. External reviewers added per-review-request, scoped to that version.
 
-**Slack identity** is linked to service identity via Slack OAuth + email match.
-
-**Authorization model in the service** is project-scoped. Each project has owner / collaborator / reviewer / observer roles. External reviewers are added per-review-request with reviewer-scope access to that version only.
-
-**Data isolation:** projects belong to a tenant (org). Cross-org review is modeled as inviting users from other tenants to a specific review request, not as merging tenants.
+**Data isolation.** Projects belong to a tenant (org). Cross-org review = invite users from other tenants to a specific request.
 
 ## 9. Google Workspace API constraints
 
-This architecture is shaped by several constraints in the public Google Workspace APIs. Engineers planning related features must know these in advance — they determine what each surface can and cannot do.
-
 ### 9.1 Anchored comments cannot be authored via API
+Drive `comments.create` accepts `anchor`, but for Docs editor files anchored comments authored via the API are not supported. Apps Script `DocumentApp` has no comment-creation method. The kix anchor blob is unstable.
 
-Drive API `comments.create` accepts an `anchor` field, but Google's official documentation states that **for Google Docs editor files, comments authored via the API are treated as unanchored regardless of any anchor value supplied** ("Anchored comments on blob files or Google Docs editor files aren't supported"). The Python sample in the Drive guide showing a `{ region: { kind: 'drive#commentRegion', line, rev: 'head' } }` anchor format applies to line-rendered blob files (raw text, source code), not to Google Docs.
-
-There is no escape hatch:
-- Apps Script's `DocumentApp` does not expose a comment-creation method.
-- The Apps Script advanced Drive service routes through the same REST API.
-- The undocumented kix anchor blob can be reverse-engineered but is unstable across Docs releases — unsafe for production.
-
-**Implications:**
-- Docket owns canonical comment anchoring end-to-end (§5). Native comments produced by the service are unanchored from Google's perspective; the quoted snippet is included in the comment body as a fallback.
-- Richer in-context UX (highlights, gutter markers) is rendered in the add-on sidebar via named-range bookkeeping or in the browser extension (§6.4) via on-canvas overlays.
-- **Reading** anchored comments authored through the Docs UI works fully — only the outbound projection path is constrained.
+**Implications:** Docket owns anchoring. Native comments produced by Docket are unanchored from Google's view; quoted snippet inlined in the body. Reading anchored comments authored in the UI works fully — only the outbound projection path is constrained.
 
 ### 9.2 `drive.file` scope semantics
+Per-file. Granted only via files Docket created OR explicit Picker / Workspace Add-on file-scope flow. Typing a URL into Slack does not grant access.
 
-The `drive.file` scope grants access only to files (a) the OAuth client created or (b) explicitly shared with it via the Drive Picker or the Workspace Add-on file-scope-granted flow. It does **not** grant access to a doc just because the user types its URL into Slack.
-
-**Implications:**
-- Onboarding flows must establish per-file access before the backend tries to read or copy a doc. Supported entry points: opening the doc with the Docket Workspace Add-on, selecting it via the hosted Drive Picker entry page, or re-using files Docket itself created (versions, derivatives).
-- Every entry surface (Slack, extension, add-on) needs a "first time you reference a doc, here's how to authorize it" affordance.
-- Cross-org review depends on the **doc owner's** `drive.file` token; external reviewers don't grant any Drive scope.
+**Implications:** Every entry surface needs a "first-time authorization" affordance. Cross-org review depends on the *doc owner's* `drive.file` token; external reviewers grant no Drive scope.
 
 ### 9.3 Drive push-notification requirements
+- HTTPS endpoint, domain verified in Search Console.
+- Channel TTL 1–24h (max ~7 days); can drop without notice.
+- Push payload is empty (`X-Goog-Resource-State` + channel ID); re-fetch on event.
 
-`drive.files.watch` requires:
-- An HTTPS endpoint with a domain verified in Search Console.
-- A renewable channel (typical 1–24 hour TTL; max ~7 days). Channels can drop without notice.
-- Watcher logic that re-fetches state on event, since the push payload itself is empty (`X-Goog-Resource-State` + channel ID, no body).
-
-**Implications:**
-- The doc-watcher service requires public infrastructure and a channel-renewer cron.
-- A polling fallback is required for when channels expire or drop.
-- The watcher is the only reliable signal for "the doc changed" — Google Docs has no real-time edit trigger comparable to Sheets' `onEdit`.
+**Implications:** doc-watcher needs public infra + channel-renewer cron + polling fallback. Only reliable "doc changed" signal — Docs has no `onEdit` analog.
 
 ### 9.4 Workspace Add-on UI is Card-only
+Unified Workspace Add-on framework renders only via CardService. No arbitrary HTML/CSS/JS. Do not adopt the legacy Editor add-on.
 
-The unified Workspace Add-on framework (the one new add-ons should target) renders UI through CardService — text, buttons, sections, decorated text, selection inputs, dropdowns. It does **not** support arbitrary HTML, custom CSS, JavaScript-driven UIs, or custom client-side rendering. The legacy Editor add-on framework (Apps Script + HTMLService) supports arbitrary HTML sidebars but is being deprecated in favor of the unified framework — new code should not adopt it.
-
-**Implication.** Side-by-side diff viewers, rich overlay editors, and any custom-rendered UX belong in the browser-extension surface.
+**Implication:** rich UX (diffs, overlay editor, custom rendering) belongs in the extension.
 
 ### 9.5 Selection access from the add-on is limited
-
-The unified Workspace Add-on does not expose the user's current selection or cursor position to the Card UI. Features that need "what is the user looking at right now" must either:
-- Ask the user to enter the snippet manually,
-- Defer to the browser extension surface (§6.4), which has full DOM/selection access.
+Unified add-on does not expose selection / cursor. Either ask the user to enter a snippet manually, or defer to the extension.
 
 ### 9.6 Canvas-rendered doc body
-
-Since 2021, Google Docs renders text into `<canvas>` rather than the DOM. The text body is not addressable as DOM elements. Browser extensions that overlay the doc body must derive coordinates from either Google's accessibility-friendly DOM mirror (a setting users enable manually under Tools → Accessibility settings) or from selection-event hooks. Production-grade extensions (Grammarly, LanguageTool) use both. This is the principal cost driver for the browser extension surface (§6.4).
+Docs renders body to `<canvas>`. DOM-overlaying extensions need the accessibility-DOM mirror (Tools → Accessibility) or selection-event hooks.
 
 ### 9.7 `documents.batchUpdate` is sufficient for overlays
 
-All four overlay operation types map cleanly to `documents.batchUpdate` primitives:
-
 | Overlay op | Docs API primitive |
 |---|---|
-| redact | `deleteContentRange` (or `replaceAllText` for a redaction marker) |
-| replace | `replaceAllText` (anchored variant) or `deleteContentRange` + `insertText` |
-| insert | `insertText` at index |
-| append | `insertText` at end |
+| redact  | `deleteContentRange` (or `replaceAllText` for a marker) |
+| replace | `replaceAllText` (anchored) or `deleteContentRange` + `insertText` |
+| insert  | `insertText` at index |
+| append  | `insertText` at end |
 
-Anchor-to-index resolution happens before the batch update — that's the reanchoring engine's job. The API itself does not constrain overlays.
+Anchor → index resolution happens upstream.
 
 ## 10. Privacy and security
 
-- Drive refresh tokens encrypted at rest with envelope encryption.
-- Audit log for all sensitive operations (sharing changes, version creation/deletion, overlay applications, comment projections).
-- Doc content is fetched on demand and cached only as long as needed for reanchoring; canonical comment store holds quoted snippets, not full doc bodies.
-- Configurable data residency per tenant (EU-only deployment option for projects with that requirement).
-- The service refuses to operate on docs whose Workspace policies forbid third-party app access.
-- The add-on uses minimal scopes; the backend never asks participants for broad Drive access.
+- Drive refresh tokens encrypted at rest (envelope encryption: KEK → per-row DEK → ciphertext).
+- Audit log on sensitive ops (sharing, version delete, overlay apply, comment projection).
+- Doc content fetched on demand; canonical store holds quoted snippets, not full bodies.
+- Per-tenant data residency (EU-only deploy option).
+- Refuse to operate on docs whose Workspace policy forbids 3rd-party app access.
+- Add-on uses minimal scopes; backend never asks participants for broad Drive access.
 
 ## 11. Out-of-scope for v1
 
-- Real-time merge of edits across versions (only comments and overlays are reconciled; doc text edits aren't auto-merged).
-- Image- or table-anchored comment reanchoring (handled as orphans, surfaced for manual placement).
-- Deep integration with Google Docs suggesting-mode (tracked changes) — v1 ingests insert/delete suggestions as canonical_comment rows tagged `kind=suggestion_insert|suggestion_delete`, anchored on the affected text. The ingester walks all doc regions (body, headers, footers, footnotes) so footer/header suggestions are first-class. Author/timestamp resolution for the suggestion (via Drive `revisions.list` cross-reference) and style-only suggestions (`suggestedTextStyleChanges`) are deferred to Phase 6. **Reply threads attached to a suggestion in the Docs UI** (the comment box on the suggestion's sidebar entry) are stored internally by Google and are not exposed by `drive.comments.list`, `documents.get`, or any other documented public API — verified empirically. The browser extension (§6.4, MVP — Phase 2) is the only way to recover this data: the discussion sidebar is regular DOM, scrapeable via MutationObserver. The extension is also the long-term hedge for other API gaps (style-only suggestions, mobile-authored annotations, future surface changes Google may make).
-- Authoring **anchored** native Google Docs comments (impossible per §9.1; use quoted-text-in-body fallback).
-- A native mobile UI and a mobile-responsive web app. Slack mobile is the supported phone surface for review actions; mobile-authored Drive comments and suggestion-thread replies are recovered opportunistically — the next extension-equipped desktop viewer captures replies regardless of where they were authored (§6.4). The actual gap is docs whose reviewer pool is entirely mobile or extension-less; deferred until evidence of meaningful loss.
-- Workspace Marketplace public listing (private/domain installation only at v1).
+- Real-time merge of edits across versions (only comments + overlays reconcile).
+- Image- / table-anchored comment reanchoring (orphans, manual placement).
+- Deep suggesting-mode integration. v1 ingests insert/delete suggestions as `canonical_comment` rows tagged `kind=suggestion_*`, anchored on affected text. Walks all regions (body, headers, footers, footnotes). Author/timestamp via `revisions.list` + style-only suggestions (`suggestedTextStyleChanges`) deferred to Phase 6. **Suggestion-thread replies** are recovered only via the extension (Phase 2).
+- Authoring **anchored** native Google Docs comments.
+- Native mobile UI / responsive web.
+- Public Workspace Marketplace listing (private/domain install only at v1).
 
 ## 12. Build sequence
 
-Each phase delivers a coherent, demoable slice. **Phases 1–4 are the MVP** — both stated pain points and the multi-version review workflow work end-to-end, driven from the in-doc Workspace add-on (Phase 3) plus magic-link action handlers (Phase 4) for external reviewers, and the public-API gap around suggestion-thread replies closed by the browser extension's capture role. The Slack bot lands in Phase 5 once teams want a chat-driven coordination surface; phases 5–6 are polish that materially improves UX in real research contexts. Phase 7 is "after we've seen how teams actually use it."
-
-The browser extension is part of the MVP. Rationale: Google's public Docs/Drive APIs have known and likely-growing gaps (suggestion-thread replies confirmed missing; future surface changes Google ships could expose more). Treating the extension as a first-class capture surface from the start gives the project long-term flexibility as the API surface evolves. Visualization features (canvas overlays, selection capture) stay deferred to Phase 6 — they're costlier and have acceptable fallbacks.
+Phases 1–4 = MVP. Phase 5 adds Slack. Phase 6 = cross-org polish + extension visualization. Phase 7 = Workspace add-on + marketplace + advanced. Each phase has a `Status:` line — keep it current as work lands.
 
 ### Phase 1 — Core engine
-
 **Status: shipped.** ✅
 
-The headless backend that owns all Docket state. No user-facing surface yet; tested end-to-end via CLI.
-
-**Components**
-- Drizzle schema for the 12 tables in §4, on `bun:sqlite` with WAL.
-- Envelope-encrypted refresh-token storage (`auth/encryption.ts`, `auth/credentials.ts`).
-- Google OAuth flow + per-user `TokenProvider` with cached + auto-refreshed access tokens.
-- Drive + Docs REST wrappers (`google/drive.ts`, `google/docs.ts`) — endpoint-shaped, typed.
-- Domain primitives: `createProject`, `createVersion` (Drive copy + plaintext-hash snapshot fingerprint).
-- Canonical comment ingestion (read-side: Drive `comments.list` → `canonical_comment` + `comment_projection`).
-- Reanchoring engine (§5) with confidence scoring.
-- Overlay model + applier translating overlay ops to `documents.batchUpdate` (§9.7).
-- Doc-watcher: `drive.files.watch` subscription, channel-renewer cron, polling fallback (§9.3).
-- CLI dispatcher (`bun docket <subcommand>`) wrapping every domain function for dev/test.
-
-**Features delivered**
-- Connect a Google account with `drive.file`.
-- Register a parent doc as a project; snapshot versions on demand.
-- Ingest comments from any version into the canonical store.
-- Project canonical comments across versions with confidence scoring; fuzzy/orphan comments queued for reconciliation.
-- Author overlays in the DB and apply them to produce derivatives.
-- Receive change events from Drive and refresh canonical state automatically.
+Headless backend + CLI. Drizzle schema (12 tables) on `bun:sqlite` WAL; envelope-encrypted refresh tokens; Google OAuth + per-user `TokenProvider`; Drive/Docs REST wrappers; domain primitives (`createProject`, `createVersion`); canonical comment ingest; reanchoring engine with confidence scoring; overlay applier; doc-watcher with channel renewer + polling fallback; `bun docket <subcommand>` CLI dispatcher.
 
 ### Phase 2 — Backend HTTP API + browser extension (capture) + minimal web entry points
+**Status: shipped.** ✅
 
-**Status: shipped.** ✅ Fly.io deploy + GitHub Actions auto-deploy on `main`; `bun docket serve` HTTP host with `/healthz`, `/oauth/{start,callback}`, `/picker` (real Drive Picker iframe with GIS-backed access tokens, gated on `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`), `/webhooks/drive`, `/api/extension/captures`, and `/api/picker/register-doc` (bearer-auth → `createProject`); per-user API tokens (issue/list/revoke CLI + bearer middleware); Manifest V3 extension (Chrome / Edge / Firefox sharing one codebase) with sidebar `MutationObserver` + kix-discussion-id matching plus a popup "Track this doc" button that opens the Picker page with the open doc's id+title as a hint; service-worker queue with `chrome.storage.local` dedupe + alarm-driven retry; auto-subscribe of Drive `files.watch` on every new version + in-process renew + polling loops gated on `DOCKET_PUBLIC_BASE_URL`.
+Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun docket serve` HTTP host with `/healthz`, `/oauth/{start,callback}`, `/picker` (real Drive Picker iframe with GIS-backed access tokens, gated on `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`), `/webhooks/drive`, `/api/extension/captures`, `/api/picker/register-doc` (bearer-auth → `createProject`). Per-user opaque API tokens (issue/list/revoke CLI + bearer middleware). MV3 extension (Chrome / Edge / Firefox sharing one codebase) with sidebar `MutationObserver` + kix-discussion-id matching plus a popup "Track this doc" button that opens the Picker page with the open doc's id+title as a hint. Service-worker queue with `chrome.storage.local` dedupe + alarm-driven retry. Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops gated on `DOCKET_PUBLIC_BASE_URL`.
 
-The first deployable artifact beyond the CLI. Backend comes online as a network service; the extension's capture role ships, closing the suggestion-thread-reply gap (§11); the web shell is just the glue needed for OAuth + Drive Picker.
+### Phase 3 — Extension popup as project surface
+**Status: in progress.**
 
-**Components**
-- HTTP API on `Bun.serve` with per-user opaque API tokens (issued initially via the CLI).
-- OAuth callback handler (already exists in CLI; ports into the HTTP server).
-- Drive Picker host page (a small static HTML page loading Google's Picker iframe).
-- Manifest V3 browser-extension scaffold — Chrome, Edge, and Firefox sharing one codebase. Safari deferred (separate Xcode build).
-- Content script on `docs.google.com/*` watching the discussion sidebar via `MutationObserver`.
-- Sidebar-scraping logic: each visible reply yields author, timestamp, body, kix discussion ID (from DOM data attributes when available), with a parent-suggestion-quoted-text fallback for matching.
-- Backend ingest endpoint: resolves (docId, kix discussion ID) → existing canonical_comment (`kind=suggestion_*`) and inserts a new canonical_comment (`kind=comment`, `parent_comment_id` pointing to the suggestion). Idempotent on the scraped reply's stable ID.
-- Service-worker queue + local-storage dedupe for retry across tab/session.
+Replaces the Workspace add-on as the lightweight "I'm in a doc, what does Docket know about it?" surface (§6.4). Same affordances, no Apps Script / CardService dependency, no separate install. The Workspace add-on is deferred to Phase 7 as a managed-device fallback.
 
-**Features delivered**
-- Suggestion-thread replies in the canonical store, parented to the suggestion they belong to.
-- A backend HTTP API surface ready to be consumed by the Workspace add-on (Phase 3), the extension's rich UI (Phase 4), and the Slack bot (Phase 5).
-- Drive Picker available as the entry point for `drive.file` authorization on existing docs.
+Backend API:
 
-**Operational notes**
-- DOM selectors in the Docs UI are not part of any contract; budget ~4–8 hours/month for selector fixups + larger refactors when Google reships the UI (~quarterly historical cadence).
-- Capture is opportunistic: it happens whenever any extension-equipped browser session views the doc. Authoring medium (mobile vs. desktop, extension vs. no extension) doesn't matter — the reply enters Google's sidebar DOM the same way for everyone, and the next extension-equipped viewer captures it. The only real loss case is a doc whose reviewers are *entirely* mobile or extension-less. Active review cycles guarantee at least one extension-equipped viewer; passive long-running docs are riskier.
-- Enterprise IT may block third-party Docs extensions; the Workspace Add-on (Phase 3) plus a "comment instead of reply-to-suggestion" UX nudge in the add-on banner are the fallback paths for those tenants.
+- `POST /api/extension/doc-state` — tracked? state for the open doc. Resolves doc id → project (parent or version role), returns project metadata, current version label, `lastSyncedAt`, comment + open-review counts. Owner-scoped — cross-user reads return `tracked: false` (no information leak).
+- `POST /api/extension/doc-sync` — popup "Sync now" handler. Looks up the relevant version (the version row when the user is on a version doc; latest active when on the parent), runs `ingestVersionComments`, returns refreshed state.
+- `GET /api/picker/config` — public endpoint exposing the same Picker config the inline `/picker` page already inlines (clientId / apiKey / projectNumber). Lets the in-popup sandboxed Picker iframe boot without an API-token round-trip. Not a secret — every value is already visible to any unauthenticated browser hitting `/picker`.
+- CORS allow-list extended to the chromium / firefox extension origins for all `/api/extension/*` and `/api/picker/*` routes.
 
-### Phase 3 — Workspace add-on
+Extension popup:
 
-**Status: not started.**
+- Popup state machine: `no-settings` → options nudge; `no-doc` → muted "open a Google Doc"; `untracked` → "Add to Docket" affordance; `tracked` → role + version + comment count + last-synced + "Sync now" button. Errors / loading states dispatched from the same shell.
+- In-popup sandboxed Drive Picker iframe (Chromium): loads `popup/picker-sandbox.html` inside the popup, lifted CSP via the chromium manifest's `sandbox.pages` + `content_security_policy.sandbox`. The sandbox postMessages the picked doc id back to the popup, the popup calls `/api/picker/register-doc` from its `chrome-extension://...` origin.
+- Firefox MV3 fallback: no `sandbox.pages` support yet; popup detects via UA token and opens the existing `/picker` page in a new tab.
+- All backend calls routed through the service worker so the API token doesn't leak to the popup origin or the picker sandbox.
 
-In-Doc surface so users don't have to leave the writing experience to use Docket. Lands before the Slack bot because it's testable solo (no Slack workspace required) and unlocks the per-file `drive.file` flow for arbitrary docs the user already owns.
-
-**Components**
-- Unified Workspace Add-on (CardService UI; §9.4).
-- `onFileScopeGranted` trigger handler that integrates per-file `drive.file` grants with Docket's existing token store (§9.2).
-- Apps Script identity-token verification on the backend.
-- `review_orchestrator` service (§5) — minimum surface needed to create a review request from the sidebar and project comments back on close.
-- `notification_dispatcher` service (§5), email channel — the Slack channel lands in Phase 5.
-- Named-range bookkeeping in the overlay applier so the add-on can render "comments at this paragraph" affordances.
-- UX banner on docs with active suggestions: nudges reviewers to leave a regular comment rather than typing into the suggestion's reply box, hardening the data-capture path for users without the extension installed.
-
-**Features delivered**
-- Inside any open Google Doc: see project status, version list, active reviews.
-- Trigger snapshots and review requests from the sidebar.
-- View canonical comment threads in the side panel; jump to the project in the browser extension.
-- First-time-doc onboarding: opening a previously-unknown doc with the add-on registers it and grants `drive.file`.
-- Per §9.4 and §9.5, in-doc highlights and selection-driven flows are deferred to Phase 6's extension visualization layer.
+**Delivers:** the extension popup is the primary surface for the entire "track this doc → check its state → sync now" loop. New users with the extension installed never see a Docket-hosted page after OAuth; existing users get an inline view of project state without leaving Docs.
 
 ### Phase 4 — Extension rich UI + magic-link action handlers
-
 **Status: not started.**
 
-Closes out the MVP. The browser extension grows from a capture-only background process into the full Docket UI: dashboards, diff viewer, reconciliation, overlay editor, settings. The web shell adds a thin set of magic-link handlers so external reviewers can confirm review actions without an account.
+Builds on the Phase-3 popup project surface. The popup retains the lightweight read-only view; the side-panel / options page hosts the rich React app.
 
-**Components**
-- React app served from the extension's options / popup / side-panel surfaces.
+- React app from extension side-panel / options. Popup stays vanilla TS — opening it has to be fast and the surface is small.
 - Project dashboard: versions, derivatives, review history, reviewer participation.
-- Side-by-side version diff renderer (HTML, computed locally from `documents.get` plaintext + diff library).
-- Comment reconciliation UI for fuzzy / orphan projections produced by the reanchoring engine (§5).
+- Side-by-side version diff (HTML, computed locally from `documents.get` plaintext + diff library).
+- Comment reconciliation UI for fuzzy / orphan projections.
 - Overlay editor with live preview against the current parent.
 - Settings: notification prefs, default reviewers, Slack workspace linking.
-- Web entry-point additions: magic-link action handlers (`/r/<token>` style) for "mark reviewed", "decline", "request changes", reconciliation acceptance — single endpoints that fire a state change and render a confirmation page. Token issued to external reviewers in their assignment email.
+- Magic-link `/r/<token>` handlers: mark reviewed, decline, request changes, accept reconciliation. Token issued in assignment emails.
 
-**Features delivered**
-- Manually reconcile fuzzy/orphan comment projections inside the extension.
-- View version diffs side-by-side with comments in the gutter.
-- Author and test overlays interactively.
-- External reviewers without Docket accounts can act via one-click email links — cross-org workflows become possible.
-- Phases 1–4 together cover the MVP.
+**Delivers:** MVP. Cross-org workflows become possible via one-click email actions.
 
 ### Phase 5 — Slack bot
-
 **Status: not started.**
 
-Adds chat-driven review coordination for teams that work in Slack. The MVP (phases 1–4) already supports the full review cycle via the add-on + magic-link flow; Slack is layered on as an additional surface, not a prerequisite.
-
-**Components**
-- Slack event subscriptions, slash commands, and interactive payloads consuming the Phase-2 HTTP API.
+- Event subscriptions, slash commands, interactive payloads against Phase-2 API.
 - Slack OAuth + workspace-linking flow.
-- `notification_dispatcher` Slack channel (the email channel shipped in Phase 3).
-- Identity-linking: `user.email` ↔ Slack `user.profile.email`.
-- Drive-scope onboarding affordance for Slack flows that reference unauthorized docs (§9.2).
+- `notification_dispatcher` Slack channel.
+- Identity link `user.email` ↔ Slack `user.profile.email`.
+- Slack-side drive-scope onboarding affordance for unauthorized docs (§9.2).
 
-**Features delivered**
-- `/review-request`, `/review-status`, `/review-close` (§6.1).
-- Per-reviewer DMs and review-thread updates.
-- Home tab dashboards.
-- Slack as an alternate entry point for the same single-org review cycle the add-on drives in Phase 3.
+**Delivers:** `/review-request`, `/review-status`, `/review-close` (§6.1); per-reviewer DMs; thread updates; home-tab dashboards.
 
 ### Phase 6 — Cross-org polish + extension visualization
-
 **Status: not started.**
 
-Cross-org reviews become first-class; the browser extension grows beyond capture into in-canvas visualization and selection-driven authoring.
+- Slack Connect for shared review channels across orgs.
+- External-reviewer onboarding via magic-link auth + identity verification (OAuth `sub`/email vs. share list).
+- Friendly errors when org policy blocks third-party app access (§10).
+- Extension visualization: in-canvas highlights / gutter markers (accessibility-DOM mirror or selection-event hooks; §9.6); hover previews; right-click "comment on selection"; native-comment-rail integration.
+- Drive `revisions.list` cross-reference to populate author/timestamp on `kind=suggestion_*` rows.
 
-**Components**
-- Slack Connect support for shared review channels across orgs.
-- External-reviewer onboarding flow: magic-link auth, identity verification via OAuth `sub`/email match against the doc's share list.
-- Sharing-policy error handling: friendly errors when org policy blocks third-party app access (§10).
-- Browser-extension visualization layer: in-canvas highlights and gutter markers (via accessibility-DOM mirror or selection-event hooks; §9.6), hover previews, right-click "comment on selection," native-comment-rail integration.
-- Drive `revisions.list` cross-reference to populate author/timestamp on `kind=suggestion_*` rows ingested from `documents.get`.
-
-**Features delivered**
-- Cross-org reviews work without external reviewers needing Slack workspace membership or installing the add-on.
-- Helpful errors instead of cryptic API failures when org policy prevents Docket from operating.
-- With the extension installed: canonical comments appear as highlights in the doc body; users can author canonical comments from the doc's selection; native comment rail links into Docket threads.
-- Suggestion rows carry author + timestamp instead of being null-author/ingestion-time.
-
-### Phase 7 — Marketplace + advanced features
-
+### Phase 7 — Workspace add-on, marketplace listings, advanced features
 **Status: not started.**
 
-Public availability + the long-tail features that make sense after we've watched real teams use Docket.
-
-**Components**
-- Google Workspace Marketplace listing — OAuth verification, security assessment for sensitive scopes.
+- **Workspace add-on (deferred from earlier MVP plan).** Unified Workspace Add-on (CardService UI; §9.4) covering the same affordances as the Phase-3 popup, for users on managed devices or in environments that block extension installs. `onFileScopeGranted` integrates per-file `drive.file` with Docket's token store (§9.2). Apps Script identity-token verification on the backend. Banner UX nudging reviewers to leave a regular comment rather than a suggestion-thread reply. Named-range bookkeeping in the overlay applier — powers add-on "comments at this paragraph" affordances.
+- Workspace Marketplace listing (OAuth verification + security assessment).
 - Slack App Directory listing.
 - Browser-extension store listings (Chrome Web Store, Firefox Add-ons, Edge Add-ons).
 - Advanced overlay primitives: conditional ops, parameterized snippets, overlay composition.
-- Style-only suggestion ingestion (`suggestedTextStyleChanges`) and richer suggesting-mode signals.
-- Automated comment classification ("does this comment look resolved by the latest edit?").
-
-**Features delivered**
-- Public installation outside the original tenant.
-- Richer overlay authoring.
-- Bold/italic/color suggestions flow into the canonical comment store as first-class entries.
-- Heuristics that pre-classify comments during multi-version review cycles.
+- Style-only suggestion ingestion (`suggestedTextStyleChanges`).
+- Automated comment classification ("does this look resolved by the latest edit?").
 
 ## 13. Stretch goals
 
-Beyond the phased v1 plan. Docket's value compounds once the canonical comment store (§4) is treated as a first-class data product: the doc-watcher (§5) already keeps it fresh, projections already reconcile across versions, and the per-user API tokens (Phase 2) already gate access. The directions below build on that foundation. They aren't scheduled — they inform schema and API decisions today so we don't paint into a corner.
+Not scheduled. Listed so they inform schema/API decisions today.
 
 ### 13.1 External read API + webhooks
+Scoped, versioned, read-mostly HTTPS API over canonical comments + projections + review state. Distinct from internal `/api/extension/*`. Same `dkt_` token auth.
 
-A scoped, versioned, read-mostly HTTPS API over canonical comments, projections, and review state — distinct from the internal `/api/extension/*` surface. Same `dkt_` token auth, same project-scoped authorization (§8).
-
-Endpoint sketch:
-- `GET /api/v1/projects` — projects the caller can read.
-- `GET /api/v1/projects/:id/comments?version=&status=&since=` — canonical comments + projection state, paginated.
-- `GET /api/v1/projects/:id/versions/:vid/diff` — plaintext diff with comment anchors layered in.
-- `POST /api/v1/projects/:id/comments/:cid/status` — update canonical-comment status (open / addressed / wontfix).
-- **Webhooks**: configurable per project, fired on `comment.created`, `comment.replied`, `projection.resolved`, `review_request.closed`. Payload is the affected canonical row plus a stable cursor; consumers reconcile against `since=` polls during downtime.
-
-This unblocks third-party dashboards, internal data-warehouse mirrors, and lightweight automations ("post to Slack when a v2 comment goes orphaned") without each consumer reimplementing the doc-watcher.
+- `GET /api/v1/projects`
+- `GET /api/v1/projects/:id/comments?version=&status=&since=`
+- `GET /api/v1/projects/:id/versions/:vid/diff` — plaintext + comment anchors
+- `POST /api/v1/projects/:id/comments/:cid/status`
+- Webhooks per project: `comment.created`, `comment.replied`, `projection.resolved`, `review_request.closed`. Stable cursor for downtime backfill.
 
 ### 13.2 MCP server
+Thin shell over `src/domain/*` exposing canonical state as MCP resources + tools.
 
-A Model Context Protocol server exposing canonical state as MCP resources + tools. Drops Docket into any MCP-aware agent (Claude Desktop, IDE plugins, CLI agents) so an LLM can answer "which reviewers blocked v2?" or "summarize the unaddressed comments on this doc" with grounded data instead of pasted context.
-
-Surface:
-- **Resources:** project summary, version diffs, canonical comment threads (one URI per thread, paginated indexes per project).
-- **Tools:** `search_comments`, `summarize_review_request`, `mark_comment_addressed`, `create_version_checkpoint`, `request_review`. Side-effects are scoped to the caller's user; the same authorization model as §8 applies.
-- **Auth:** the same `dkt_` per-user tokens issued today, exchanged on first MCP handshake.
-
-Implementation is a thin shell over `src/domain/*` — same code paths the HTTP API and CLI already use. No new state, no new credential model.
+- **Resources:** project summary, version diffs, comment threads (one URI per thread, paginated indexes per project).
+- **Tools:** `search_comments`, `summarize_review_request`, `mark_comment_addressed`, `create_version_checkpoint`, `request_review`. Side-effects scoped to caller; same authorization model as §8.
+- **Auth:** same `dkt_` per-user tokens, exchanged on first MCP handshake.
 
 ### 13.3 In-browser AI tools
+Extension side-panel chat with the canonical store wired in as live context (via §13.2 MCP, or directly via the Phase-4 React app's API client).
 
-The browser extension (§6.4) grows a side-panel chat backed by an LLM, with the canonical store wired in as live context (via §13.2's MCP server, or directly through the Phase-4 React app's existing API client). Use cases:
+- **Triage assist** — "which v2 comments are addressed by the v2→v3 diff?"
+- **Reply drafting** — LLM drafts a reply grounded in surrounding doc text + prior thread; user edits before posting back as a regular Drive comment.
+- **Author co-review** — flag passages likely to draw the same kinds of comments past reviewers left on this project.
+- **"Explain this comment in context"** — pulls parent suggestion + surrounding paragraph + cross-version replies into a single summary.
 
-- **Triage assist.** *"Which v2 comments are addressed by the v2 → v3 diff?"* — the LLM has comment threads + diff in context and proposes a status update per comment that the user accepts/rejects in the reconciliation UI.
-- **Reply drafting.** Selecting a comment opens a panel where the LLM drafts a reply grounded in the surrounding doc text and prior thread; the user edits before posting back as a regular Drive comment.
-- **Author co-review.** Before requesting a review, the author asks the LLM to flag passages likely to draw the same kinds of comments past reviewers left on this project — backed by the cross-version canonical history.
-- **"Explain this comment in context"** for late-joining reviewers: pulls the parent suggestion, the surrounding paragraph, and any cross-version replies into a single summary.
-
-Privacy posture: the LLM only sees what the calling user can already see. Doc body is fetched fresh per turn through Docket's existing `drive.file`-scoped credentials; nothing is sent to the model provider that the user couldn't already export themselves. Provider choice (Claude / OpenAI / local) lives in the extension's settings; default is "ask before sending."
-
-### 13.4 Why this lands well on Docket specifically
-
-Generic LLM-on-Docs integrations exist, but they all start with "paste a doc URL and we'll read it." Docket's edge:
-
-- **Cross-version memory.** Canonical comments persist across forks and versions, so AI tools can reason about "what changed between v1 and v2 *with respect to the open feedback*" — not just text diffs.
-- **Authoritative status.** `canonical_comment.status` is the single source of truth for what's open vs. addressed; LLMs don't have to infer it from prose.
-- **Live data.** The doc-watcher (§5) keeps state fresh within minutes of any edit. AI tools subscribed via §13.1 webhooks see the same updates the human surfaces do.
-- **Anchored context.** Each comment carries quoted text + paragraph hash + structural offset (§9.1), so LLMs can quote the right passage back to the user without guessing.
-
-These also tighten the acceptance bar for the read API and MCP shapes above — both must surface the cross-version, status-aware view that makes the AI integrations differentiated.
+Privacy: LLM only sees what the calling user can already see. Doc body fetched fresh per turn through Docket's `drive.file`-scoped credentials. Provider choice (Claude / OpenAI / local) in extension settings; default "ask before sending."

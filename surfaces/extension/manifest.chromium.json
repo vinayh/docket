@@ -39,5 +39,11 @@
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
+  },
+  "sandbox": {
+    "pages": ["popup/picker-sandbox.html"]
+  },
+  "content_security_policy": {
+    "sandbox": "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals; script-src 'self' https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline'; connect-src https://accounts.google.com https://apis.google.com https://www.googleapis.com; frame-src https://accounts.google.com https://docs.google.com https://content.googleapis.com; img-src 'self' data: https:;"
   }
 }
