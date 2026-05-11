@@ -6,10 +6,6 @@ const DOCS_BASE = "https://docs.googleapis.com/v1";
 export interface TextRun {
   content: string;
   textStyle?: Record<string, unknown>;
-  /** Suggestion IDs marking this run as a *proposed* insertion (text not yet accepted). */
-  suggestedInsertionIds?: string[];
-  /** Suggestion IDs marking this run as a *proposed* deletion (text still in body, struck through). */
-  suggestedDeletionIds?: string[];
 }
 
 export interface ParagraphElement {

@@ -17,8 +17,8 @@ export async function run(args: string[]): Promise<void> {
   console.log(`\ncopied as ${r.copy.name}`);
   console.log(r.copy);
 
-  console.log(`\n${r.comments.length} comment(s) on the original`);
-  for (const c of r.comments) {
+  console.log(`\n${r.driveComments.length} Drive comment(s) on the original`);
+  for (const c of r.driveComments) {
     const author = c.author?.displayName ?? "?";
     const quoted = c.quotedFileContent?.value
       ? `"${c.quotedFileContent.value.replace(/\s+/g, " ").slice(0, 60)}"`
@@ -32,11 +32,32 @@ export async function run(args: string[]): Promise<void> {
     }
   }
 
-  console.log(`\n${r.suggestions.length} tracked-change suggestion(s)`);
-  for (const s of r.suggestions) {
+  const { comments, suggestions } = r.annotations;
+  console.log(`\n${comments.length} docx-parsed comment(s)`);
+  for (const c of comments) {
+    const rng = c.ranges[0]!;
+    const quoted = (rng.paragraphTexts[0] ?? "")
+      .slice(rng.startOffset, rng.endOffset)
+      .replace(/\s+/g, " ")
+      .slice(0, 60);
+    const where =
+      rng.region === "body" ? "body" : `${rng.region}(${rng.regionId})`;
+    const reply = c.overlapsSuggestionId
+      ? ` reply→sug:${c.overlapsSuggestionId}`
+      : "";
+    console.log(
+      `- ${c.author} @ ${c.date} ${where}/para#${rng.startParagraphIndex}@${rng.startOffset}${reply}: "${quoted}"`,
+    );
+    console.log(`    ${c.body.slice(0, 80)}`);
+  }
+
+  console.log(`\n${suggestions.length} tracked-change suggestion(s)`);
+  for (const s of suggestions) {
     const tag = s.kind === "suggestion_insert" ? "[insert]" : "[delete]";
     const text = s.text.replace(/\s+/g, " ").slice(0, 60);
     const where = s.region === "body" ? "body" : `${s.region}(${s.regionId})`;
-    console.log(`- ${tag} ${where}/para#${s.paragraphIndex}@${s.offset} (id=${s.id}): "${text}"`);
+    console.log(
+      `- ${tag} ${s.author} @ ${s.date} ${where}/para#${s.paragraphIndex}@${s.offset} (id=${s.id}): "${text}"`,
+    );
   }
 }
