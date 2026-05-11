@@ -41,12 +41,45 @@ export function corsHeaders(req: Request): Record<string, string> {
 }
 
 export function preflight(req: Request): Response {
-  return new Response(null, { status: 204, headers: corsHeaders(req) });
+  const headers = new Headers(corsHeaders(req));
+  applySecurityHeaders(headers);
+  return new Response(null, { status: 204, headers });
 }
 
 export function withCors(req: Request, res: Response): Response {
   const headers = new Headers(res.headers);
   for (const [k, v] of Object.entries(corsHeaders(req))) headers.set(k, v);
+  applySecurityHeaders(headers);
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers,
+  });
+}
+
+/**
+ * Universal hardening headers applied to every response. HSTS is set with
+ * `preload` so margin.pub stays eligible for the Chromium preload list
+ * (https://hstspreload.org); flipping max-age down or dropping `preload`
+ * later requires a manual de-list and a Chrome release cycle to take effect.
+ * CSP is set only when the handler hasn't set one — the `/picker` page
+ * needs gapi + GIS origins (see picker.ts) and provides its own.
+ */
+function applySecurityHeaders(headers: Headers): void {
+  headers.set("strict-transport-security", "max-age=63072000; includeSubDomains; preload");
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("referrer-policy", "no-referrer");
+  headers.set("x-frame-options", "DENY");
+  headers.set("cross-origin-opener-policy", "same-origin");
+  if (!headers.has("content-security-policy")) {
+    headers.set("content-security-policy", "default-src 'none'; frame-ancestors 'none'");
+  }
+}
+
+/** Apply security headers to a response that doesn't go through CORS. */
+export function withSecurity(res: Response): Response {
+  const headers = new Headers(res.headers);
+  applySecurityHeaders(headers);
   return new Response(res.body, {
     status: res.status,
     statusText: res.statusText,

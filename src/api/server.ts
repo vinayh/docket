@@ -9,7 +9,7 @@ import { handlePickerHost } from "./picker.ts";
 import { handlePickerConfig } from "./picker-config.ts";
 import { handleRegisterDocPost } from "./picker-register.ts";
 import { handleDriveWebhook } from "./drive-webhook.ts";
-import { preflight, withCors } from "./cors.ts";
+import { preflight, withCors, withSecurity } from "./cors.ts";
 import { internalError } from "./middleware.ts";
 
 export interface ServeOptions {
@@ -19,6 +19,16 @@ export interface ServeOptions {
 
 type Handler = (req: Request) => Response | Promise<Response>;
 type MethodHandlers = Partial<Record<"GET" | "POST" | "OPTIONS", Handler>>;
+
+/**
+ * Stamp HSTS + nosniff + frame-deny + default-deny CSP on the response of a
+ * non-CORS route. CORS routes flow through `withCors`, which applies the
+ * same headers; this helper covers `/healthz`, `/oauth/*`, `/picker`, and
+ * the Drive webhook so every public response is hardened.
+ */
+function secured(handler: Handler): Handler {
+  return async (req) => withSecurity(await handler(req));
+}
 
 /**
  * Wrap a method-keyed route table with CORS handling and a uniform error
@@ -81,11 +91,11 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       // Bun.serve treats a bare-function route as accept-any-method, so we
       // wrap GET-only routes in the method-keyed form to get automatic 405
       // on the wrong verb.
-      "/healthz": { GET: () => Response.json({ ok: true }) },
-      "/oauth/start": { GET: handleOauthStart },
-      "/oauth/callback": { GET: handleOauthCallback },
-      "/picker": { GET: handlePickerHost },
-      "/webhooks/drive": { POST: handleDriveWebhook },
+      "/healthz": { GET: secured(() => Response.json({ ok: true })) },
+      "/oauth/start": { GET: secured(handleOauthStart) },
+      "/oauth/callback": { GET: secured(handleOauthCallback) },
+      "/picker": { GET: secured(handlePickerHost) },
+      "/webhooks/drive": { POST: secured(handleDriveWebhook) },
       "/api/extension/captures": corsRoute({ POST: handleCapturesPost }),
       "/api/extension/doc-state": corsRoute({ POST: handleDocStatePost }),
       "/api/extension/doc-sync": corsRoute({ POST: handleDocSyncPost }),
@@ -100,10 +110,11 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       // https://margin-server.fly.dev/. Safe to commit — it identifies the
       // verification claim, not a credential.
       "/google4c42fb2047912f0c.html": {
-        GET: () =>
+        GET: secured(() =>
           new Response("google-site-verification: google4c42fb2047912f0c.html", {
             headers: { "content-type": "text/html; charset=utf-8" },
           }),
+        ),
       },
     },
     fetch() {

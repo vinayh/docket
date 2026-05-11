@@ -65,6 +65,34 @@ describe("startServer route table", () => {
     }
   });
 
+  test("security headers are stamped on both CORS and non-CORS responses", async () => {
+    // Easy thing to silently regress — if the secured() wrapper or
+    // applySecurityHeaders in cors.ts gets dropped, lock the floor.
+    const server = startServer({ port: 0, backgroundLoops: false });
+    try {
+      const expected = {
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
+        "x-frame-options": "DENY",
+        "cross-origin-opener-policy": "same-origin",
+      };
+      const healthz = await fetch(`http://${server.hostname}:${server.port}/healthz`);
+      for (const [k, v] of Object.entries(expected)) {
+        expect(healthz.headers.get(k)).toBe(v);
+      }
+      const preflight = await fetch(
+        `http://${server.hostname}:${server.port}/api/picker/register-doc`,
+        { method: "OPTIONS", headers: { origin: `chrome-extension://${"a".repeat(32)}` } },
+      );
+      for (const [k, v] of Object.entries(expected)) {
+        expect(preflight.headers.get(k)).toBe(v);
+      }
+    } finally {
+      await server.stop();
+    }
+  });
+
   test("Search Console verification file is served at its exact path", async () => {
     // If you re-verify with a fresh token, update the route in server.ts
     // *and* this test — Drive files.watch (SPEC §9.3) won't accept the host

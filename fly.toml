@@ -21,7 +21,7 @@ primary_region = "lhr"
   NODE_ENV = "production"
   # Public origin used to compute the Drive files.watch callback URL and to
   # gate the in-process renew + polling loops. Update if the app is renamed.
-  MARGIN_PUBLIC_BASE_URL = "https://margin-server.fly.dev"
+  MARGIN_PUBLIC_BASE_URL = "https://api.margin.pub"
 
 [[mounts]]
   source = "margin_data"
