@@ -5,43 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1777641698428,
-      "tag": "0000_violet_morgan_stark",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1778236814001,
-      "tag": "0001_stale_overlord",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1778241641283,
-      "tag": "0002_known_spectrum",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1778245952818,
-      "tag": "0003_modern_triathlon",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1778282283728,
-      "tag": "0004_phase2_extension",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1778512432310,
-      "tag": "0005_unique_purifiers",
+      "when": 1778520226046,
+      "tag": "0000_remarkable_thunderbolt",
       "breakpoints": true
     }
   ]

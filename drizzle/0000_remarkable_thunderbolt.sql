@@ -1,3 +1,17 @@
+CREATE TABLE `api_token` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`token_hash` text NOT NULL,
+	`token_preview` text NOT NULL,
+	`label` text,
+	`created_at` integer NOT NULL,
+	`last_used_at` integer,
+	`revoked_at` integer,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `api_token_token_hash_unique` ON `api_token` (`token_hash`);--> statement-breakpoint
+CREATE INDEX `api_token_user_idx` ON `api_token` (`user_id`);--> statement-breakpoint
 CREATE TABLE `audit_log` (
 	`id` text PRIMARY KEY NOT NULL,
 	`actor_user_id` text,
@@ -15,10 +29,12 @@ CREATE TABLE `canonical_comment` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`origin_version_id` text NOT NULL,
-	`origin_user_id` text NOT NULL,
+	`origin_user_id` text,
 	`origin_user_email` text,
 	`origin_user_display_name` text,
+	`origin_photo_hash` text,
 	`origin_timestamp` integer NOT NULL,
+	`kind` text DEFAULT 'comment' NOT NULL,
 	`anchor` text NOT NULL,
 	`body` text NOT NULL,
 	`status` text DEFAULT 'open' NOT NULL,
@@ -26,6 +42,7 @@ CREATE TABLE `canonical_comment` (
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`origin_version_id`) REFERENCES `version`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`origin_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`parent_comment_id`) REFERENCES `canonical_comment`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
@@ -42,6 +59,7 @@ CREATE TABLE `comment_projection` (
 	FOREIGN KEY (`version_id`) REFERENCES `version`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE INDEX `comment_projection_version_google_idx` ON `comment_projection` (`version_id`,`google_comment_id`);--> statement-breakpoint
 CREATE TABLE `derivative` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
@@ -67,6 +85,22 @@ CREATE TABLE `drive_credential` (
 );
 --> statement-breakpoint
 CREATE INDEX `drive_credential_user_idx` ON `drive_credential` (`user_id`);--> statement-breakpoint
+CREATE TABLE `drive_watch_channel` (
+	`id` text PRIMARY KEY NOT NULL,
+	`version_id` text NOT NULL,
+	`channel_id` text NOT NULL,
+	`resource_id` text NOT NULL,
+	`token` text,
+	`address` text NOT NULL,
+	`expiration` integer,
+	`created_at` integer NOT NULL,
+	`last_event_at` integer,
+	`last_synced_at` integer,
+	FOREIGN KEY (`version_id`) REFERENCES `version`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `drive_watch_channel_channel_id_unique` ON `drive_watch_channel` (`channel_id`);--> statement-breakpoint
+CREATE INDEX `drive_watch_version_idx` ON `drive_watch_channel` (`version_id`);--> statement-breakpoint
 CREATE TABLE `overlay` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
@@ -94,7 +128,7 @@ CREATE TABLE `project` (
 	`owner_user_id` text NOT NULL,
 	`settings` text NOT NULL,
 	`created_at` integer NOT NULL,
-	FOREIGN KEY (`owner_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
+	FOREIGN KEY (`owner_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE TABLE `review_assignment` (

@@ -218,8 +218,6 @@ export async function seedCanonicalComment(opts: {
   body?: string;
   kind?: CanonicalCommentKind;
   anchor?: CommentAnchor;
-  externalId?: string;
-  kixDiscussionId?: string;
 }): Promise<typeof canonicalComment.$inferSelect> {
   const inserted = await db
     .insert(canonicalComment)
@@ -230,8 +228,6 @@ export async function seedCanonicalComment(opts: {
       body: opts.body ?? "test comment",
       kind: opts.kind ?? "comment",
       anchor: opts.anchor ?? { quotedText: "" },
-      externalId: opts.externalId ?? null,
-      kixDiscussionId: opts.kixDiscussionId ?? null,
     })
     .returning();
   return inserted[0]!;

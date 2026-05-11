@@ -207,30 +207,23 @@ export const canonicalComment = sqliteTable(
     originUserId: text("origin_user_id").references(() => user.id),
     originUserEmail: text("origin_user_email"),
     originUserDisplayName: text("origin_user_display_name"),
+    /**
+     * Short SHA-256 of the author's Drive `photoLink` (when available). Used
+     * to disambiguate two reviewers sharing a display name — OOXML carries
+     * display name only (SPEC §9.8), so we hash the Drive-side photoLink as
+     * a stable per-user marker without persisting the raw URL.
+     */
+    originPhotoHash: text("origin_photo_hash"),
     originTimestamp: integer("origin_timestamp", { mode: "timestamp_ms" }).notNull(),
     kind: text("kind").$type<CanonicalCommentKind>().notNull().default("comment"),
     anchor: text("anchor", { mode: "json" }).$type<CommentAnchor>().notNull(),
     body: text("body").notNull(),
     status: text("status").$type<CanonicalCommentStatus>().notNull().default("open"),
     parentCommentId: text("parent_comment_id"),
-    /**
-     * DOM-side discussion thread id from the Docs canvas sidebar (e.g.
-     * `kix.<n>`). Populated by the browser-extension capture role (Phase 2)
-     * when a row corresponds to an observed sidebar thread; null for
-     * comments / suggestions ingested purely from public APIs.
-     */
-    kixDiscussionId: text("kix_discussion_id"),
-    /**
-     * Extension-side stable id used for idempotent capture POSTs. Unique per
-     * (origin_version_id, external_id) — see `canonical_comment_capture_idx`.
-     */
-    externalId: text("external_id"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
   },
   (t) => [
     index("canonical_comment_project_idx").on(t.projectId),
-    index("canonical_comment_kix_idx").on(t.originVersionId, t.kixDiscussionId),
-    index("canonical_comment_capture_idx").on(t.originVersionId, t.externalId),
     foreignKey({ columns: [t.parentCommentId], foreignColumns: [t.id] }),
   ],
 );

@@ -4,7 +4,7 @@ import { corsHeaders, isAllowedOrigin, preflight, withCors } from "./cors.ts";
 function reqWithOrigin(origin: string | null): Request {
   const headers = new Headers();
   if (origin !== null) headers.set("origin", origin);
-  return new Request("http://localhost/api/extension/captures", {
+  return new Request("http://localhost/api/extension/doc-state", {
     method: "POST",
     headers,
   });
