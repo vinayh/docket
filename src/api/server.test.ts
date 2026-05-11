@@ -55,6 +55,25 @@ describe("startServer route table", () => {
     }
   });
 
+  test("/r/<token> path is registered and renders HTML for unknown tokens", async () => {
+    const server = startServer({ port: 0, backgroundLoops: false });
+    try {
+      const res = await fetch(
+        `http://${server.hostname}:${server.port}/r/mra_unknown`,
+      );
+      // Unknown tokens render the "Link not recognized" page at 404. The
+      // test exists to verify Bun.serve's `:token` parameter route matches
+      // — a 404-from-fetch-fallthrough would also be 404, but the response
+      // body / content-type proves it went through `handleReviewActionGet`.
+      expect(res.status).toBe(404);
+      expect(res.headers.get("content-type")).toContain("text/html");
+      const body = await res.text();
+      expect(body).toContain("Link not recognized");
+    } finally {
+      await server.stop();
+    }
+  });
+
   test("unknown path falls through to 404", async () => {
     const server = startServer({ port: 0, backgroundLoops: false });
     try {

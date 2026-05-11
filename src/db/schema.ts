@@ -41,9 +41,28 @@ export const driveCredential = sqliteTable(
   (t) => [index("drive_credential_user_idx").on(t.userId)],
 );
 
+/**
+ * Free-form JSON blob persisted on `project.settings`. Phase 4 adds the
+ * "Settings" surface (SPEC §12): notification prefs, default reviewers,
+ * Slack workspace linking. Anything not set falls back to the safe default
+ * — domain code reads these via `loadProjectSettings`.
+ */
 export type ProjectSettings = {
-  defaultReviewerIds?: string[];
+  /** Pre-fill these emails as reviewers on new review requests. */
+  defaultReviewerEmails?: string[];
+  /** UUID of the overlay to auto-apply on new derivatives. */
   defaultOverlayId?: string;
+  /** Notify the owner when a new comment lands on a tracked version. */
+  notifyOnComment?: boolean;
+  /** Notify the owner when every reviewer has responded on a request. */
+  notifyOnReviewComplete?: boolean;
+  /**
+   * Slack workspace this project is linked to. Free-form for now — Phase 5
+   * lands the Slack bot, which will write a structured `{ teamId, channelId }`
+   * here. Stored as a string so the Phase-4 settings UI doesn't block on
+   * Phase-5 plumbing.
+   */
+  slackWorkspaceRef?: string;
 };
 
 export const project = sqliteTable("project", {
@@ -337,6 +356,55 @@ export const apiToken = sqliteTable(
     revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
   },
   (t) => [index("api_token_user_idx").on(t.userId)],
+);
+
+/**
+ * Actions exposed by the magic-link review flow (SPEC §6.3, §12 Phase 4).
+ * One token per (assignment, action) — the email body links four buttons
+ * and each redeems to one of these. Tokens are single-use, scoped to the
+ * exact action they were issued for.
+ *
+ * `accept_reconciliation` covers the cross-version "yes, this v1 comment
+ * is still open on v2" confirmation in workflow §7.4 step 5; the others
+ * are review_assignment state transitions.
+ */
+export type ReviewActionKind =
+  | "mark_reviewed"
+  | "decline"
+  | "request_changes"
+  | "accept_reconciliation";
+
+/**
+ * Magic-link token issued in assignment emails (SPEC §6.3 + §12 Phase 4).
+ * Stored as a sha256 hash; the plaintext goes in the email link only. Each
+ * row is single-use: redeeming sets `used_at` and refuses further use. The
+ * route ignores expired tokens too.
+ */
+export const reviewActionToken = sqliteTable(
+  "review_action_token",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    tokenHash: text("token_hash").notNull().unique(),
+    /**
+     * Assignments are keyed on (review_request_id, user_id) — no single-
+     * column id — so we denormalize both halves here. `assigneeUserId`
+     * doubles as the actor for the audit log entry written on redeem.
+     */
+    reviewRequestId: text("review_request_id").notNull(),
+    assigneeUserId: text("assignee_user_id")
+      .notNull()
+      .references(() => user.id),
+    action: text("action").$type<ReviewActionKind>().notNull(),
+    issuedAt: integer("issued_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    usedAt: integer("used_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    index("review_action_token_assignment_idx").on(
+      t.reviewRequestId,
+      t.assigneeUserId,
+    ),
+  ],
 );
 
 export const auditLog = sqliteTable(

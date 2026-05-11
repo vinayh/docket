@@ -2,6 +2,9 @@ import { useEffect, useState } from "preact/hooks";
 import { sendMessage } from "../../../ui/sendMessage.ts";
 import type {
   CanonicalCommentKind,
+  CanonicalCommentStatus,
+  CommentActionKind,
+  CommentActionResult,
   ProjectionStatus,
   VersionCommentEntry,
   VersionCommentsPayload,
@@ -23,11 +26,17 @@ type State =
  * slice). One row per `comment_projection`, sorted by projection status with
  * `orphaned` / `fuzzy` at top so the reconciliation work surfaces first.
  *
- * Read-only for now; the action menu (reanchor / accept / mark resolved)
- * lands in slice 3 when the backend `comment-action` endpoint ships.
+ * Each row exposes the same action set the backend's
+ * `/api/extension/comment-action` accepts: `accept_projection` and `reanchor`
+ * mutate the projection row; `mark_resolved` / `mark_wontfix` / `reopen`
+ * mutate `canonical_comment.status`. The view applies action results in
+ * place — no full refetch — so a click stays responsive even on a chunky
+ * list.
  */
 export function Comments({ versionId, versionLabel, onClose }: Props) {
   const [state, setState] = useState<State>({ kind: "loading" });
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +70,30 @@ export function Comments({ versionId, versionLabel, onClose }: Props) {
     };
   }, [versionId]);
 
+  async function runAction(
+    entry: VersionCommentEntry,
+    action: CommentActionKind,
+  ): Promise<void> {
+    setActionError(null);
+    setPendingId(entry.canonicalCommentId);
+    try {
+      const r = await sendMessage({
+        kind: "comment/action",
+        canonicalCommentId: entry.canonicalCommentId,
+        action,
+        targetVersionId: versionId,
+      });
+      if (r?.kind !== "comment/action") throw new Error("unexpected response");
+      if (r.error) throw new Error(r.error);
+      if (!r.result) throw new Error("no result returned");
+      applyResult(setState, r.result);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   if (state.kind === "loading") {
     return (
       <section class="comments-view">
@@ -93,6 +126,7 @@ export function Comments({ versionId, versionLabel, onClose }: Props) {
           ? ` · ${summary.orphaned} orphaned, ${summary.fuzzy} fuzzy`
           : ""}
       </p>
+      {actionError ? <p class="muted error">{actionError}</p> : null}
       {ordered.length === 0 ? (
         <p class="muted">
           No comments projected onto this version yet. Sync the version or
@@ -105,6 +139,8 @@ export function Comments({ versionId, versionLabel, onClose }: Props) {
               key={c.canonicalCommentId}
               entry={c}
               targetVersionLabel={state.payload.versionLabel}
+              pending={pendingId === c.canonicalCommentId}
+              onAction={(action) => runAction(c, action)}
             />
           ))}
         </ul>
@@ -133,9 +169,13 @@ function CommentsHeader({
 function CommentCard({
   entry,
   targetVersionLabel,
+  pending,
+  onAction,
 }: {
   entry: VersionCommentEntry;
   targetVersionLabel: string;
+  pending: boolean;
+  onAction: (action: CommentActionKind) => void;
 }) {
   const isOriginVersion = entry.originVersionLabel === targetVersionLabel;
   const author =
@@ -146,6 +186,7 @@ function CommentCard({
     <li class={`comment-card comment-${entry.projection.status}`}>
       <div class="comment-card-head">
         <StatusBadge status={entry.projection.status} />
+        <CommentStatusBadge status={entry.status} />
         <KindTag kind={entry.kind} />
         {entry.parentCanonicalCommentId ? (
           <span class="comment-tag">reply</span>
@@ -170,7 +211,73 @@ function CommentCard({
         <blockquote class="comment-quote">{entry.anchor.quotedText}</blockquote>
       ) : null}
       <p class="comment-body">{entry.body}</p>
+      <CommentActions
+        entry={entry}
+        pending={pending}
+        onAction={onAction}
+      />
     </li>
+  );
+}
+
+function CommentActions({
+  entry,
+  pending,
+  onAction,
+}: {
+  entry: VersionCommentEntry;
+  pending: boolean;
+  onAction: (action: CommentActionKind) => void;
+}) {
+  const isOpen = entry.status === "open";
+  const needsAnchorWork =
+    entry.projection.status === "fuzzy" ||
+    entry.projection.status === "orphaned";
+  return (
+    <div class="comment-actions">
+      {needsAnchorWork ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onAction("accept_projection")}
+        >
+          Accept anchor
+        </button>
+      ) : null}
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => onAction("reanchor")}
+      >
+        Re-anchor
+      </button>
+      {isOpen ? (
+        <>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => onAction("mark_resolved")}
+          >
+            Resolve
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => onAction("mark_wontfix")}
+          >
+            Won't fix
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onAction("reopen")}
+        >
+          Reopen
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -178,6 +285,15 @@ function StatusBadge({ status }: { status: ProjectionStatus }) {
   return (
     <span class={`status-badge status-${status}`}>
       {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+function CommentStatusBadge({ status }: { status: CanonicalCommentStatus }) {
+  if (status === "open") return null;
+  return (
+    <span class={`status-badge status-comment-${status}`}>
+      {COMMENT_STATUS_LABEL[status]}
     </span>
   );
 }
@@ -194,6 +310,13 @@ const STATUS_LABEL: Record<ProjectionStatus, string> = {
   fuzzy: "Fuzzy",
   orphaned: "Orphaned",
   manually_resolved: "Resolved",
+};
+
+const COMMENT_STATUS_LABEL: Record<CanonicalCommentStatus, string> = {
+  open: "Open",
+  addressed: "Addressed",
+  wontfix: "Won't fix",
+  superseded: "Superseded",
 };
 
 const STATUS_PRIORITY: Record<ProjectionStatus, number> = {
@@ -228,6 +351,31 @@ function summarize(entries: VersionCommentEntry[]): Record<ProjectionStatus, num
   };
   for (const e of entries) out[e.projection.status]++;
   return out;
+}
+
+function applyResult(
+  setState: (updater: (prev: State) => State) => void,
+  result: CommentActionResult,
+): void {
+  setState((prev) => {
+    if (prev.kind !== "loaded") return prev;
+    const comments = prev.payload.comments.map((c) => {
+      if (c.canonicalCommentId !== result.canonicalCommentId) return c;
+      return {
+        ...c,
+        status: result.status,
+        projection: result.projection
+          ? {
+              ...c.projection,
+              status: result.projection.status,
+              anchorMatchConfidence: result.projection.anchorMatchConfidence,
+              lastSyncedAt: Date.now(),
+            }
+          : c.projection,
+      };
+    });
+    return { kind: "loaded", payload: { ...prev.payload, comments } };
+  });
 }
 
 function formatDate(ts: number): string {

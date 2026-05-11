@@ -13,13 +13,14 @@ src/
   domain/            business logic composing db/google/auth — no HTTP, no CLI. project,
                      version, anchor, reanchor, comments, project_comments, overlay,
                      watcher, doc-state, project-detail, version-diff, version-comments,
-                     stats, user, review, smoke
+                     comment-action, settings, review, review-action, stats, user, smoke
   cli/               thin parse-and-call shells dispatched by index.ts (`bun margin <cmd>`)
   api/               Bun.serve HTTP host. server.ts owns the route table + in-process
                      renew/poll loops; one module per route (oauth, doc-state, doc-sync,
                      drive-webhook, picker, picker-config, picker-register,
-                     project-detail, version-diff, version-comments). middleware.ts +
-                     cors.ts hold the bearer-auth + CORS helpers
+                     project-detail, version-diff, version-comments, comment-action,
+                     settings, review-action). middleware.ts + cors.ts hold the
+                     bearer-auth + CORS helpers
 surfaces/extension/  MV3 extension (Chrome / Edge / Firefox), WXT-driven — see
                      surfaces/extension/README.md
 docs/                Astro + Preact public site; deploys to GitHub Pages
@@ -98,7 +99,7 @@ Build pipeline, file layout, popup state machine, Picker mechanics, and DOM-sele
 
 - `bun test` runs the suite; `bun run typecheck` runs `tsc --noEmit`.
 - Co-locate `*.test.ts` next to the module under test. Unit-test pure logic; exercise live Google APIs through CLI smoke commands rather than mocking `fetch`.
-- Currently unit-tested: envelope encryption (round-trip, tampering, wrong-key, version byte), OAuth URL builder (scopes, state, prompt, redirect URI), Google Doc URL/ID parsing, anchor computation (paragraph-hash stability, snippet location, context capture, first-occurrence resolution, orphan handling), OOXML docx parse (plain comments, multi-paragraph + disjoint multi-range, suggestion insert/delete with author + timestamp, reply-on-suggestion overlap, footer/footnote regions, malformed zip handling), CORS allow-list + preflight, bearer-auth middleware shape, picker-register auth gating, doc-state lookup (parent/version role, cross-user isolation), doc-sync auth gating, `startServer` route table + background-loop opt-out (binds port 0).
+- Currently unit-tested: envelope encryption (round-trip, tampering, wrong-key, version byte), OAuth URL builder (scopes, state, prompt, redirect URI), Google Doc URL/ID parsing, anchor computation (paragraph-hash stability, snippet location, context capture, first-occurrence resolution, orphan handling), OOXML docx parse (plain comments, multi-paragraph + disjoint multi-range, suggestion insert/delete with author + timestamp, reply-on-suggestion overlap, footer/footnote regions, malformed zip handling), CORS allow-list + preflight, bearer-auth middleware shape, picker-register auth gating, doc-state lookup (parent/version role, cross-user isolation), doc-sync auth gating, `startServer` route table + background-loop opt-out (binds port 0), comment-action auth/owner-scope + state transitions, settings load + patch round-trip + email validation, magic-link review-action redeem (single-use, expiry, decline transition).
 
 ---
 

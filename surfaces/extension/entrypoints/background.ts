@@ -3,9 +3,12 @@ import { browser } from "wxt/browser";
 import type { Message, MessageResponse } from "../utils/messages.ts";
 import { getSettings, setSettings } from "../utils/storage.ts";
 import type {
+  CommentActionKind,
+  CommentActionResult,
   DocState,
   PickerConfig,
   ProjectDetail,
+  ProjectSettingsView,
   RegisterDocResult,
   Settings,
   VersionCommentsPayload,
@@ -61,6 +64,12 @@ function errorResponseFor(message: Message, error: string): MessageResponse {
       return { kind: "version/diff", payload: null, error };
     case "version/comments":
       return { kind: "version/comments", payload: null, error };
+    case "comment/action":
+      return { kind: "comment/action", result: null, error };
+    case "settings/load":
+      return { kind: "settings/load", settings: null, error };
+    case "settings/update":
+      return { kind: "settings/update", settings: null, error };
   }
 }
 
@@ -104,6 +113,22 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
     case "version/comments": {
       const payload = await fetchVersionComments(message.versionId);
       return { kind: "version/comments", payload };
+    }
+    case "comment/action": {
+      const result = await runCommentAction({
+        canonicalCommentId: message.canonicalCommentId,
+        action: message.action,
+        targetVersionId: message.targetVersionId,
+      });
+      return { kind: "comment/action", result };
+    }
+    case "settings/load": {
+      const settings = await loadProjectSettings(message.projectId);
+      return { kind: "settings/load", settings };
+    }
+    case "settings/update": {
+      const settings = await updateProjectSettings(message.projectId, message.patch);
+      return { kind: "settings/update", settings };
     }
   }
 }
@@ -280,6 +305,47 @@ async function fetchVersionComments(
     { versionId },
     settings,
   );
+}
+
+async function runCommentAction(opts: {
+  canonicalCommentId: string;
+  action: CommentActionKind;
+  targetVersionId?: string;
+}): Promise<CommentActionResult | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  return postJsonOrNull<CommentActionResult>(
+    "/api/extension/comment-action",
+    opts,
+    settings,
+  );
+}
+
+async function loadProjectSettings(
+  projectId: string,
+): Promise<ProjectSettingsView | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  const r = await postJsonOrNull<{ settings: ProjectSettingsView }>(
+    "/api/extension/settings",
+    { projectId },
+    settings,
+  );
+  return r?.settings ?? null;
+}
+
+async function updateProjectSettings(
+  projectId: string,
+  patch: Partial<ProjectSettingsView>,
+): Promise<ProjectSettingsView | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  const r = await postJsonOrNull<{ settings: ProjectSettingsView }>(
+    "/api/extension/settings",
+    { projectId, patch },
+    settings,
+  );
+  return r?.settings ?? null;
 }
 
 async function fetchPickerConfig(): Promise<PickerConfig | null> {

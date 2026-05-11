@@ -9,6 +9,7 @@ import type {
 } from "../../utils/types.ts";
 import { Comments } from "./views/Comments.tsx";
 import { Dashboard } from "./views/Dashboard.tsx";
+import { Settings } from "./views/Settings.tsx";
 import { VersionDiff } from "./views/VersionDiff.tsx";
 
 /**
@@ -31,6 +32,7 @@ type View =
       versionId: string;
       versionLabel: string;
     }
+  | { kind: "settings"; detail: ProjectDetail }
   | { kind: "error"; message: string };
 
 export function App() {
@@ -108,6 +110,9 @@ function Body({ view, setView }: { view: View; setView: (v: View) => void }) {
               versionLabel,
             })
           }
+          onOpenSettings={() =>
+            setView({ kind: "settings", detail: view.detail })
+          }
         />
       );
     case "diff":
@@ -123,6 +128,13 @@ function Body({ view, setView }: { view: View; setView: (v: View) => void }) {
         <Comments
           versionId={view.versionId}
           versionLabel={view.versionLabel}
+          onClose={() => setView({ kind: "loaded", detail: view.detail })}
+        />
+      );
+    case "settings":
+      return (
+        <Settings
+          projectId={view.detail.project.id}
           onClose={() => setView({ kind: "loaded", detail: view.detail })}
         />
       );

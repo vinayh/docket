@@ -266,7 +266,7 @@ Popup state machine + sandboxed-Picker mechanics live in [`surfaces/extension/RE
 **Delivers:** the popup owns the entire "track → check state → sync now" loop. New users never see a Margin-hosted page after OAuth.
 
 ### Phase 4 — Extension rich UI + docx-export ingest + magic-link action handlers
-**Status: in progress.**
+**Status: shipped.** ✅
 
 Builds on the Phase-3 popup project surface. The popup retains the lightweight read-only view; the side-panel / options page hosts the rich React app.
 
@@ -278,12 +278,13 @@ Shipped:
 - **Docx-export ingest (§9.8).** `ingestVersionComments` exports the doc as `.docx`, parses OOXML via `src/google/docx.ts` (fflate + fast-xml-parser, `preserveOrder: true`), and writes canonical_comment / comment_projection rows directly from the parsed annotations. Recovers disjoint multi-range comments (collapsed by `(author, date, body)` onto `anchor.additionalRanges`), exact anchor coordinates, suggestion-thread replies (linked via `parent_comment_id` to the canonical suggestion row), and suggestion author + timestamp. `comments.list` retained alongside *only* to (a) reconstruct plain-comment reply trees that OOXML flattens and (b) recover `me` + `photoLink` for author-identity disambig (stored as `canonical_comment.origin_photo_hash`).
 - **Extension capture-role retirement.** The capture pipeline was deleted end-to-end: `/api/extension/captures`, `src/domain/capture.ts`, the sidebar `MutationObserver` + scraper, the SW capture queue + `chrome.alarms` flush loop, the `canonical_comment.{kix_discussion_id, external_id}` columns, the docs.google.com `host_permissions`, the `alarms` permission, the per-doc title cache, and `src/domain/suggestions.ts`. Migrations 0000–0005 collapsed to a single fresh schema. The doc-watcher's webhook handler re-runs `ingestVersionComments` on `files.watch` events. Since most comments now arrive with exact coordinates, the reanchoring engine's fuzzy / orphan paths matter only for cross-version projection — first-version ingest is clean by construction.
 
-Remaining:
+Shipped in Phase 4 round 2:
 
-- **Comment reconciliation actions.** `POST /api/extension/comment-action` for accept-projection, reanchor, mark-resolved, mark-wontfix, reopen. Side-panel action menu on each row. Audit-logged.
-- **Overlay editor.** Live preview against the current parent — reuses the structured-diff renderer ("preview = overlay output diffed against parent").
-- **Settings.** Notification prefs, default reviewers, Slack workspace linking.
-- **Magic-link `/r/<token>` handlers.** Mark reviewed, decline, request changes, accept reconciliation. New `review_action_token` row (`token_hash`, `review_assignment_id`, `action`, `expires_at`, `used_at`); token issued in assignment emails. `/r/<token>` route on the secured (non-CORS) side of the API.
+- **Comment reconciliation actions.** `POST /api/extension/comment-action` for `accept_projection`, `reanchor`, `mark_resolved`, `mark_wontfix`, `reopen`. Side-panel action menu on each row applies results in place. Audit-logged via `audit_log` rows tagged `canonical_comment.*` / `comment_projection.*`.
+- **Settings.** `POST /api/extension/settings` (load + patch) over `project.settings`. Side-panel Settings view covers notification prefs, default reviewer emails, Slack workspace linking (free-form placeholder until Phase 5 wires the bot). Patches are diff-applied; `audit_log` records the before/after JSON.
+- **Magic-link `/r/<token>` handlers.** New `review_action_token` table (`tokenHash`, `reviewRequestId`, `assigneeUserId`, `action`, `issuedAt`, `expiresAt`, `usedAt`). `GET /r/<token>` on the secured (non-CORS) side of the API renders an HTML confirmation and transitions the matching `review_assignment.status`. Single-use; expired/used tokens render a friendly error page. Actions: `mark_reviewed`, `decline`, `request_changes`, `accept_reconciliation`.
+
+The overlay applier + domain helpers stay shipped (§5, `src/domain/overlay.ts`); the editor surface is stretch (§13.3).
 
 **Delivers:** MVP. Cross-org workflows become possible via one-click email actions; the extension stops being a data pipe and is purely a UI surface.
 
@@ -337,7 +338,17 @@ Thin shell over `src/domain/*` exposing canonical state as MCP resources + tools
 - **Tools:** `search_comments`, `summarize_review_request`, `mark_comment_addressed`, `create_version_checkpoint`, `request_review`. Side-effects scoped to caller; same authorization model as §8.
 - **Auth:** same `mgn_` per-user tokens, exchanged on first MCP handshake.
 
-### 13.3 In-browser AI tools
+### 13.3 Overlay editor + derivative UX
+Side-panel editor for the existing overlay primitives (`redact` / `replace` / `insert` / `append`, §9.7), with live preview against the current parent rendered through the structured-diff component. The overlay applier + `applyOverlayAsDerivative` already exist in `src/domain/overlay.ts`; this is purely the UI + thin HTTP wrappers.
+
+- Overlay-list left rail per project (CRUD over `overlay` + `overlay_operation`).
+- Per-op edit form with anchor picker (paragraph + quoted text, reanchor-confidence hint).
+- Preview: backend simulates the planned `batchUpdate` requests in-memory against the parent doc and returns paragraph summaries in the same shape as `version-diff`; client diffs through the existing `alignParagraphs` renderer. No Drive write per keystroke.
+- "Apply as derivative" CTA wired to `applyOverlayAsDerivative`.
+
+Phase 7's advanced overlay primitives (conditional ops, parameterized snippets, composition) sit downstream of this.
+
+### 13.4 In-browser AI tools
 Extension side-panel chat with the canonical store wired in as live context (via §13.2 MCP, or directly via the Phase-4 React app's API client).
 
 - **Triage assist** — "which v2 comments are addressed by the v2→v3 diff?"

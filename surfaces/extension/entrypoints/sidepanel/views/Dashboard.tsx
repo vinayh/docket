@@ -11,6 +11,7 @@ interface Props {
   detail: ProjectDetail;
   onOpenDiff: (fromVersionId: string, toVersionId: string) => void;
   onOpenComments: (versionId: string, versionLabel: string) => void;
+  onOpenSettings: () => void;
 }
 
 /**
@@ -20,7 +21,12 @@ interface Props {
  * `getDocState` recognizes the version-role doc and ingests that exact
  * version, no schema change needed.
  */
-export function Dashboard({ detail, onOpenDiff, onOpenComments }: Props) {
+export function Dashboard({
+  detail,
+  onOpenDiff,
+  onOpenComments,
+  onOpenSettings,
+}: Props) {
   const [current, setCurrent] = useState<ProjectDetail>(detail);
 
   async function refreshAll(): Promise<void> {
@@ -50,6 +56,9 @@ export function Dashboard({ detail, onOpenDiff, onOpenComments }: Props) {
       <div class="actions">
         <button type="button" onClick={() => void refreshAll()}>
           Refresh
+        </button>
+        <button type="button" onClick={onOpenSettings}>
+          Settings
         </button>
       </div>
 

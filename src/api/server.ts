@@ -4,6 +4,9 @@ import { handleDocSyncPost } from "./doc-sync.ts";
 import { handleProjectDetailPost } from "./project-detail.ts";
 import { handleVersionDiffPost } from "./version-diff.ts";
 import { handleVersionCommentsPost } from "./version-comments.ts";
+import { handleCommentActionPost } from "./comment-action.ts";
+import { handleSettingsPost } from "./settings.ts";
+import { handleReviewActionGet } from "./review-action.ts";
 import { handlePickerHost } from "./picker.ts";
 import { handlePickerConfig } from "./picker-config.ts";
 import { handleRegisterDocPost } from "./picker-register.ts";
@@ -100,8 +103,11 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       "/api/extension/project": corsRoute({ POST: handleProjectDetailPost }),
       "/api/extension/version-diff": corsRoute({ POST: handleVersionDiffPost }),
       "/api/extension/version-comments": corsRoute({ POST: handleVersionCommentsPost }),
+      "/api/extension/comment-action": corsRoute({ POST: handleCommentActionPost }),
+      "/api/extension/settings": corsRoute({ POST: handleSettingsPost }),
       "/api/picker/config": corsRoute({ GET: handlePickerConfig }),
       "/api/picker/register-doc": corsRoute({ POST: handleRegisterDocPost }),
+      "/r/:token": { GET: secured(handleReviewActionGet) },
     },
     fetch() {
       return new Response("not found", { status: 404 });

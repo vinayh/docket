@@ -1,7 +1,10 @@
 import type {
+  CommentActionKind,
+  CommentActionResult,
   DocState,
   PickerConfig,
   ProjectDetail,
+  ProjectSettingsView,
   RegisterDocResult,
   Settings,
   VersionCommentsPayload,
@@ -26,7 +29,19 @@ export type Message =
   | { kind: "picker/config" }
   | { kind: "project/detail"; projectId: string }
   | { kind: "version/diff"; fromVersionId: string; toVersionId: string }
-  | { kind: "version/comments"; versionId: string };
+  | { kind: "version/comments"; versionId: string }
+  | {
+      kind: "comment/action";
+      canonicalCommentId: string;
+      action: CommentActionKind;
+      targetVersionId?: string;
+    }
+  | { kind: "settings/load"; projectId: string }
+  | {
+      kind: "settings/update";
+      projectId: string;
+      patch: Partial<ProjectSettingsView>;
+    };
 
 /**
  * Each response carries the same `kind` as its request so callers can route
@@ -45,5 +60,20 @@ export type MessageResponse =
   | {
       kind: "version/comments";
       payload: VersionCommentsPayload | null;
+      error?: string;
+    }
+  | {
+      kind: "comment/action";
+      result: CommentActionResult | null;
+      error?: string;
+    }
+  | {
+      kind: "settings/load";
+      settings: ProjectSettingsView | null;
+      error?: string;
+    }
+  | {
+      kind: "settings/update";
+      settings: ProjectSettingsView | null;
       error?: string;
     };

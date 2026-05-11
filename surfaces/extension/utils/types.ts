@@ -201,3 +201,37 @@ export interface VersionProjectionEntry {
   googleCommentId: string | null;
   lastSyncedAt: number;
 }
+
+/**
+ * Mirrors `CommentActionKind` in src/domain/comment-action.ts. The side
+ * panel offers one button per action on each comment row; the SW forwards
+ * the call to /api/extension/comment-action.
+ */
+export type CommentActionKind =
+  | "accept_projection"
+  | "reanchor"
+  | "mark_resolved"
+  | "mark_wontfix"
+  | "reopen";
+
+export interface CommentActionResult {
+  canonicalCommentId: string;
+  status: CanonicalCommentStatus;
+  projection: {
+    versionId: string;
+    status: ProjectionStatus;
+    anchorMatchConfidence: number | null;
+  } | null;
+}
+
+/**
+ * Mirror of `ProjectSettingsView` from src/domain/settings.ts — project
+ * settings rendered + edited in the side panel.
+ */
+export interface ProjectSettingsView {
+  notifyOnComment: boolean;
+  notifyOnReviewComplete: boolean;
+  defaultReviewerEmails: string[];
+  defaultOverlayId: string | null;
+  slackWorkspaceRef: string | null;
+}
