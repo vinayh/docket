@@ -107,8 +107,12 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       // Google Search Console domain verification. Required before Drive
       // `files.watch` will accept this host as a webhook address (SPEC §9.3).
       // The token below is from the Search Console URL-prefix flow for
-      // https://margin-server.fly.dev/. Safe to commit — it identifies the
-      // verification claim, not a credential.
+      // https://margin-server.fly.dev/ and is stale now that the public
+      // base URL is https://api.margin.pub — replace this route with a
+      // fresh URL-prefix token for the new origin, or (preferred) add a
+      // *domain* verification for margin.pub via DNS TXT, which covers
+      // every subdomain in one shot and lets this route go away entirely.
+      // Safe to commit — it identifies the verification claim, not a credential.
       "/google4c42fb2047912f0c.html": {
         GET: secured(() =>
           new Response("google-site-verification: google4c42fb2047912f0c.html", {
