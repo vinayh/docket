@@ -105,7 +105,11 @@ export async function handleDriveWatchEvent(opts: {
       .limit(1)
   )[0];
   if (!row) return null;
-  if (row.token && opts.channelToken !== row.token) {
+  // The token is always set when `subscribeVersionWatch` creates the row.
+  // Defense in depth: refuse the event if the column is null for any reason
+  // (manual seeding, future migration, etc.) rather than allowing an
+  // attacker who learns a channel id to trigger ingests freely.
+  if (!row.token || opts.channelToken !== row.token) {
     throw new Error(`channel ${opts.channelId}: token mismatch`);
   }
 

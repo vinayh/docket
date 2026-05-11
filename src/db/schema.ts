@@ -4,6 +4,7 @@ import {
   integer,
   primaryKey,
   index,
+  uniqueIndex,
   foreignKey,
 } from "drizzle-orm/sqlite-core";
 
@@ -31,10 +32,6 @@ export const driveCredential = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     scope: text("scope").notNull(),
     refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
-    associatedProjectIds: text("associated_project_ids", { mode: "json" })
-      .$type<string[]>()
-      .notNull()
-      .$defaultFn(() => []),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
   },
@@ -65,18 +62,28 @@ export type ProjectSettings = {
   slackWorkspaceRef?: string;
 };
 
-export const project = sqliteTable("project", {
-  id: text("id").primaryKey().$defaultFn(newId),
-  parentDocId: text("parent_doc_id").notNull(),
-  ownerUserId: text("owner_user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  settings: text("settings", { mode: "json" })
-    .$type<ProjectSettings>()
-    .notNull()
-    .$defaultFn(() => ({})),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
-});
+export const project = sqliteTable(
+  "project",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    parentDocId: text("parent_doc_id").notNull(),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    settings: text("settings", { mode: "json" })
+      .$type<ProjectSettings>()
+      .notNull()
+      .$defaultFn(() => ({})),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+  },
+  (t) => [
+    // One project per (doc, owner) — two concurrent `register-doc` posts for
+    // the same doc by the same user must collapse rather than racing into
+    // duplicate rows. `createProject` translates the resulting constraint
+    // violation into a `DuplicateProjectError`.
+    uniqueIndex("project_doc_owner_unique").on(t.parentDocId, t.ownerUserId),
+  ],
+);
 
 export type VersionStatus = "active" | "archived";
 
@@ -99,6 +106,10 @@ export const version = sqliteTable(
   },
   (t) => [
     index("version_project_idx").on(t.projectId),
+    // Labels are unique within a project — `nextAutoLabel` MAX+1 plus this
+    // constraint makes the race-on-auto-allocation observable rather than
+    // silently producing dup labels.
+    uniqueIndex("version_project_label_unique").on(t.projectId, t.label),
     foreignKey({ columns: [t.parentVersionId], foreignColumns: [t.id] }),
   ],
 );
@@ -265,7 +276,17 @@ export const commentProjection = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.canonicalCommentId, t.versionId] }),
-    index("comment_projection_version_google_idx").on(t.versionId, t.googleCommentId),
+    // Two concurrent ingest paths (Drive webhook + extension sync + poll loop)
+    // can race the read-then-insert in `upsertCanonical`. The unique
+    // constraint turns the loser of the race into an observable conflict; the
+    // upsert path catches it and falls back to returning the existing row.
+    // SQLite allows multiple NULLs in a unique index, so projections without
+    // a `googleCommentId` (none today, but the column is nullable) don't
+    // collide.
+    uniqueIndex("comment_projection_version_google_unique").on(
+      t.versionId,
+      t.googleCommentId,
+    ),
   ],
 );
 

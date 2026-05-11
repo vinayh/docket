@@ -59,7 +59,7 @@ CREATE TABLE `comment_projection` (
 	FOREIGN KEY (`version_id`) REFERENCES `version`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `comment_projection_version_google_idx` ON `comment_projection` (`version_id`,`google_comment_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `comment_projection_version_google_unique` ON `comment_projection` (`version_id`,`google_comment_id`);--> statement-breakpoint
 CREATE TABLE `derivative` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
@@ -78,7 +78,6 @@ CREATE TABLE `drive_credential` (
 	`user_id` text NOT NULL,
 	`scope` text NOT NULL,
 	`refresh_token_encrypted` text NOT NULL,
-	`associated_project_ids` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
@@ -131,6 +130,21 @@ CREATE TABLE `project` (
 	FOREIGN KEY (`owner_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `project_doc_owner_unique` ON `project` (`parent_doc_id`,`owner_user_id`);--> statement-breakpoint
+CREATE TABLE `review_action_token` (
+	`id` text PRIMARY KEY NOT NULL,
+	`token_hash` text NOT NULL,
+	`review_request_id` text NOT NULL,
+	`assignee_user_id` text NOT NULL,
+	`action` text NOT NULL,
+	`issued_at` integer NOT NULL,
+	`expires_at` integer NOT NULL,
+	`used_at` integer,
+	FOREIGN KEY (`assignee_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `review_action_token_token_hash_unique` ON `review_action_token` (`token_hash`);--> statement-breakpoint
+CREATE INDEX `review_action_token_assignment_idx` ON `review_action_token` (`review_request_id`,`assignee_user_id`);--> statement-breakpoint
 CREATE TABLE `review_assignment` (
 	`review_request_id` text NOT NULL,
 	`user_id` text NOT NULL,
@@ -182,4 +196,5 @@ CREATE TABLE `version` (
 	FOREIGN KEY (`parent_version_id`) REFERENCES `version`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE INDEX `version_project_idx` ON `version` (`project_id`);
+CREATE INDEX `version_project_idx` ON `version` (`project_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `version_project_label_unique` ON `version` (`project_id`,`label`);

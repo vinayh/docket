@@ -221,17 +221,11 @@ async function runDocSync(docId: string): Promise<DocState | null> {
 async function registerDoc(docUrlOrId: string): Promise<RegisterDocResult> {
   const settings = await getSettings();
   if (!settings) return { kind: "error", message: "no settings configured" };
-  const url = new URL("/api/picker/register-doc", settings.backendUrl).toString();
   let res: Response;
   try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${settings.apiToken}`,
-      },
-      body: JSON.stringify({ docUrlOrId }),
-    });
+    // postJsonRaw is the shared auth + URL-build helper; it throws on 401/403
+    // with the same "API token rejected" message we want surfaced here.
+    res = await postJsonRaw("/api/picker/register-doc", { docUrlOrId }, settings);
   } catch (err) {
     return { kind: "error", message: err instanceof Error ? err.message : String(err) };
   }
@@ -256,9 +250,6 @@ async function registerDoc(docUrlOrId: string): Promise<RegisterDocResult> {
       parentDocId: body.parentDocId,
       alreadyExisted: true,
     };
-  }
-  if (res.status === 401) {
-    return { kind: "error", message: "API token rejected — issue a new one" };
   }
   return {
     kind: "error",

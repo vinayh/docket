@@ -31,7 +31,7 @@ Three layers:
 
 ## 4. Data model
 
-12 tables (`src/db/schema.ts`):
+15 tables (`src/db/schema.ts`):
 
 | Table | Purpose |
 |---|---|
@@ -45,7 +45,10 @@ Three layers:
 | `review_request` | project, version, status, deadline, slack_thread_ref |
 | `review_assignment` | review_request, user, status, responded_at |
 | `user` | email, google_subject_id, display_name, home_org, auth_method |
-| `drive_credential` | user, scope, encrypted refresh_token, associated_project_ids — only doc owners |
+| `drive_credential` | user, scope, encrypted refresh_token — only doc owners |
+| `drive_watch_channel` | per-version Drive `files.watch` channel + token (renew + dedup state) |
+| `api_token` | per-user `mgn_…` bearer tokens (sha256 hash + preview + revoked_at) |
+| `review_action_token` | single-use magic-link tokens issued for review-assignment emails |
 | `audit_log` | actor, action, target, before/after for sensitive ops |
 
 The anchor schema is rich enough to resolve to on-screen coordinates without Google's APIs (§9.1).
@@ -240,7 +243,7 @@ Phases 1–4 = MVP. Phase 5 adds Slack. Phase 6 = cross-org polish + extension v
 ### Phase 1 — Core engine
 **Status: shipped.** ✅
 
-Headless backend + CLI. Drizzle schema (12 tables) on `bun:sqlite` WAL; envelope-encrypted refresh tokens; Google OAuth + per-user `TokenProvider`; Drive/Docs REST wrappers; domain primitives (`createProject`, `createVersion`); canonical comment ingest; reanchoring engine with confidence scoring; overlay applier; doc-watcher with channel renewer + polling fallback; `bun margin <subcommand>` CLI dispatcher.
+Headless backend + CLI. Drizzle schema (15 tables) on `bun:sqlite` WAL; envelope-encrypted refresh tokens; Google OAuth + per-user `TokenProvider`; Drive/Docs REST wrappers; domain primitives (`createProject`, `createVersion`); canonical comment ingest; reanchoring engine with confidence scoring; overlay applier; doc-watcher with channel renewer + polling fallback; `bun margin <subcommand>` CLI dispatcher.
 
 ### Phase 2 — Backend HTTP API + browser extension (capture) + minimal web entry points
 **Status: shipped; capture role removed in Phase 4 (replaced by §9.8 docx ingest).** ✅

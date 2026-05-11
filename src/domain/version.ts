@@ -91,11 +91,11 @@ async function autoSubscribeWatch(versionId: string): Promise<void> {
  *     correct primitive even if we someday do)
  *
  * Concurrency note: two `createVersion` calls landing simultaneously with
- * `opts.label === undefined` can still compute the same label. There's no
- * unique-constraint enforcement, so the second insert just succeeds with
- * a duplicate label. This is acceptable for now — auto-labelling concurrent
- * versions is an unusual pattern, and the operator can always pass an
- * explicit `--label` to disambiguate.
+ * `opts.label === undefined` can still compute the same label. The unique
+ * index on `(project_id, label)` makes the loser of the race surface as a
+ * clean error rather than silently committing a duplicate row. Auto-labelling
+ * concurrent versions is rare, and the operator can retry or pass an explicit
+ * `--label` to disambiguate.
  */
 async function nextAutoLabel(projectId: string): Promise<string> {
   const rows = await db
@@ -138,10 +138,6 @@ export async function requireVersion(id: string): Promise<Version> {
   const ver = await getVersion(id);
   if (!ver) throw new Error(`version ${id} not found`);
   return ver;
-}
-
-export async function archiveVersion(id: string): Promise<void> {
-  await db.update(version).set({ status: "archived" }).where(eq(version.id, id));
 }
 
 /**

@@ -54,8 +54,14 @@ export function notFound(message = "not found"): Response {
   });
 }
 
-export function internalError(message: string): Response {
-  return new Response(JSON.stringify({ error: "internal_error", message }), {
+/**
+ * 500 response. Body is a fixed shape and never includes the underlying
+ * exception — Drizzle/Drive/Bun-sqlite errors regularly contain SQL
+ * fragments, internal user IDs, or response snippets we don't want on the
+ * wire. Callers log the detail with `console.error` before invoking this.
+ */
+export function internalError(): Response {
+  return new Response(JSON.stringify({ error: "internal_error" }), {
     status: 500,
     headers: { "content-type": "application/json" },
   });

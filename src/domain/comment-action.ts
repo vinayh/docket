@@ -5,13 +5,13 @@ import {
   canonicalComment,
   commentProjection,
   project,
-  version,
   type CanonicalCommentStatus,
   type ProjectionStatus,
 } from "../db/schema.ts";
 import { reanchor } from "./reanchor.ts";
 import { getDocument } from "../google/docs.ts";
-import { tokenProviderForUser } from "../auth/credentials.ts";
+import { tokenProviderForProject } from "./project.ts";
+import { requireVersion } from "./version.ts";
 
 /**
  * Reconciliation actions surfaced on the side-panel comments view (SPEC §12
@@ -102,7 +102,6 @@ export async function performCommentAction(
 
 interface ActionContext {
   comment: typeof canonicalComment.$inferSelect;
-  ownerUserId: string;
 }
 
 async function loadActionContext(
@@ -121,7 +120,7 @@ async function loadActionContext(
   const row = rows[0];
   if (!row) return null;
   if (row.ownerUserId !== userId) return null;
-  return { comment: row.cc, ownerUserId: row.ownerUserId };
+  return { comment: row.cc };
 }
 
 async function setCommentStatus(
@@ -228,15 +227,13 @@ async function reanchorProjection(
   if (!targetVersionId) {
     throw new CommentActionBadRequestError("reanchor requires targetVersionId");
   }
-  const ver = (
-    await db.select().from(version).where(eq(version.id, targetVersionId)).limit(1)
-  )[0];
+  const ver = await requireVersion(targetVersionId).catch(() => null);
   if (!ver || ver.projectId !== ctx.comment.projectId) {
     throw new CommentActionNotFoundError("version_not_found");
   }
   const existing = await loadProjection(ctx.comment.id, targetVersionId);
 
-  const tp = tokenProviderForUser(ctx.ownerUserId);
+  const tp = await tokenProviderForProject(ctx.comment.projectId);
   const doc = await getDocument(tp, ver.googleDocId);
   const result = reanchor(doc, ctx.comment.anchor);
 

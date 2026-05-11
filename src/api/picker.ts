@@ -116,8 +116,8 @@ function renderHtml(): string {
 
   <div class="row">
     <label for="token">API token</label>
-    <input id="token" type="text" autocomplete="off" placeholder="mgn_…" />
-    <p style="font-size: 12px; opacity: 0.8;">Pre-filled from <code>#token=…</code> in the URL when launched from the extension.</p>
+    <input id="token" type="password" autocomplete="off" placeholder="mgn_…" />
+    <p style="font-size: 12px; opacity: 0.8;">Pre-filled from <code>#token=…</code> in the URL when launched from the extension. Hidden by default so shoulder-surfing / screen-sharing doesn't expose the bearer token.</p>
   </div>
 
   <p>

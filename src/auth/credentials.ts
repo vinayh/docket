@@ -23,7 +23,28 @@ async function loadRefreshToken(userId: string): Promise<string> {
   return decryptWithMaster(row.encrypted);
 }
 
+/**
+ * Memoize providers by userId so the cached access token is shared across
+ * every call site for that user. Without this, each `tokenProviderForUser`
+ * caller (createVersion, ingestVersionComments, reanchor, …) built its own
+ * closure and refreshed from scratch on first use, multiplying Google
+ * `oauth2/token` round-trips.
+ *
+ * Cache holds the closure, not the access token directly — refresh state
+ * still lives in the closure, so two concurrent calls for the same user
+ * dedup through the existing `inflight` promise.
+ */
+const tpCache = new Map<string, TokenProvider>();
+
 export function tokenProviderForUser(userId: string): TokenProvider {
+  const hit = tpCache.get(userId);
+  if (hit) return hit;
+  const tp = buildTokenProvider(userId);
+  tpCache.set(userId, tp);
+  return tp;
+}
+
+function buildTokenProvider(userId: string): TokenProvider {
   let cached: CachedAccessToken | null = null;
   let inflight: Promise<string> | null = null;
 
@@ -57,6 +78,16 @@ export function tokenProviderForUser(userId: string): TokenProvider {
   };
 }
 
+/**
+ * Drop a cached provider — call from tests that reset DB state with the same
+ * userId, or from `storeRefreshToken` when a fresh refresh token arrives. In
+ * normal operation the cache is fine to leave warm; access tokens that
+ * outlive their refresh token still work until they expire.
+ */
+export function evictTokenProvider(userId: string): void {
+  tpCache.delete(userId);
+}
+
 export async function storeRefreshToken(opts: {
   userId: string;
   refreshToken: string;
@@ -85,4 +116,9 @@ export async function storeRefreshToken(opts: {
       refreshTokenEncrypted,
     });
   }
+
+  // A cached provider for this user is now bound to a stale refresh token.
+  // The cached access token might still be valid, but discarding the closure
+  // forces the next caller to load the new refresh token from the DB.
+  evictTokenProvider(opts.userId);
 }

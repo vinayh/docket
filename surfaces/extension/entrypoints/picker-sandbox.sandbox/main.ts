@@ -147,6 +147,11 @@ function cancelDeadline(): void {
 }
 
 window.addEventListener("message", (ev: MessageEvent<Inbound>) => {
+  // The popup is the only legitimate sender — pin to `parent` so an
+  // injected sibling frame or a hijacked window reference can't drive the
+  // sandbox. The popup's origin isn't visible from this null-origin
+  // sandbox, but the window identity is.
+  if (ev.source !== parent) return;
   const data = ev.data;
   if (!data || typeof data !== "object" || !("type" in data)) return;
   if (data.type === "init") {

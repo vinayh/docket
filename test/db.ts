@@ -101,12 +101,15 @@ export async function seedVersion(opts: {
   googleDocId?: string;
   parentVersionId?: string | null;
 }): Promise<typeof version.$inferSelect> {
+  // Default to a unique label per call so tests that seed multiple versions
+  // in the same project don't collide on the `(project_id, label)` unique
+  // index. Tests that care about a specific label pass `label` explicitly.
   const inserted = await db
     .insert(version)
     .values({
       projectId: opts.projectId,
       googleDocId: opts.googleDocId ?? `doc-${crypto.randomUUID()}`,
-      label: opts.label ?? "v1",
+      label: opts.label ?? `v-${crypto.randomUUID().slice(0, 8)}`,
       createdByUserId: opts.createdByUserId,
       parentVersionId: opts.parentVersionId ?? null,
       status: "active",

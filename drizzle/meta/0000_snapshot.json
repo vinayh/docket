@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2a041107-acd2-4349-8056-b20627ad3760",
+  "id": "cefc43f1-96cd-4ecf-8a2e-da502c3e6bce",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "api_token": {
@@ -399,13 +399,13 @@
         }
       },
       "indexes": {
-        "comment_projection_version_google_idx": {
-          "name": "comment_projection_version_google_idx",
+        "comment_projection_version_google_unique": {
+          "name": "comment_projection_version_google_unique",
           "columns": [
             "version_id",
             "google_comment_id"
           ],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -573,13 +573,6 @@
         },
         "refresh_token_encrypted": {
           "name": "refresh_token_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "associated_project_ids": {
-          "name": "associated_project_ids",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -918,7 +911,16 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "project_doc_owner_unique": {
+          "name": "project_doc_owner_unique",
+          "columns": [
+            "parent_doc_id",
+            "owner_user_id"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {
         "project_owner_user_id_user_id_fk": {
           "name": "project_owner_user_id_user_id_fk",
@@ -931,6 +933,102 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "review_action_token": {
+      "name": "review_action_token",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "review_request_id": {
+          "name": "review_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assignee_user_id": {
+          "name": "assignee_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "issued_at": {
+          "name": "issued_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "review_action_token_token_hash_unique": {
+          "name": "review_action_token_token_hash_unique",
+          "columns": [
+            "token_hash"
+          ],
+          "isUnique": true
+        },
+        "review_action_token_assignment_idx": {
+          "name": "review_action_token_assignment_idx",
+          "columns": [
+            "review_request_id",
+            "assignee_user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "review_action_token_assignee_user_id_user_id_fk": {
+          "name": "review_action_token_assignee_user_id_user_id_fk",
+          "tableFrom": "review_action_token",
+          "tableTo": "user",
+          "columnsFrom": [
+            "assignee_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -1268,6 +1366,14 @@
             "project_id"
           ],
           "isUnique": false
+        },
+        "version_project_label_unique": {
+          "name": "version_project_label_unique",
+          "columns": [
+            "project_id",
+            "label"
+          ],
+          "isUnique": true
         }
       },
       "foreignKeys": {

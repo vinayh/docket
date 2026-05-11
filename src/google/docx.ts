@@ -541,13 +541,10 @@ function walkAuxiliary(
 ): void {
   // Headers/footers are numbered (header1.xml, header2.xml, …);
   // footnotes/endnotes are single files. Either form fits this glob.
+  // The `.xml.rels` exclusion is enforced by the `!p.includes(".rels")`
+  // guard; the prefix + `.xml` suffix check is enough on its own.
   const paths = Object.keys(entries)
-    .filter(
-      (p) =>
-        p.startsWith(prefix) &&
-        (p.endsWith(".xml") || p.endsWith(".xml.rels") === false) &&
-        !p.includes(".rels"),
-    )
+    .filter((p) => p.startsWith(prefix) && p.endsWith(".xml") && !p.includes(".rels"))
     .sort();
   for (const path of paths) {
     if (!path.endsWith(".xml")) continue;

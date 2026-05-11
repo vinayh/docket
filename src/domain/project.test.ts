@@ -4,7 +4,6 @@ import {
   DuplicateProjectError,
   getProject,
   listAllProjects,
-  listProjectsForOwner,
   requireProject,
   tokenProviderForProject,
 } from "./project.ts";
@@ -29,27 +28,18 @@ describe("getProject / requireProject", () => {
   });
 });
 
-describe("listProjectsForOwner / listAllProjects", () => {
-  test("empty DB → empty arrays", async () => {
+describe("listAllProjects", () => {
+  test("empty DB → empty array", async () => {
     expect(await listAllProjects()).toEqual([]);
-    expect(await listProjectsForOwner(crypto.randomUUID())).toEqual([]);
   });
 
-  test("listProjectsForOwner filters by owner; listAllProjects returns both", async () => {
+  test("returns projects across owners", async () => {
     const alice = await seedUser({ email: "alice@example.com" });
     const bob = await seedUser({ email: "bob@example.com" });
-    const aProj = await seedProject({ ownerUserId: alice.id });
-    const bProj1 = await seedProject({ ownerUserId: bob.id });
-    const bProj2 = await seedProject({ ownerUserId: bob.id });
-
-    const aliceProjects = await listProjectsForOwner(alice.id);
-    expect(aliceProjects.map((p) => p.id)).toEqual([aProj.id]);
-
-    const bobProjects = await listProjectsForOwner(bob.id);
-    expect(bobProjects.map((p) => p.id).sort()).toEqual([bProj1.id, bProj2.id].sort());
-
-    const all = await listAllProjects();
-    expect(all).toHaveLength(3);
+    await seedProject({ ownerUserId: alice.id });
+    await seedProject({ ownerUserId: bob.id });
+    await seedProject({ ownerUserId: bob.id });
+    expect(await listAllProjects()).toHaveLength(3);
   });
 });
 

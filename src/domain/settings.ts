@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { auditLog, project, type ProjectSettings } from "../db/schema.ts";
+import { getOwnedProject } from "./project.ts";
 
 /**
  * Settings surface (SPEC §12 Phase 4). Backs the side-panel "Settings" view.
@@ -82,15 +83,8 @@ async function loadOwnedProject(
   projectId: string,
   userId: string,
 ): Promise<typeof project.$inferSelect> {
-  const rows = await db
-    .select()
-    .from(project)
-    .where(eq(project.id, projectId))
-    .limit(1);
-  const proj = rows[0];
-  if (!proj || proj.ownerUserId !== userId) {
-    throw new SettingsNotFoundError();
-  }
+  const proj = await getOwnedProject(projectId, userId);
+  if (!proj) throw new SettingsNotFoundError();
   return proj;
 }
 

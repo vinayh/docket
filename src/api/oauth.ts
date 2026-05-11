@@ -1,49 +1,118 @@
 import { buildAuthUrl, DRIVE_SCOPES, IDENTITY_SCOPES } from "../google/oauth.ts";
 import { completeOAuth } from "../auth/connect.ts";
+import { config } from "../config.ts";
 import { badRequest, internalError } from "./middleware.ts";
 
 /**
- * In-memory state store for OAuth flows. Single-process is fine because
- * Phase-2 deploys run a single Fly machine (min_machines_running=1, no
- * horizontal scale-out). When that changes, move state into the DB or
- * sign it as a JWT in a cookie.
+ * OAuth state is a self-signed HMAC token (`<payload>.<sig>` where payload is
+ * base64url(JSON{ n, exp })). The signature uses the server's master key as
+ * an HMAC-SHA256 key — different cryptographic domain from envelope
+ * encryption, so re-purposing the same bytes is safe. There is no server-
+ * side state map: an attacker spamming `/oauth/start` can no longer evict
+ * legitimate pending flows, and the OAuth flow scales horizontally without
+ * sticky sessions.
  *
- * Size bound: `MAX_PENDING_STATES` caps growth so an unauthenticated flood
- * of `/oauth/start` calls can't exhaust memory in the 10-minute window
- * before `purgeExpired` runs. Eviction policy is FIFO by insertion order
- * (Map iteration is insertion-ordered) — the oldest state is dropped, which
- * just makes that flow's callback fail with "invalid or expired state".
+ * Single-use enforcement is delegated to Google: a state token is reusable
+ * within its 10-minute TTL, but the OAuth `code` Google returns is single-
+ * use on Google's side, so replay-with-original-code just gets a 400 from
+ * the token endpoint.
  *
- * Note on the agent-flagged "session-fixation" concern: this OAuth flow
- * only stores Google refresh tokens keyed by `googleSubjectId` — it does
- * NOT establish a Margin session. Users authenticate to the Margin API
- * with `mgn_…` API tokens issued via CLI; the OAuth flow exists to grant
- * Drive access for a known user. So a luring-into-callback attack causes
- * the *attacker's* Google credentials to be stored, not user-impersonation.
+ * Note on the previously-flagged "session-fixation" concern: this OAuth
+ * flow only stores Google refresh tokens keyed by `googleSubjectId` — it
+ * does NOT establish a Margin session. Users authenticate to the Margin
+ * API with `mgn_…` API tokens issued via CLI; the OAuth flow exists to
+ * grant Drive access for a known user. A luring-into-callback attack
+ * stores the *attacker's* Google credentials, not user impersonation.
  */
 const STATE_TTL_MS = 10 * 60 * 1000;
-const MAX_PENDING_STATES = 1024;
-const pendingStates = new Map<string, number>();
 
-function purgeExpired(now = Date.now()): void {
-  for (const [state, expiresAt] of pendingStates) {
-    if (expiresAt < now) pendingStates.delete(state);
+let cachedSigningKey: Promise<CryptoKey> | null = null;
+function getSigningKey(): Promise<CryptoKey> {
+  if (cachedSigningKey) return cachedSigningKey;
+  cachedSigningKey = (async () => {
+    const raw = Buffer.from(config.masterKeyB64, "base64");
+    return crypto.subtle.importKey(
+      "raw",
+      raw,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign", "verify"],
+    );
+  })();
+  return cachedSigningKey;
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  return Buffer.from(bytes)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function base64UrlDecode(s: string): Uint8Array<ArrayBuffer> | null {
+  try {
+    const padded = s.replace(/-/g, "+").replace(/_/g, "/");
+    const buf = Buffer.from(padded, "base64");
+    // Copy into a fresh ArrayBuffer so the resulting view satisfies
+    // SubtleCrypto's `BufferSource` constraint (Node's Buffer's underlying
+    // storage is `ArrayBufferLike`, which TS rejects on `subtle.verify`).
+    const ab = new ArrayBuffer(buf.length);
+    const out = new Uint8Array(ab);
+    out.set(buf);
+    return out;
+  } catch {
+    return null;
   }
 }
 
-export function handleOauthStart(_req: Request): Response {
-  purgeExpired();
-  while (pendingStates.size >= MAX_PENDING_STATES) {
-    // Drop the oldest (insertion-order iteration) to make room. A pending
-    // flow we evict will fail at callback time, which is expected under
-    // overload.
-    const oldest = pendingStates.keys().next().value;
-    if (oldest === undefined) break;
-    pendingStates.delete(oldest);
-  }
-  const state = crypto.randomUUID();
-  pendingStates.set(state, Date.now() + STATE_TTL_MS);
+async function issueState(): Promise<string> {
+  const payload = JSON.stringify({
+    n: crypto.randomUUID(),
+    exp: Date.now() + STATE_TTL_MS,
+  });
+  const payloadBytes = new TextEncoder().encode(payload);
+  const payloadEncoded = base64UrlEncode(payloadBytes);
+  const sig = new Uint8Array(
+    await crypto.subtle.sign(
+      "HMAC",
+      await getSigningKey(),
+      new TextEncoder().encode(payloadEncoded),
+    ),
+  );
+  return `${payloadEncoded}.${base64UrlEncode(sig)}`;
+}
 
+async function verifyState(state: string): Promise<boolean> {
+  const dot = state.indexOf(".");
+  if (dot <= 0 || dot === state.length - 1) return false;
+  const payloadEncoded = state.slice(0, dot);
+  const sigEncoded = state.slice(dot + 1);
+  const sig = base64UrlDecode(sigEncoded);
+  if (!sig) return false;
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    await getSigningKey(),
+    sig,
+    new TextEncoder().encode(payloadEncoded),
+  );
+  if (!valid) return false;
+  const payloadBytes = base64UrlDecode(payloadEncoded);
+  if (!payloadBytes) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(payloadBytes));
+  } catch {
+    return false;
+  }
+  if (!parsed || typeof parsed !== "object") return false;
+  const exp = (parsed as { exp?: unknown }).exp;
+  if (typeof exp !== "number") return false;
+  return exp >= Date.now();
+}
+
+export async function handleOauthStart(_req: Request): Promise<Response> {
+  const state = await issueState();
   const authUrl = buildAuthUrl({
     scopes: [...IDENTITY_SCOPES, DRIVE_SCOPES.drive_file],
     state,
@@ -61,13 +130,7 @@ export async function handleOauthCallback(req: Request): Promise<Response> {
   if (error) return badRequest(`oauth error: ${error}`);
   if (!code || !state) return badRequest("missing code or state");
 
-  // Atomic check-and-remove: `Map.delete` returns true iff the key existed,
-  // which prevents two concurrent callbacks with the same state from both
-  // passing the existence check and racing into `completeOAuth`. Then check
-  // expiry inline (purgeExpired runs lazily, so the entry might be stale).
-  const expiresAt = pendingStates.get(state);
-  if (!pendingStates.delete(state)) return badRequest("invalid or expired state");
-  if (expiresAt === undefined || expiresAt < Date.now()) {
+  if (!(await verifyState(state))) {
     return badRequest("invalid or expired state");
   }
 
@@ -80,7 +143,7 @@ export async function handleOauthCallback(req: Request): Promise<Response> {
       { headers: { "content-type": "text/plain" } },
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return internalError(`oauth completion failed: ${message}`);
+    console.error("oauth completion failed:", err);
+    return internalError();
   }
 }

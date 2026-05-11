@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import {
   auditLog,
@@ -65,58 +65,76 @@ export async function redeemReviewActionToken(
   if (!plaintext || !plaintext.startsWith(REVIEW_ACTION_TOKEN_PREFIX)) {
     return { ok: false, reason: "invalid" };
   }
-  const rows = await db
-    .select()
-    .from(reviewActionToken)
-    .where(eq(reviewActionToken.tokenHash, hashToken(plaintext)))
-    .limit(1);
-  const row = rows[0];
-  if (!row) return { ok: false, reason: "invalid" };
-  if (row.usedAt) return { ok: false, reason: "already_used" };
-  if (row.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
+  // Single transaction so the "check usedAt, then mark used" pair is atomic.
+  // Without this, two concurrent redemptions of the same link could both
+  // pass the !usedAt check and double-fire the audit log + status change.
+  return db.transaction((tx): RedeemOutcome => {
+    const rows = tx
+      .select()
+      .from(reviewActionToken)
+      .where(eq(reviewActionToken.tokenHash, hashToken(plaintext)))
+      .limit(1)
+      .all();
+    const row = rows[0];
+    if (!row) return { ok: false, reason: "invalid" };
+    if (row.usedAt) return { ok: false, reason: "already_used" };
+    if (row.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
 
-  const assignmentRows = await db
-    .select()
-    .from(reviewAssignment)
-    .where(
-      and(
-        eq(reviewAssignment.reviewRequestId, row.reviewRequestId),
-        eq(reviewAssignment.userId, row.assigneeUserId),
-      ),
-    )
-    .limit(1);
-  const assignment = assignmentRows[0] ?? null;
-  if (!assignment) return { ok: false, reason: "assignment_missing" };
+    // Claim the token first with a conditional update; if zero rows match
+    // (because a parallel redemption just set used_at), bail out as
+    // already_used. After this point we hold the exclusive right to apply
+    // the side effects for this token.
+    const claimed = tx
+      .update(reviewActionToken)
+      .set({ usedAt: new Date() })
+      .where(
+        and(eq(reviewActionToken.id, row.id), isNull(reviewActionToken.usedAt)),
+      )
+      .returning({ id: reviewActionToken.id })
+      .all();
+    if (claimed.length === 0) {
+      return { ok: false, reason: "already_used" };
+    }
 
-  const nextStatus = nextAssignmentStatus(row.action, assignment.status);
-
-  if (nextStatus !== assignment.status) {
-    await db
-      .update(reviewAssignment)
-      .set({ status: nextStatus, respondedAt: new Date() })
+    const assignmentRows = tx
+      .select()
+      .from(reviewAssignment)
       .where(
         and(
-          eq(reviewAssignment.reviewRequestId, assignment.reviewRequestId),
-          eq(reviewAssignment.userId, assignment.userId),
+          eq(reviewAssignment.reviewRequestId, row.reviewRequestId),
+          eq(reviewAssignment.userId, row.assigneeUserId),
         ),
-      );
-  }
+      )
+      .limit(1)
+      .all();
+    const assignment = assignmentRows[0] ?? null;
+    if (!assignment) return { ok: false, reason: "assignment_missing" };
 
-  await db
-    .update(reviewActionToken)
-    .set({ usedAt: new Date() })
-    .where(eq(reviewActionToken.id, row.id));
+    const nextStatus = nextAssignmentStatus(row.action, assignment.status);
 
-  await db.insert(auditLog).values({
-    actorUserId: row.assigneeUserId,
-    action: `review_action.${row.action}`,
-    targetType: "review_assignment",
-    targetId: `${assignment.reviewRequestId}:${assignment.userId}`,
-    before: { status: assignment.status },
-    after: { status: nextStatus },
+    if (nextStatus !== assignment.status) {
+      tx.update(reviewAssignment)
+        .set({ status: nextStatus, respondedAt: new Date() })
+        .where(
+          and(
+            eq(reviewAssignment.reviewRequestId, assignment.reviewRequestId),
+            eq(reviewAssignment.userId, assignment.userId),
+          ),
+        )
+        .run();
+    }
+
+    tx.insert(auditLog).values({
+      actorUserId: row.assigneeUserId,
+      action: `review_action.${row.action}`,
+      targetType: "review_assignment",
+      targetId: `${assignment.reviewRequestId}:${assignment.userId}`,
+      before: { status: assignment.status },
+      after: { status: nextStatus },
+    }).run();
+
+    return { ok: true, action: row.action, assignmentStatus: nextStatus };
   });
-
-  return { ok: true, action: row.action, assignmentStatus: nextStatus };
 }
 
 /**

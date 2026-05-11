@@ -1,15 +1,17 @@
 import {
   requireFirstUser,
-  requireUserByEmail,
   resolveUserByEmailOrFirst,
   type User,
 } from "../domain/user.ts";
 
 export type { User };
 
-/** Shim retained so existing CLI files keep working. New code should call domain/user.ts. */
+/**
+ * Friendlier aliases for the most common CLI lookup patterns. New code is
+ * welcome to call `domain/user.ts` directly; these short names exist so the
+ * existing CLI parse-and-call shells stay terse.
+ */
 export const defaultUser = requireFirstUser;
-export const userByEmail = requireUserByEmail;
 export const resolveUser = resolveUserByEmailOrFirst;
 
 /**

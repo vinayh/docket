@@ -9,8 +9,8 @@ beforeAll(() => {
 });
 
 describe("/oauth/start", () => {
-  test("redirects to accounts.google.com with state and offline access", () => {
-    const res = handleOauthStart(new Request("http://localhost/oauth/start"));
+  test("redirects to accounts.google.com with signed state and offline access", async () => {
+    const res = await handleOauthStart(new Request("http://localhost/oauth/start"));
     expect(res.status).toBe(302);
     const loc = res.headers.get("location") ?? "";
     expect(loc.startsWith("https://accounts.google.com/")).toBe(true);
@@ -18,13 +18,14 @@ describe("/oauth/start", () => {
     expect(url.searchParams.get("client_id")).toBe("test-client-id");
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("prompt")).toBe("consent");
-    expect(url.searchParams.get("state")).toMatch(/[0-9a-f-]{36}/);
+    // State is now `<payloadB64>.<sigB64>`; no server-side map to consult.
+    expect(url.searchParams.get("state") ?? "").toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     expect(url.searchParams.get("scope") ?? "").toContain("drive.file");
   });
 
-  test("each call mints a fresh state", () => {
-    const a = new URL(handleOauthStart(new Request("http://localhost/")).headers.get("location")!);
-    const b = new URL(handleOauthStart(new Request("http://localhost/")).headers.get("location")!);
+  test("each call mints a fresh state", async () => {
+    const a = new URL((await handleOauthStart(new Request("http://localhost/"))).headers.get("location")!);
+    const b = new URL((await handleOauthStart(new Request("http://localhost/"))).headers.get("location")!);
     expect(a.searchParams.get("state")).not.toBe(b.searchParams.get("state"));
   });
 });
@@ -56,7 +57,9 @@ describe("/oauth/callback validation", () => {
     ).toBe(400);
   });
 
-  test("400 with a state we never issued", async () => {
+  test("400 with a forged state", async () => {
+    // A random UUID is not a valid `<payload>.<sig>` token — HMAC verify
+    // rejects it before we ever look up server-side state.
     const res = await handleOauthCallback(
       new Request(
         `http://localhost/oauth/callback?code=abc&state=${crypto.randomUUID()}`,
@@ -67,24 +70,21 @@ describe("/oauth/callback validation", () => {
     expect(body.message).toContain("invalid or expired state");
   });
 
-  test("400 with a state that's been replayed (delete-on-use)", async () => {
-    // Issue a fresh state, then "consume" it with a fake code so the second
-    // call sees an absent state. We don't care that the first call also fails
-    // (no Google) — just that the state Map entry is gone after one use.
-    const start = handleOauthStart(new Request("http://localhost/"));
+  test("400 with a tampered signature", async () => {
+    // Take a freshly-issued state, flip a bit in the signature half, and
+    // verify the callback rejects it. Replaces the prior "delete-on-use"
+    // assertion — single-use is now enforced by Google's OAuth code, not
+    // by us, so we only verify signature integrity here.
+    const start = await handleOauthStart(new Request("http://localhost/"));
     const state = new URL(start.headers.get("location")!).searchParams.get("state")!;
+    const dot = state.indexOf(".");
+    const tampered = `${state.slice(0, dot + 1)}${state[dot + 1] === "A" ? "B" : "A"}${state.slice(dot + 2)}`;
 
-    // First callback consumes state, then completeOAuth fails on no fetch
-    // stub. Either response is fine; what we care about is the second call.
-    await handleOauthCallback(
-      new Request(`http://localhost/oauth/callback?code=ignored&state=${state}`),
-    ).catch(() => undefined);
-
-    const replay = await handleOauthCallback(
-      new Request(`http://localhost/oauth/callback?code=ignored&state=${state}`),
+    const res = await handleOauthCallback(
+      new Request(`http://localhost/oauth/callback?code=ignored&state=${tampered}`),
     );
-    expect(replay.status).toBe(400);
-    expect(((await replay.json()) as { message: string }).message).toContain(
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { message: string }).message).toContain(
       "invalid or expired state",
     );
   });

@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { cleanDb, seedProject, seedUser, seedVersion } from "../../test/db.ts";
 import {
-  archiveVersion,
   getVersion,
   listVersions,
   pickNextLabel,
@@ -41,7 +40,7 @@ describe("pickNextLabel", () => {
   });
 });
 
-describe("getVersion / requireVersion / listVersions / archiveVersion", () => {
+describe("getVersion / requireVersion / listVersions", () => {
   beforeEach(cleanDb);
 
   test("getVersion returns null for missing rows", async () => {
@@ -83,14 +82,4 @@ describe("getVersion / requireVersion / listVersions / archiveVersion", () => {
     expect(inA.map((v) => v.id)).toEqual([va.id]);
   });
 
-  test("archiveVersion flips status to archived", async () => {
-    const u = await seedUser();
-    const p = await seedProject({ ownerUserId: u.id });
-    const v = await seedVersion({ projectId: p.id, createdByUserId: u.id });
-    expect(v.status).toBe("active");
-
-    await archiveVersion(v.id);
-    const after = await requireVersion(v.id);
-    expect(after.status).toBe("archived");
-  });
 });

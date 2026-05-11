@@ -7,13 +7,14 @@ Phased build plan in [`SPEC.md` §12](./SPEC.md#12-build-sequence) — each phas
 ```
 src/
   config.ts          lazy env-var getters; importing it doesn't require any env var
-  db/                drizzle schema (12 tables, SPEC §4) + bun:sqlite client + migrator
+  db/                drizzle schema (15 tables, SPEC §4) + bun:sqlite client + migrator
   auth/              envelope encryption, OAuth credentials/TokenProvider, opaque API tokens
   google/            endpoint-shaped REST wrappers (oauth/api/drive/docs) — no domain logic
   domain/            business logic composing db/google/auth — no HTTP, no CLI. project,
                      version, anchor, reanchor, comments, project_comments, overlay,
-                     watcher, doc-state, project-detail, version-diff, version-comments,
-                     comment-action, settings, review, review-action, stats, user, smoke
+                     watcher, doc-state, doc, inspect, project-detail, version-diff,
+                     version-comments, comment-action, settings, review, review-action,
+                     stats, user, smoke, dev-seed
   cli/               thin parse-and-call shells dispatched by index.ts (`bun margin <cmd>`)
   api/               Bun.serve HTTP host. server.ts owns the route table + in-process
                      renew/poll loops; one module per route (oauth, doc-state, doc-sync,
@@ -41,7 +42,7 @@ fly.toml             Fly.io app config (see README §"Deployment")
 - Each subcommand exports `async function run(args: string[])` and is registered in `index.ts`.
 - Subcommands with multiple verbs (`comments {ingest,list}`, `watcher {subscribe,...}`) use `dispatchSubcommands(args, USAGE, table)` from `cli/util.ts` rather than hand-rolling the `if (sub === ...) {}` chain.
 - Use `parseArgs` from `node:util`.
-- Exit codes: `usage(text)` exits 2 (Unix convention for misuse); `fatal(text)` exits 1 (runtime failure). `die` is a deprecated alias for `fatal`.
+- Exit codes: `usage(text)` exits 2 (Unix convention for misuse); `fatal(text)` exits 1 (runtime failure).
 
 ## Domain conventions
 
@@ -54,13 +55,13 @@ fly.toml             Fly.io app config (see README §"Deployment")
 - **Route table.** Register new routes in `server.ts`'s table — never branch `pathname` inline. Each route is its own module under `src/api/` and is a thin shell that delegates into `src/domain/` (e.g. `doc-sync.ts` → `ingestVersionComments`, `picker-register.ts` → `createProject`, `oauth.ts` → `completeOAuth`).
 - **Auth.** `authenticateBearer` from `src/api/middleware.ts` gates everything under `/api/*` *except* `GET /api/picker/config`, which is intentionally public (returns the same Picker key + project number the inline `/picker` HTML already exposes). API tokens are opaque `mgn_<base64url>` strings stored as sha256 hashes; verification short-circuits before the DB lookup if the prefix doesn't match.
 - **CORS.** Permissive allow-list (extension + localhost origins) on cross-origin routes — see `src/api/cors.ts`.
-- **OAuth state.** In-memory `Map` for now (single Fly machine, `min_machines_running = 1`). Move to DB or signed cookie when the deploy scales out.
+- **OAuth state.** Self-signed HMAC token (`<payload>.<sig>`, HMAC-SHA256 with the master key) — no server-side store, so the flow scales horizontally and resists `/oauth/start` flood DoS. State carries a 10-minute expiry; single-use is delegated to Google (the OAuth `code` is one-shot on Google's side).
 - **Background loops.** `startServer` launches `renewExpiringChannels` (~30 min) and `pollAllActiveVersions` (~10 min) timers in-process when `MARGIN_PUBLIC_BASE_URL` is set. `createVersion` also auto-subscribes a Drive `files.watch` channel best-effort using that base URL. Pass `{ backgroundLoops: false }` to `startServer` in tests.
 - **Webhooks.** `POST /webhooks/drive` always responds 200 OK so Google stops retrying — channel-level errors get logged.
 
 ## Frontend stack
 
-- Astro for the public site (`docs/`), WXT for the extension. Preact is the shared component layer; pull repeated UI into `surfaces/shared-ui/` on the second consumer.
+- Astro for the public site (`docs/`), WXT for the extension. Preact is the shared component layer. Extension-only UI lives in `surfaces/extension/ui/`; if a second surface lands and we end up duplicating components, hoist them into a `surfaces/shared-ui/` package then (not before).
 
 ## Browser extension (`surfaces/extension/`)
 
