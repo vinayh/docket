@@ -24,6 +24,7 @@ import type {
   ProjectDetail,
   RegisterDocResult,
   Settings,
+  VersionCommentsPayload,
   VersionDiffPayload,
 } from "../utils/types.ts";
 
@@ -102,6 +103,8 @@ function errorResponseFor(message: Message, error: string): MessageResponse {
       return { kind: "project/detail", detail: null, error };
     case "version/diff":
       return { kind: "version/diff", payload: null, error };
+    case "version/comments":
+      return { kind: "version/comments", payload: null, error };
   }
 }
 
@@ -157,6 +160,10 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
         message.toVersionId,
       );
       return { kind: "version/diff", payload };
+    }
+    case "version/comments": {
+      const payload = await fetchVersionComments(message.versionId);
+      return { kind: "version/comments", payload };
     }
   }
 }
@@ -496,6 +503,31 @@ async function fetchVersionDiff(
     throw new Error(`version-diff ${res.status}: ${text.slice(0, 200)}`);
   }
   return (await res.json()) as VersionDiffPayload;
+}
+
+async function fetchVersionComments(
+  versionId: string,
+): Promise<VersionCommentsPayload | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  const url = new URL(
+    "/api/extension/version-comments",
+    settings.backendUrl,
+  ).toString();
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${settings.apiToken}`,
+    },
+    body: JSON.stringify({ versionId }),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`version-comments ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return (await res.json()) as VersionCommentsPayload;
 }
 
 async function fetchPickerConfig(): Promise<PickerConfig | null> {

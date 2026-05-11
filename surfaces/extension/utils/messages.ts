@@ -6,6 +6,7 @@ import type {
   ProjectDetail,
   RegisterDocResult,
   Settings,
+  VersionCommentsPayload,
   VersionDiffPayload,
 } from "./types.ts";
 
@@ -26,7 +27,8 @@ export type Message =
   | { kind: "doc/register"; docUrlOrId: string }
   | { kind: "picker/config" }
   | { kind: "project/detail"; projectId: string }
-  | { kind: "version/diff"; fromVersionId: string; toVersionId: string };
+  | { kind: "version/diff"; fromVersionId: string; toVersionId: string }
+  | { kind: "version/comments"; versionId: string };
 
 /**
  * Each response carries the same `kind` as its request so callers can route
@@ -48,4 +50,9 @@ export type MessageResponse =
   | { kind: "doc/register"; result: RegisterDocResult; error?: string }
   | { kind: "picker/config"; config: PickerConfig | null; error?: string }
   | { kind: "project/detail"; detail: ProjectDetail | null; error?: string }
-  | { kind: "version/diff"; payload: VersionDiffPayload | null; error?: string };
+  | { kind: "version/diff"; payload: VersionDiffPayload | null; error?: string }
+  | {
+      kind: "version/comments";
+      payload: VersionCommentsPayload | null;
+      error?: string;
+    };

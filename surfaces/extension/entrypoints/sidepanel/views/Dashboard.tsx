@@ -10,6 +10,7 @@ import type {
 interface Props {
   detail: ProjectDetail;
   onOpenDiff: (fromVersionId: string, toVersionId: string) => void;
+  onOpenComments: (versionId: string, versionLabel: string) => void;
 }
 
 /**
@@ -19,7 +20,7 @@ interface Props {
  * `getDocState` recognizes the version-role doc and ingests that exact
  * version, no schema change needed.
  */
-export function Dashboard({ detail, onOpenDiff }: Props) {
+export function Dashboard({ detail, onOpenDiff, onOpenComments }: Props) {
   const [current, setCurrent] = useState<ProjectDetail>(detail);
 
   async function refreshAll(): Promise<void> {
@@ -56,6 +57,7 @@ export function Dashboard({ detail, onOpenDiff }: Props) {
         versions={current.versions}
         onSync={syncVersion}
         onOpenDiff={onOpenDiff}
+        onOpenComments={onOpenComments}
       />
       <DerivativesSection derivatives={current.derivatives} />
       <ReviewsSection reviews={current.reviewRequests} />
@@ -67,10 +69,12 @@ function VersionsSection({
   versions,
   onSync,
   onOpenDiff,
+  onOpenComments,
 }: {
   versions: ProjectVersionDetail[];
   onSync: (v: ProjectVersionDetail) => Promise<void> | void;
   onOpenDiff: (fromVersionId: string, toVersionId: string) => void;
+  onOpenComments: (versionId: string, versionLabel: string) => void;
 }) {
   return (
     <section class="panel-section">
@@ -104,6 +108,12 @@ function VersionsSection({
                 <td>
                   <div class="row-actions">
                     <VersionSyncButton version={v} onSync={onSync} />
+                    <button
+                      type="button"
+                      onClick={() => onOpenComments(v.id, v.label)}
+                    >
+                      Comments
+                    </button>
                     {v.parentVersionId ? (
                       <button
                         type="button"

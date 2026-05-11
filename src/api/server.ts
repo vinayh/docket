@@ -4,6 +4,7 @@ import { handleDocStatePost } from "./doc-state.ts";
 import { handleDocSyncPost } from "./doc-sync.ts";
 import { handleProjectDetailPost } from "./project-detail.ts";
 import { handleVersionDiffPost } from "./version-diff.ts";
+import { handleVersionCommentsPost } from "./version-comments.ts";
 import { handlePickerHost } from "./picker.ts";
 import { handlePickerConfig } from "./picker-config.ts";
 import { handleRegisterDocPost } from "./picker-register.ts";
@@ -54,7 +55,8 @@ function corsRoute(handlers: MethodHandlers): MethodHandlers {
  * `/picker`. Webhooks: `/webhooks/drive` (Drive push notifications).
  * Bearer-authenticated API surface: `/api/extension/captures`,
  * `/api/extension/doc-state`, `/api/extension/doc-sync`,
- * `/api/extension/project`, `/api/extension/version-diff`, `/api/picker/register-doc`. Method dispatch + 405-on-mismatch comes
+ * `/api/extension/project`, `/api/extension/version-diff`,
+ * `/api/extension/version-comments`, `/api/picker/register-doc`. Method dispatch + 405-on-mismatch comes
  * from Bun.serve's `routes:` option; unknown paths fall through to
  * `fetch`'s 404.
  *
@@ -89,6 +91,7 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       "/api/extension/doc-sync": corsRoute({ POST: handleDocSyncPost }),
       "/api/extension/project": corsRoute({ POST: handleProjectDetailPost }),
       "/api/extension/version-diff": corsRoute({ POST: handleVersionDiffPost }),
+      "/api/extension/version-comments": corsRoute({ POST: handleVersionCommentsPost }),
       "/api/picker/config": corsRoute({ GET: handlePickerConfig }),
       "/api/picker/register-doc": corsRoute({ POST: handleRegisterDocPost }),
       // Google Search Console domain verification. Required before Drive

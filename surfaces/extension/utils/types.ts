@@ -175,3 +175,68 @@ export interface TextStyleSummary {
   fontSizePt?: number;
   foregroundColorHex?: string;
 }
+
+/**
+ * Mirror of `VersionCommentsPayload` from src/domain/version-comments.ts —
+ * canonical comments projected onto a single version, with projection
+ * status + origin-version attribution. Powers the side-panel comment
+ * reconciliation view. Keep field names/types in sync.
+ */
+export interface VersionCommentsPayload {
+  versionId: string;
+  versionLabel: string;
+  projectId: string;
+  comments: VersionCommentEntry[];
+}
+
+export type CanonicalCommentKind =
+  | "comment"
+  | "suggestion_insert"
+  | "suggestion_delete";
+
+export type CanonicalCommentStatus =
+  | "open"
+  | "addressed"
+  | "wontfix"
+  | "superseded";
+
+export type ProjectionStatus =
+  | "clean"
+  | "fuzzy"
+  | "orphaned"
+  | "manually_resolved";
+
+export interface VersionCommentAnchor {
+  quotedText: string;
+  contextBefore?: string;
+  contextAfter?: string;
+  paragraphHash?: string;
+  structuralPosition?: {
+    region?: "body" | "header" | "footer" | "footnote";
+    regionId?: string;
+    paragraphIndex: number;
+    offset: number;
+  };
+}
+
+export interface VersionCommentEntry {
+  canonicalCommentId: string;
+  parentCanonicalCommentId: string | null;
+  kind: CanonicalCommentKind;
+  body: string;
+  anchor: VersionCommentAnchor;
+  status: CanonicalCommentStatus;
+  originVersionId: string;
+  originVersionLabel: string;
+  originUserDisplayName: string | null;
+  originUserEmail: string | null;
+  originTimestamp: number;
+  projection: VersionProjectionEntry;
+}
+
+export interface VersionProjectionEntry {
+  status: ProjectionStatus;
+  anchorMatchConfidence: number | null;
+  googleCommentId: string | null;
+  lastSyncedAt: number;
+}

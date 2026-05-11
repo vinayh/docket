@@ -8,6 +8,7 @@ import type {
   ProjectDetail,
   Settings,
 } from "../../utils/types.ts";
+import { Comments } from "./views/Comments.tsx";
 import { Dashboard } from "./views/Dashboard.tsx";
 import { VersionDiff } from "./views/VersionDiff.tsx";
 
@@ -25,6 +26,12 @@ type View =
   | { kind: "no-project" }
   | { kind: "loaded"; detail: ProjectDetail }
   | { kind: "diff"; detail: ProjectDetail; fromVersionId: string; toVersionId: string }
+  | {
+      kind: "comments";
+      detail: ProjectDetail;
+      versionId: string;
+      versionLabel: string;
+    }
   | { kind: "error"; message: string };
 
 export function App() {
@@ -94,6 +101,14 @@ function Body({ view, setView }: { view: View; setView: (v: View) => void }) {
               toVersionId,
             })
           }
+          onOpenComments={(versionId, versionLabel) =>
+            setView({
+              kind: "comments",
+              detail: view.detail,
+              versionId,
+              versionLabel,
+            })
+          }
         />
       );
     case "diff":
@@ -101,6 +116,14 @@ function Body({ view, setView }: { view: View; setView: (v: View) => void }) {
         <VersionDiff
           fromVersionId={view.fromVersionId}
           toVersionId={view.toVersionId}
+          onClose={() => setView({ kind: "loaded", detail: view.detail })}
+        />
+      );
+    case "comments":
+      return (
+        <Comments
+          versionId={view.versionId}
+          versionLabel={view.versionLabel}
           onClose={() => setView({ kind: "loaded", detail: view.detail })}
         />
       );

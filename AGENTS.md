@@ -13,13 +13,13 @@ src/
   domain/            business logic composing db/google/auth — no HTTP, no CLI. project,
                      version, anchor, reanchor, suggestions, comments, project_comments,
                      overlay, watcher, capture (extension ingest), doc-state, project-detail,
-                     version-diff, stats, user, review
+                     version-diff, version-comments, stats, user, review
   cli/               thin parse-and-call shells dispatched by index.ts (`bun docket <cmd>`)
   api/               Bun.serve HTTP host. server.ts owns the route table + in-process
                      renew/poll loops; one module per route (oauth, extension/captures,
                      doc-state, doc-sync, drive-webhook, picker, picker-config,
-                     picker-register, project-detail, version-diff). middleware.ts +
-                     cors.ts hold the bearer-auth + CORS helpers
+                     picker-register, project-detail, version-diff, version-comments).
+                     middleware.ts + cors.ts hold the bearer-auth + CORS helpers
 surfaces/extension/  MV3 extension (Chrome / Edge / Firefox), WXT-driven — see
                      surfaces/extension/README.md
 docs/                Astro + Preact public site; deploys to GitHub Pages
