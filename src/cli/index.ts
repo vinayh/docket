@@ -10,6 +10,7 @@ import { run as runOverlay, runDerivative } from "./overlay.ts";
 import { run as runWatcher } from "./watcher.ts";
 import { run as runServe } from "./serve.ts";
 import { run as runToken } from "./token.ts";
+import { run as runE2E } from "./e2e.ts";
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
   connect: runConnect,
@@ -25,6 +26,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   watcher: runWatcher,
   serve: runServe,
   token: runToken,
+  e2e: runE2E,
 };
 
 const [name, ...rest] = process.argv.slice(2);

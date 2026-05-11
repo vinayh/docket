@@ -154,6 +154,15 @@ async function getSettings(): Promise<Settings | null> {
 }
 
 async function getActiveDocId(): Promise<string | null> {
+  // E2E override: when the panel is opened as a standalone tab
+  // (chrome-extension://…/sidepanel.html?activeDocId=…), the active-tab
+  // query resolves to the panel tab itself, not the docs tab the test is
+  // targeting. The query-string lets the harness inject the doc id
+  // directly. Guarded by the `?activeDocId=` presence — production
+  // side-panel opens don't pass it.
+  const override = new URLSearchParams(window.location.search).get("activeDocId");
+  if (override) return parseDocIdFromUrl(override) ?? override;
+
   const tabs = await browser.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
   if (!tab?.url) return null;
