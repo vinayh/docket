@@ -2,7 +2,8 @@ import { useState } from "preact/hooks";
 
 export interface InstallTab {
   label: string;
-  command: string;
+  url: string;
+  storeName: string;
 }
 
 interface Props {
@@ -37,9 +38,18 @@ export default function InstallTabs({ tabs }: Props) {
           );
         })}
       </div>
-      <pre class="px-4 py-3 font-mono text-[13px] whitespace-pre overflow-x-auto">
-        <span class="text-[color:var(--color-muted)]">$</span> {current.command}
-      </pre>
+      <div class="px-4 py-4 flex items-center justify-between gap-4">
+        <span class="text-[13px] text-[color:var(--color-ink-2)]">
+          Margin for {current.label}, published on the {current.storeName}.
+        </span>
+        <a
+          href={current.url}
+          class="inline-flex items-center gap-2 rounded-md bg-[color:var(--color-ink)] text-white px-3 py-1.5 text-[13px] font-medium hover:bg-[color:var(--color-ink-2)] whitespace-nowrap"
+        >
+          Add to {current.label}
+          <span aria-hidden="true">↗</span>
+        </a>
+      </div>
     </div>
   );
 }

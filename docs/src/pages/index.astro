@@ -3,7 +3,6 @@ import Layout from "../layouts/Layout.astro";
 import Sidebar from "../components/Sidebar.astro";
 import Hero from "../components/Hero.astro";
 import SectionItem from "../components/SectionItem.astro";
-import CodeBlock from "../components/CodeBlock.astro";
 import InstallTabs from "../components/InstallTabs.tsx";
 import Highlight from "../components/Highlight.astro";
 import Footer from "../components/Footer.astro";
@@ -35,11 +34,11 @@ const nav = [
         lede="Margin subscribes to a Google Doc and pulls every comment, suggestion, and reply into a project you own. Versions are immutable snapshots. Comments stay anchored to text, even after edits."
       >
         <p>
-          The <strong>browser extension</strong> watches the docs you have open
-          and quietly sends comment activity to your backend. The <strong>CLI</strong>
-          and <strong>API</strong> let you create projects, cut versions, replay
-          comments onto a new draft, and stage edits as Suggested Edits without
-          touching your originals.
+          The <strong>browser extension</strong> is the whole product surface:
+          a popup to add docs to a project, a side panel for the project
+          dashboard, version diffs, and the comment reconciliation view.
+          Ingest happens server-side, so there's no content script poking at
+          your docs.
         </p>
         <p>
           Designed for the working writer who does the work in Google Docs but
@@ -51,52 +50,61 @@ const nav = [
         num="01"
         id="install"
         title="Install."
-        lede="One backend, one extension. The extension talks to your own backend over an opaque API token, never to a third party."
+        lede="One click in your browser. Margin works on Chrome, Firefox, and Edge."
       >
-        <p class="mb-2"><strong>Backend:</strong></p>
         <InstallTabs
           client:visible
           tabs={[
-            { label: "Bun", command: "bunx --bun create margin@latest" },
-            { label: "Docker", command: "docker run -p 3000:3000 ghcr.io/vinayh/margin" },
-            { label: "Fly.io", command: "fly launch --from https://github.com/vinayh/margin" },
+            {
+              label: "Chrome",
+              storeName: "Chrome Web Store",
+              url: "https://chromewebstore.google.com/detail/margin",
+            },
+            {
+              label: "Firefox",
+              storeName: "Firefox Add-ons site",
+              url: "https://addons.mozilla.org/firefox/addon/margin",
+            },
+            {
+              label: "Edge",
+              storeName: "Edge Add-ons site",
+              url: "https://microsoftedge.microsoft.com/addons/detail/margin",
+            },
           ]}
         />
-        <p class="mb-2 mt-6"><strong>Extension:</strong></p>
-        <InstallTabs
-          client:visible
-          tabs={[
-            { label: "Chrome", command: "open https://chromewebstore.google.com/detail/margin" },
-            { label: "Firefox", command: "open https://addons.mozilla.org/firefox/addon/margin" },
-            { label: "Edge", command: "open https://microsoftedge.microsoft.com/addons/detail/margin" },
-          ]}
-        />
+        <p class="mt-4">
+          After installing, click the Margin icon and sign in with your
+          Google account. That's the whole setup.
+        </p>
       </SectionItem>
 
       <SectionItem
         num="02"
         id="connect"
         title="Connect your Google account."
-        lede="Margin only ever sees docs you explicitly open with the add-on, create from Margin, or pick from Drive. drive.file scope only."
+        lede="Margin only ever sees docs you explicitly create from Margin or pick from Drive. drive.file scope only."
       >
-        <CodeBlock title="~/margin · connect" caption="One-time OAuth flow; refresh token is encrypted at rest.">
-<span style="color: var(--color-term-prompt);">$</span> bun margin connect
-<span style="color: #888;">→ open https://accounts.google.com/o/oauth2/v2/auth?...</span>
-<span style="color: #888;">✓ token stored for vinay@hiremath.net</span>
-        </CodeBlock>
+        <p>
+          The first time you click <em>Add to Margin</em> in the popup, you'll
+          be sent through Google's standard OAuth consent screen. Your refresh
+          token is envelope-encrypted at rest; Margin never holds your
+          password. The <code>drive.file</code> scope means the backend cannot
+          read anything in your Drive except the specific files you picked.
+        </p>
       </SectionItem>
 
       <SectionItem
         num="03"
         id="track"
         title="Track a doc."
-        lede="Click the extension, hit Add to Margin, pick a project. The doc becomes a v1: a frozen copy you can replay comments onto."
+        lede="Open the doc, click the Margin icon, hit Add to Margin, pick a project. The doc becomes a v1: a frozen copy you can replay comments onto."
       >
         <p>
-          The picker runs sandboxed inside the extension popup. The popup posts
-          the picked file id to the backend, which copies the doc, computes a
-          content hash, and subscribes to a Drive <code>files.watch</code> push
-          channel. From here on, every comment edit shows up in your project.
+          The Drive Picker runs sandboxed inside the extension popup. Once you
+          pick a file, the backend copies it, computes a content hash, and
+          subscribes to a Drive <code>files.watch</code> push channel. From
+          here on, every comment edit shows up in your project without you
+          opening anything.
         </p>
       </SectionItem>
 
@@ -104,14 +112,15 @@ const nav = [
         num="04"
         id="capture"
         title="Capture replies and suggestions."
-        lede="Suggestion threads in Google Docs are not exposed via API. Margin scrapes them from the rendered sidebar, deduplicates, and POSTs them to your backend."
+        lede="The public Drive/Docs API can't read suggestion-thread replies. Margin recovers them server-side by parsing the Google-issued .docx export of your doc."
       >
-        <CodeBlock caption="Live tail of capture activity.">
-<span style="color: var(--color-term-prompt);">$</span> bun margin comments tail --project alpha
-<span style="color: #888;">[14:02:11]</span> v3 · Sandra → "I'd cut the second paragraph." (suggestion)
-<span style="color: #888;">[14:02:34]</span> v3 · Mike   → reply on §2.1 thread
-<span style="color: #888;">[14:03:01]</span> v3 · Sandra → resolved §1.4 thread
-        </CodeBlock>
+        <p>
+          Every comment, every reply, every suggested insertion or deletion
+          lands in your project, complete with author, timestamp, and the
+          exact text range it points at. Open the side panel to see the full
+          history per version, who replied when, and how comments re-anchored
+          as the text moved.
+        </p>
       </SectionItem>
 
       <SectionItem
@@ -133,13 +142,13 @@ const nav = [
         num="06"
         id="privacy"
         title="Privacy by default."
-        lede="Margin runs on your infrastructure. No analytics, no telemetry, no third-party calls."
+        lede="No analytics, no telemetry, no third-party calls beyond Google's own Drive and Docs APIs."
       >
         <p>
           Refresh tokens are envelope-encrypted with a per-row data key wrapped
-          by your master key. API tokens are <code>mgn_</code> opaque strings
-          stored as sha256 hashes. The extension only ever talks to the backend
-          URL you configure.
+          by a master key on the backend. API tokens are <code>mgn_</code>
+          opaque strings stored as sha256 hashes. The extension only ever talks
+          to the Margin backend. No analytics SDKs, no third-party trackers.
         </p>
       </SectionItem>
 
@@ -147,7 +156,7 @@ const nav = [
         num="07"
         id="open-source"
         title="Open source."
-        lede="MIT licensed. Self-host or run the hosted instance: same code, same data model."
+        lede="GPL v3 licensed. The full source is public."
       >
         <p>
           Source on <a href="https://github.com/vinayh/margin">GitHub</a>.
@@ -163,18 +172,13 @@ const nav = [
         <p>
           <strong>Why not a comments-style API?</strong> Workspace's public API
           can read anchored comments but cannot author them, and it doesn't
-          expose suggestion-thread replies at all. Margin reads through the API
-          where it can and scrapes the rendered sidebar where it has to.
+          expose suggestion-thread replies at all. Margin reads what the API
+          gives it and recovers the rest from the .docx export of each doc.
         </p>
         <p>
           <strong>Does this work for non-Docs files?</strong> Not yet. Slides
           and Sheets are on the roadmap once the comment-anchoring model
           stabilizes for body text.
-        </p>
-        <p>
-          <strong>Can I host this myself?</strong> Yes. There's a Dockerfile
-          and a Fly.io deploy template. SQLite + Bun, single machine is fine
-          for a team.
         </p>
       </SectionItem>
 
