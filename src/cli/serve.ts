@@ -5,7 +5,7 @@ import { usage } from "./util.ts";
 
 const USAGE = `\
 usage:
-  bun docket serve [--port <n>]`;
+  bun margin serve [--port <n>]`;
 
 export async function run(args: string[]): Promise<void> {
   const { values } = parseArgs({
@@ -20,7 +20,7 @@ export async function run(args: string[]): Promise<void> {
   if (port !== undefined && Number.isNaN(port)) usage(USAGE);
 
   const server = startServer(port !== undefined ? { port } : {});
-  console.log(`docket api listening on http://${server.hostname}:${server.port}`);
+  console.log(`margin api listening on http://${server.hostname}:${server.port}`);
 
   const shutdown = async (signal: string) => {
     console.log(`received ${signal}, shutting down`);

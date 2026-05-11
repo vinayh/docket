@@ -122,7 +122,7 @@ function ViewBody({ view, setView }: BodyProps) {
           <p class="title" title={view.heading}>
             {view.heading}
           </p>
-          <p class="muted">Registering with Docket…</p>
+          <p class="muted">Registering with Margin…</p>
         </>
       );
   }

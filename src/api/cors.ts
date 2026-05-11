@@ -14,7 +14,7 @@
  * arbitrary origins should hit the endpoint without a browser in the loop.
  */
 const ALLOWED_HEADERS = "authorization, content-type";
-const EXPOSED_HEADERS = "x-docket-rate-limit-remaining";
+const EXPOSED_HEADERS = "x-margin-rate-limit-remaining";
 
 const ORIGIN_PATTERNS: readonly RegExp[] = [
   /^chrome-extension:\/\/[a-z]{32}$/,

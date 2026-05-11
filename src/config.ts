@@ -34,16 +34,16 @@ export const config = {
     },
   },
   get masterKeyB64() {
-    return required("DOCKET_MASTER_KEY");
+    return required("MARGIN_MASTER_KEY");
   },
-  dbPath: Bun.env.DOCKET_DB_PATH ?? "./docket.db",
+  dbPath: Bun.env.MARGIN_DB_PATH ?? "./margin.db",
   /**
-   * Public origin of the Docket backend, e.g. `https://docket-server.fly.dev`.
+   * Public origin of the Margin backend, e.g. `https://margin-server.fly.dev`.
    * Used to compute the Drive `files.watch` callback address and to decide
    * whether the auto-subscribe / renew loop should run. Null in dev unless
    * the operator opts in.
    */
   get publicBaseUrl() {
-    return optional("DOCKET_PUBLIC_BASE_URL");
+    return optional("MARGIN_PUBLIC_BASE_URL");
   },
 };

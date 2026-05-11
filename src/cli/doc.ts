@@ -5,7 +5,7 @@ import { dispatchSubcommands, resolveUser } from "./util.ts";
 
 const USAGE = `\
 usage:
-  bun docket doc create [--title <title>] [--seed] [--user <email>]`;
+  bun margin doc create [--title <title>] [--seed] [--user <email>]`;
 
 export const run = (args: string[]) =>
   dispatchSubcommands(args, USAGE, {
@@ -21,7 +21,7 @@ export const run = (args: string[]) =>
 
       const u = await resolveUser(values.user);
       const title =
-        values.title ?? `Docket test doc ${new Date().toISOString().slice(0, 10)}`;
+        values.title ?? `Margin test doc ${new Date().toISOString().slice(0, 10)}`;
       const r = await createTestDocument({
         userId: u.id,
         title,

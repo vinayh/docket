@@ -18,7 +18,7 @@ function capture(overrides: Partial<CaptureInput> & { externalId: string; docId:
 }
 
 describe("ingestExtensionCaptures", () => {
-  test("orphaned: capture for a doc Docket tracks but no parent suggestion exists", async () => {
+  test("orphaned: capture for a doc Margin tracks but no parent suggestion exists", async () => {
     const u = await seedUser();
     const proj = await seedProject({ ownerUserId: u.id, parentDocId: "doc-orphan" });
     const ver = await seedVersion({
@@ -159,7 +159,7 @@ describe("ingestExtensionCaptures", () => {
     expect(rows[0]!.body).toBe("default body");
   });
 
-  test("version_unknown: docId Docket doesn't track at all", async () => {
+  test("version_unknown: docId Margin doesn't track at all", async () => {
     const u = await seedUser();
     const result = await ingestExtensionCaptures(
       [capture({ externalId: "ext-x", docId: "doc-not-tracked" })],

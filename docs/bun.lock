@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "docket-site",
+      "name": "margin-site",
       "dependencies": {
         "@astrojs/preact": "^5.1.2",
         "@fontsource-variable/inter": "^5.2.8",

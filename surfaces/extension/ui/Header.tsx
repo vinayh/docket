@@ -8,7 +8,7 @@ import { browser } from "wxt/browser";
 export function Header() {
   return (
     <header>
-      <strong>Docket</strong>
+      <strong>Margin</strong>
       <button
         type="button"
         onClick={() => browser.runtime.openOptionsPage()}

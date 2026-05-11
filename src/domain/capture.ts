@@ -185,7 +185,7 @@ async function ingestOne(c: CaptureInput, authUserId: string): Promise<CaptureRe
 }
 
 /**
- * Resolve the doc id the extension saw to a version Docket tracks **owned by
+ * Resolve the doc id the extension saw to a version Margin tracks **owned by
  * the authenticated user**. Prefer the most recent active version pointing at
  * that Google Doc — covers both the parent doc (versions that *are* the
  * parent are not indexed by parentDocId, but if a version has been

@@ -199,7 +199,7 @@ function showPicker(cfg: PickerInitConfig, oauthToken: string): void {
     .setDeveloperKey(cfg.apiKey)
     .setAppId(cfg.projectNumber)
     .addView(view)
-    .setTitle("Pick a Doc to track with Docket")
+    .setTitle("Pick a Doc to track with Margin")
     .setCallback((data) => onPicked(data))
     .build();
   built.setVisible(true);
@@ -219,6 +219,6 @@ function onPicked(data: PickerCallbackData): void {
     send({ type: "error", message: "no doc selected" });
     return;
   }
-  setStatus("Registering with Docket…");
+  setStatus("Registering with Margin…");
   send({ type: "picked", docId: doc.id, name: doc.name });
 }

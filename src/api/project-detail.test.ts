@@ -28,7 +28,7 @@ describe("handleProjectDetailPost validation", () => {
 
   test("401 with a wrong-prefix token (short-circuits before DB)", async () => {
     const res = await handleProjectDetailPost(
-      postDetail({ projectId: "abc" }, { auth: "Bearer not-a-docket-token" }),
+      postDetail({ projectId: "abc" }, { auth: "Bearer not-a-margin-token" }),
     );
     expect(res.status).toBe(401);
   });

@@ -12,15 +12,15 @@ import { usage, dispatchSubcommands } from "./util.ts";
 
 const USAGE = `\
 usage:
-  bun docket overlay create <project-id> --name <name>
-  bun docket overlay list <project-id>
-  bun docket overlay add-op <overlay-id> --type <redact|replace|insert|append>
+  bun margin overlay create <project-id> --name <name>
+  bun margin overlay list <project-id>
+  bun margin overlay add-op <overlay-id> --type <redact|replace|insert|append>
                                           [--quoted <text>] [--payload <text>]
                                           [--threshold <0-100>]
-  bun docket overlay ops <overlay-id>
-  bun docket overlay apply <overlay-id> --version <source-version-id>
+  bun margin overlay ops <overlay-id>
+  bun margin overlay apply <overlay-id> --version <source-version-id>
                                          [--audience <label>]
-  bun docket derivative list <project-id>`;
+  bun margin derivative list <project-id>`;
 
 const VALID_OPS: OverlayOpType[] = ["redact", "replace", "insert", "append"];
 
@@ -137,7 +137,7 @@ export const run = (args: string[]) =>
     },
   });
 
-const DERIVATIVE_USAGE = "usage: bun docket derivative list <project-id>";
+const DERIVATIVE_USAGE = "usage: bun margin derivative list <project-id>";
 
 export const runDerivative = (args: string[]) =>
   dispatchSubcommands(args, DERIVATIVE_USAGE, {

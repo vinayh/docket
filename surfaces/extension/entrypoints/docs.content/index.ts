@@ -27,7 +27,7 @@ export default defineContentScript({
   main() {
     const docId = parseDocIdFromUrl(location.href);
     if (!docId) return;
-    console.log(`[docket] content script ready (doc=${docId})`);
+    console.log(`[margin] content script ready (doc=${docId})`);
     bootstrap(docId);
   },
 });
@@ -95,7 +95,7 @@ async function recordDocName(currentDocId: string): Promise<void> {
     await setDocTitle(currentDocId, name);
   } catch (err) {
     // Best-effort: a storage write failure shouldn't break capture.
-    console.warn("[docket] doc-title persist failed:", err);
+    console.warn("[margin] doc-title persist failed:", err);
   }
 }
 
@@ -107,7 +107,7 @@ async function scan(currentDocId: string, localSeen: Set<string>): Promise<void>
   if (!summaryLogged) {
     const sugg = threads.filter((t) => t.isSuggestion).length;
     console.log(
-      `[docket] first scan: threads=${threads.length} suggestions=${sugg} captures=${captures.length} fresh=${fresh.length}`,
+      `[margin] first scan: threads=${threads.length} suggestions=${sugg} captures=${captures.length} fresh=${fresh.length}`,
     );
     summaryLogged = true;
   }
@@ -126,6 +126,6 @@ async function scan(currentDocId: string, localSeen: Set<string>): Promise<void>
   } catch (err) {
     // SW may be inactive; it'll wake on next message. Re-queueing is the
     // SW's job (it persists to chrome.storage), so we don't retry here.
-    console.warn("[docket] sendMessage failed:", err);
+    console.warn("[margin] sendMessage failed:", err);
   }
 }

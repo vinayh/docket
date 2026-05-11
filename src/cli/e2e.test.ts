@@ -27,7 +27,7 @@ async function runCli(
   return { stdout, stderr, exitCode };
 }
 
-const ALLOW = { DOCKET_ALLOW_E2E_SEED: "1" };
+const ALLOW = { MARGIN_ALLOW_E2E_SEED: "1" };
 
 beforeEach(cleanDb);
 
@@ -35,10 +35,10 @@ describe("e2e seed-project", () => {
   test("no env flag → refuses, exit 1", async () => {
     await seedUser({ email: "t@e.com" });
     const r = await runCli(["e2e", "seed-project", "1AbcDEF0123456789_abc_test_doc", "--user", "t@e.com"], {
-      DOCKET_ALLOW_E2E_SEED: undefined,
+      MARGIN_ALLOW_E2E_SEED: undefined,
     });
     expect(r.exitCode).toBe(1);
-    expect(r.stderr).toContain("DOCKET_ALLOW_E2E_SEED");
+    expect(r.stderr).toContain("MARGIN_ALLOW_E2E_SEED");
     // No rows leaked even though we passed otherwise-valid args.
     const rows = await db.select().from(project);
     expect(rows.length).toBe(0);
@@ -50,10 +50,10 @@ describe("e2e seed-project", () => {
     expect(r.stderr).toContain("usage:");
   });
 
-  test("no --user and no DOCKET_TEST_USER_EMAIL → fatal", async () => {
+  test("no --user and no MARGIN_TEST_USER_EMAIL → fatal", async () => {
     const r = await runCli(["e2e", "seed-project", "1AbcDEF0123456789_abc_test_doc"], {
       ...ALLOW,
-      DOCKET_TEST_USER_EMAIL: undefined,
+      MARGIN_TEST_USER_EMAIL: undefined,
     });
     expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain("no user");

@@ -30,7 +30,7 @@ describe("handleDocSyncPost", () => {
 
   test("401 with a wrong-prefix token", async () => {
     const res = await handleDocSyncPost(
-      postSync({ docId: "abc" }, { auth: "Bearer not-a-docket-token" }),
+      postSync({ docId: "abc" }, { auth: "Bearer not-a-margin-token" }),
     );
     expect(res.status).toBe(401);
   });

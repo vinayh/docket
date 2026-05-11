@@ -18,7 +18,7 @@ function hashHex(plaintext: string): string {
 }
 
 describe("issueApiToken", () => {
-  test("returns a `dkt_…` plaintext and stores only the sha256 hash", async () => {
+  test("returns a `mgn_…` plaintext and stores only the sha256 hash", async () => {
     const u = await seedUser();
     const { token, row } = await issueApiToken({ userId: u.id, label: "ci" });
 
@@ -53,7 +53,7 @@ describe("verifyApiToken", () => {
   });
 
   test("short-circuits before the DB on a wrong prefix", async () => {
-    expect(await verifyApiToken("not-a-docket-token")).toBeNull();
+    expect(await verifyApiToken("not-a-margin-token")).toBeNull();
     expect(await verifyApiToken("")).toBeNull();
   });
 

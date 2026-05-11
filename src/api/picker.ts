@@ -3,13 +3,13 @@ import { config } from "../config.ts";
 /**
  * Drive Picker host page (SPEC §9.2 / §6.3).
  *
- * The Picker iframe is the only way to grant the Docket OAuth client
+ * The Picker iframe is the only way to grant the Margin OAuth client
  * `drive.file` access to a Doc the user already owns — typing a URL into
  * Slack or the extension popup isn't enough. This route serves the page
  * that mounts that iframe.
  *
  * Flow on the page:
- *   1. Read the user's API token from `location.hash` (`#token=dkt_…`,
+ *   1. Read the user's API token from `location.hash` (`#token=mgn_…`,
  *      optionally followed by `&suggestedDocId=…&suggestedTitle=…`). The
  *      token is hash-encoded (not query) so it never reaches access logs.
  *   2. GIS `initTokenClient({ scope: 'drive.file' })` mints an access
@@ -82,7 +82,7 @@ function renderHtml(): string {
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Docket — pick a Google Doc</title>
+  <title>Margin — pick a Google Doc</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     :root { color-scheme: light dark; }
@@ -108,15 +108,15 @@ function renderHtml(): string {
   </style>
 </head>
 <body>
-  <h1>Pick a Google Doc to track with Docket</h1>
-  <p>This grants the Docket OAuth client <code>drive.file</code> access to the doc you select.</p>
+  <h1>Pick a Google Doc to track with Margin</h1>
+  <p>This grants the Margin OAuth client <code>drive.file</code> access to the doc you select.</p>
 
   <div id="banner" class="banner" hidden></div>
   <div id="status"></div>
 
   <div class="row">
     <label for="token">API token</label>
-    <input id="token" type="text" autocomplete="off" placeholder="dkt_…" />
+    <input id="token" type="text" autocomplete="off" placeholder="mgn_…" />
     <p style="font-size: 12px; opacity: 0.8;">Pre-filled from <code>#token=…</code> in the URL when launched from the extension.</p>
   </div>
 
@@ -124,7 +124,7 @@ function renderHtml(): string {
     <button id="open" disabled>Open Drive Picker</button>
   </p>
 
-  <script>window.__DOCKET_PICKER__ = ${runtime};</script>
+  <script>window.__MARGIN_PICKER__ = ${runtime};</script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://apis.google.com/js/api.js" async defer></script>
   <script>
@@ -141,11 +141,11 @@ ${PICKER_CLIENT_JS}
  * grant and gapi.load('picker') for the Picker iframe.
  *
  * Inputs read at runtime:
- *   window.__DOCKET_PICKER__ = { clientId, apiKey, projectNumber }
- *   location.hash = "#token=dkt_…&suggestedDocId=…&suggestedTitle=…"
+ *   window.__MARGIN_PICKER__ = { clientId, apiKey, projectNumber }
+ *   location.hash = "#token=mgn_…&suggestedDocId=…&suggestedTitle=…"
  */
 const PICKER_CLIENT_JS = `
-const cfg = window.__DOCKET_PICKER__;
+const cfg = window.__MARGIN_PICKER__;
 const statusEl = document.getElementById("status");
 const bannerEl = document.getElementById("banner");
 const tokenInput = document.getElementById("token");
@@ -211,7 +211,7 @@ if (!cfg.clientId || !cfg.apiKey || !cfg.projectNumber) {
   openBtn.addEventListener("click", () => {
     const apiToken = tokenInput.value.trim();
     if (!apiToken) {
-      setStatus("Enter your Docket API token first.", "err");
+      setStatus("Enter your Margin API token first.", "err");
       return;
     }
     setStatus("Requesting Google access token…");
@@ -243,7 +243,7 @@ function showPicker(oauthToken, apiToken) {
     .setDeveloperKey(cfg.apiKey)
     .setAppId(cfg.projectNumber)
     .addView(view)
-    .setTitle("Pick a Doc to track with Docket")
+    .setTitle("Pick a Doc to track with Margin")
     .setCallback((data) => onPicked(data, apiToken))
     .build();
   picker.setVisible(true);
@@ -266,7 +266,7 @@ async function onPicked(data, apiToken) {
       ""
     );
   }
-  setStatus("Registering doc with Docket…");
+  setStatus("Registering doc with Margin…");
   try {
     const res = await fetch("/api/picker/register-doc", {
       method: "POST",
@@ -282,7 +282,7 @@ async function onPicked(data, apiToken) {
     } else if (res.status === 409 && body.error === "already_exists") {
       setStatus("Already tracked. Project " + body.projectId + ". You can close this tab.", "ok");
     } else if (res.status === 401) {
-      setStatus("API token rejected. Issue a new one with 'bun docket token issue'.", "err");
+      setStatus("API token rejected. Issue a new one with 'bun margin token issue'.", "err");
     } else {
       setStatus("Failed to register: " + (body.message || res.status), "err");
     }

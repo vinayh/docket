@@ -48,9 +48,9 @@ jobs:
       # + single machine deadlocks the rolling-deploy health-check wait).
       # Idempotent: no-op if already running.
       - run: |
-          flyctl machines list -a docket-server --json \
+          flyctl machines list -a margin-server --json \
             | jq -r '.[].id' \
-            | xargs -r flyctl machine start -a docket-server
+            | xargs -r flyctl machine start -a margin-server
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - run: flyctl deploy --remote-only

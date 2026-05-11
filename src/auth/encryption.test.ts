@@ -77,7 +77,7 @@ describe("master-key roundtrip", () => {
     // `getMasterKey` reads `config.masterKeyB64`, which calls `required(...)`.
     // The repo's `.env` already provides this, but pin a deterministic value
     // here so the test doesn't depend on the developer's local env.
-    Bun.env.DOCKET_MASTER_KEY = Buffer.from(
+    Bun.env.MARGIN_MASTER_KEY = Buffer.from(
       crypto.getRandomValues(new Uint8Array(32)),
     ).toString("base64");
   });

@@ -3,28 +3,28 @@
 #
 # Why these knobs:
 # - SQLite (`bun:sqlite`) lives on a Fly Volume mounted at /data so it
-#   survives machine restarts. DOCKET_DB_PATH points at it.
+#   survives machine restarts. MARGIN_DB_PATH points at it.
 # - min_machines_running = 1 keeps the Drive `files.watch` webhook
 #   reachable without cold-start drops (SPEC §9.3). Auto-stop still
 #   trims any auto-scaled extras when idle.
-# - Health check hits /healthz (served by `bun docket serve`).
-# - Secrets (GOOGLE_*, DOCKET_MASTER_KEY) are set via `fly secrets set`.
+# - Health check hits /healthz (served by `bun margin serve`).
+# - Secrets (GOOGLE_*, MARGIN_MASTER_KEY) are set via `fly secrets set`.
 
-app = "docket-server"
+app = "margin-server"
 primary_region = "lhr"
 
 [build]
 
 [env]
   PORT = "8787"
-  DOCKET_DB_PATH = "/data/docket.db"
+  MARGIN_DB_PATH = "/data/margin.db"
   NODE_ENV = "production"
   # Public origin used to compute the Drive files.watch callback URL and to
   # gate the in-process renew + polling loops. Update if the app is renamed.
-  DOCKET_PUBLIC_BASE_URL = "https://docket-server.fly.dev"
+  MARGIN_PUBLIC_BASE_URL = "https://margin-server.fly.dev"
 
 [[mounts]]
-  source = "docket_data"
+  source = "margin_data"
   destination = "/data"
 
 [http_service]

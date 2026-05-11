@@ -78,7 +78,7 @@ describe("handleVersionDiffPost validation", () => {
     const res = await handleVersionDiffPost(
       postDiff(
         { fromVersionId: "a", toVersionId: "b" },
-        { auth: "Bearer not-a-docket-token" },
+        { auth: "Bearer not-a-margin-token" },
       ),
     );
     expect(res.status).toBe(401);

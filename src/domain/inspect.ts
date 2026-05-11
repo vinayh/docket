@@ -17,7 +17,7 @@ export interface InspectResult {
  * Dump the raw, unfiltered Drive + Docs responses for a doc. Use this when
  * you need to confirm whether some annotation (suggestion reply, resolved
  * comment, etc.) is actually exposed by the public API — if it's not in
- * this output, Docket can't see it.
+ * this output, Margin can't see it.
  *
  * Lives in the domain layer so the diagnostic isn't reimplemented per
  * surface; the CLI wrapper just renders the result.

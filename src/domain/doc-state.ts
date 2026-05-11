@@ -20,7 +20,7 @@ import { userEmailById } from "./user.ts";
  * For both, `commentCount` and `openReviewCount` are project-wide totals so
  * the popup can show lifetime activity. `lastSyncedAt` is per-relevant-version
  * (latest active for parent, the version itself for version): it answers
- * "when did Docket last refresh comments for what I'm looking at" rather
+ * "when did Margin last refresh comments for what I'm looking at" rather
  * than the broader "when did anything sync."
  */
 export type DocStateResponse =

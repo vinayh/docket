@@ -16,8 +16,8 @@ import { badRequest, internalError } from "./middleware.ts";
  *
  * Note on the agent-flagged "session-fixation" concern: this OAuth flow
  * only stores Google refresh tokens keyed by `googleSubjectId` — it does
- * NOT establish a Docket session. Users authenticate to the Docket API
- * with `dkt_…` API tokens issued via CLI; the OAuth flow exists to grant
+ * NOT establish a Margin session. Users authenticate to the Margin API
+ * with `mgn_…` API tokens issued via CLI; the OAuth flow exists to grant
  * Drive access for a known user. So a luring-into-callback attack causes
  * the *attacker's* Google credentials to be stored, not user-impersonation.
  */

@@ -14,12 +14,12 @@ export function Untracked({ tab, onAdd }: Props) {
       </p>
       <p class="subtitle">Not tracked yet.</p>
       <p class="muted">
-        Adds this doc as a Docket project so reviewer comments + suggestions
+        Adds this doc as a Margin project so reviewer comments + suggestions
         get captured.
       </p>
       <div class="actions">
         <button type="button" class="primary" onClick={onAdd}>
-          Add to Docket
+          Add to Margin
         </button>
       </div>
     </>

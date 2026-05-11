@@ -2,10 +2,10 @@ import { tokenProviderForUser } from "../auth/credentials.ts";
 import { batchUpdate, createDocument, op, type Document } from "../google/docs.ts";
 
 const SEED_PARAGRAPHS: readonly string[] = [
-  "Introduction. This is a Docket test document.",
-  "The reanchoring engine is authoritative — canonical anchors live in Docket's own schema.",
+  "Introduction. This is a Margin test document.",
+  "The reanchoring engine is authoritative — canonical anchors live in Margin's own schema.",
   "Highlight any sentence in this document and add a comment to test ingestion.",
-  "Final paragraph. You can edit this freely; Docket will pick up changes via comments ingest.",
+  "Final paragraph. You can edit this freely; Margin will pick up changes via comments ingest.",
 ];
 
 export interface CreateDocResult {

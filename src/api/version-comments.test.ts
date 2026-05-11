@@ -32,7 +32,7 @@ describe("handleVersionCommentsPost validation", () => {
 
   test("401 with a wrong-prefix token (short-circuits before DB)", async () => {
     const res = await handleVersionCommentsPost(
-      postVersionComments({ versionId: "v" }, { auth: "Bearer not-a-docket-token" }),
+      postVersionComments({ versionId: "v" }, { auth: "Bearer not-a-margin-token" }),
     );
     expect(res.status).toBe(401);
   });

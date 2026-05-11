@@ -1,4 +1,4 @@
-# Docket browser extension
+# Margin browser extension
 
 MV3 extension for Chrome / Edge / Firefox. **Phase-3 scope** — see
 [`SPEC.md` §6.4](../../SPEC.md#64-browser-extension):
@@ -7,9 +7,9 @@ MV3 extension for Chrome / Edge / Firefox. **Phase-3 scope** — see
   typed into a *suggestion*'s sidebar entry (the public Drive/Docs APIs
   don't expose those — verified empirically;
   see [`SPEC.md` §11](../../SPEC.md#11-out-of-scope-for-v1)) and POSTs them
-  to the Docket backend.
+  to the Margin backend.
 - **Project surface (popup).** Opens to a state machine driven by the
-  active Docs tab: configure backend → open a Doc → "Add to Docket" (in-popup
+  active Docs tab: configure backend → open a Doc → "Add to Margin" (in-popup
   sandboxed Drive Picker on Chromium, fallback `/picker` tab on Firefox)
   → tracked view with role / version / comment count / last-synced /
   "Sync now". All backend calls flow through the service worker so the
@@ -45,7 +45,7 @@ output directory is loadable directly:
 1. Issue an API token from the backend:
 
    ```sh
-   bun docket token issue --user <email> --label "my laptop"
+   bun margin token issue --user <email> --label "my laptop"
    ```
 
    The token is shown once; copy it.
@@ -69,7 +69,7 @@ single `View` discriminated union. `boot()` drives the transitions:
 1. **No settings** → options page nudge.
 2. **No Doc tab** → muted "open a Google Doc."
 3. Active Docs tab → SW `doc/state` (`POST /api/extension/doc-state`).
-4. **Untracked** → "Add to Docket" → on Chromium, `<PickerOverlay/>`
+4. **Untracked** → "Add to Margin" → on Chromium, `<PickerOverlay/>`
    mounts the sandboxed Picker iframe inside the popup. On Firefox MV3
    (no `sandbox.pages` support), the popup detects the UA and opens
    `<backendUrl>/picker#token=…&suggestedDocId=…&suggestedTitle=…` in a

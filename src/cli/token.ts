@@ -4,9 +4,9 @@ import { usage, dispatchSubcommands, resolveUser } from "./util.ts";
 
 const USAGE = `\
 usage:
-  bun docket token issue [--user <email>] [--label <label>]
-  bun docket token list  [--user <email>]
-  bun docket token revoke <token-id>`;
+  bun margin token issue [--user <email>] [--label <label>]
+  bun margin token list  [--user <email>]
+  bun margin token revoke <token-id>`;
 
 export const run = (args: string[]) =>
   dispatchSubcommands(args, USAGE, {

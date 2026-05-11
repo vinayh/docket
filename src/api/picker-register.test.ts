@@ -24,12 +24,12 @@ describe("handleRegisterDocPost", () => {
 
   test("401 when bearer token has the wrong prefix", async () => {
     const res = await handleRegisterDocPost(
-      jsonRequest({ docUrlOrId: "abc" }, { authorization: "Bearer not-a-docket-token" }),
+      jsonRequest({ docUrlOrId: "abc" }, { authorization: "Bearer not-a-margin-token" }),
     );
     expect(res.status).toBe(401);
   });
 
-  // Note: we deliberately don't exercise the dkt_-prefixed-but-unknown
+  // Note: we deliberately don't exercise the mgn_-prefixed-but-unknown
   // path here because it hits the DB and CI's `bun test` runs without
   // applying migrations. The auth middleware's prefix short-circuit is
   // already covered in middleware.test.ts; the route's auth-first

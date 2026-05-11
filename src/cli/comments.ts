@@ -3,8 +3,8 @@ import { usage, dispatchSubcommands } from "./util.ts";
 
 const USAGE = `\
 usage:
-  bun docket comments ingest <version-id>
-  bun docket comments list <project-id>`;
+  bun margin comments ingest <version-id>
+  bun margin comments list <project-id>`;
 
 export const run = (args: string[]) =>
   dispatchSubcommands(args, USAGE, {

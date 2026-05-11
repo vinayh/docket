@@ -3,7 +3,7 @@ import tailwindcss from '@tailwindcss/vite';
 import preact from '@astrojs/preact';
 
 export default defineConfig({
-  site: 'https://docket.vinayh.com',
+  site: 'https://margin.vinayh.com',
   integrations: [preact()],
   vite: {
     plugins: [tailwindcss()],

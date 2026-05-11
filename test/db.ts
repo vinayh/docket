@@ -1,7 +1,7 @@
 /**
  * Helpers for tests that read/write the DB. The DB itself is provisioned by
  * `test/setup.ts` (preloaded via `bunfig.toml`) — by the time these helpers
- * import `src/db/client.ts`, `DOCKET_DB_PATH` already points at a temp file
+ * import `src/db/client.ts`, `MARGIN_DB_PATH` already points at a temp file
  * and `drizzle-kit` migrations have run.
  *
  * Test isolation: every `bun test` process gets one shared temp DB. Tests

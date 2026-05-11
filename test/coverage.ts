@@ -3,7 +3,7 @@ import { resolve } from "path";
 const DEFAULT_EXCLUDE = [".test.ts", ".d.ts"];
 // CLI entry points and the migrator have top-level execution that would fire
 // during preload. Coverage doesn't gain anything useful from those anyway.
-const DOCKET_EXCLUDE = ["cli/index.ts", "db/migrate.ts"];
+const MARGIN_EXCLUDE = ["cli/index.ts", "db/migrate.ts"];
 
 export async function importAllModules(
   dir: string,
@@ -20,4 +20,4 @@ export async function importAllModules(
   );
 }
 
-await importAllModules(resolve(import.meta.dir, "../src"), DOCKET_EXCLUDE);
+await importAllModules(resolve(import.meta.dir, "../src"), MARGIN_EXCLUDE);

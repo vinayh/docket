@@ -84,7 +84,7 @@ export async function setQueue(q: QueuedCapture[]): Promise<void> {
     if (!isQuotaExceeded(err)) throw err;
     const half = q.slice(Math.floor(q.length / 2));
     console.warn(
-      `[docket] storage quota exceeded with ${q.length} queued; dropping ${q.length - half.length} oldest`,
+      `[margin] storage quota exceeded with ${q.length} queued; dropping ${q.length - half.length} oldest`,
     );
     try {
       await set(KEY_QUEUE, half);
@@ -92,7 +92,7 @@ export async function setQueue(q: QueuedCapture[]): Promise<void> {
         `storage quota exceeded — dropped ${q.length - half.length} oldest captures`,
       );
     } catch (err2) {
-      console.error("[docket] queue persist failed twice; clearing", err2);
+      console.error("[margin] queue persist failed twice; clearing", err2);
       await set(KEY_QUEUE, []);
       await setLastError("storage quota exceeded — queue cleared");
     }
@@ -123,7 +123,7 @@ export async function appendToQueue(items: CaptureInput[]): Promise<number> {
   if (next.length > QUEUE_CAP) {
     const dropped = next.length - QUEUE_CAP;
     next = next.slice(dropped);
-    console.warn(`[docket] queue cap (${QUEUE_CAP}) hit; dropped ${dropped} oldest`);
+    console.warn(`[margin] queue cap (${QUEUE_CAP}) hit; dropped ${dropped} oldest`);
     await setLastError(`queue cap reached — dropped ${dropped} oldest captures`);
   }
   await setQueue(next);

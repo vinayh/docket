@@ -87,8 +87,8 @@ describe("paragraphHash", () => {
 
 describe("buildAnchor", () => {
   const doc = docFromParagraphs([
-    "Introduction to Docket.",
-    "The reanchoring engine is authoritative — canonical anchors live in Docket's own schema.",
+    "Introduction to Margin.",
+    "The reanchoring engine is authoritative — canonical anchors live in Margin's own schema.",
     "Final paragraph with no special content.",
   ]);
 

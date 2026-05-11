@@ -8,16 +8,16 @@ import { fatal, usage, dispatchSubcommands } from "./util.ts";
 
 const USAGE = `\
 usage:
-  bun docket e2e seed-project <doc-url-or-id> [--user <email>] [--label <l>]
+  bun margin e2e seed-project <doc-url-or-id> [--user <email>] [--label <l>]
 
 Writes a project + one synthetic version row pointing at <doc>, bypassing
 the normal Drive validation in createProject/createVersion. Use only
 against a local dev DB while driving the chrome-devtools-mcp harness.
 
---user defaults to $DOCKET_TEST_USER_EMAIL when present. The owning user
-must already exist (run \`bun docket connect\` once with that account).
+--user defaults to $MARGIN_TEST_USER_EMAIL when present. The owning user
+must already exist (run \`bun margin connect\` once with that account).
 
-Gated on DOCKET_ALLOW_E2E_SEED=1 — set it in your shell or .env first.`;
+Gated on MARGIN_ALLOW_E2E_SEED=1 — set it in your shell or .env first.`;
 
 export const run = (args: string[]) =>
   dispatchSubcommands(args, USAGE, {
@@ -25,9 +25,9 @@ export const run = (args: string[]) =>
   });
 
 async function seedProject(rest: string[]): Promise<void> {
-  if (Bun.env.DOCKET_ALLOW_E2E_SEED !== "1") {
+  if (Bun.env.MARGIN_ALLOW_E2E_SEED !== "1") {
     fatal(
-      "refusing to seed: set DOCKET_ALLOW_E2E_SEED=1 to confirm this is a non-prod DB",
+      "refusing to seed: set MARGIN_ALLOW_E2E_SEED=1 to confirm this is a non-prod DB",
     );
   }
 
@@ -43,10 +43,10 @@ async function seedProject(rest: string[]): Promise<void> {
   if (!target) usage(USAGE);
 
   const docId = parseGoogleDocId(target);
-  const userEmail = values.user ?? Bun.env.DOCKET_TEST_USER_EMAIL;
+  const userEmail = values.user ?? Bun.env.MARGIN_TEST_USER_EMAIL;
   if (!userEmail) {
     fatal(
-      "no user: pass --user <email> or set DOCKET_TEST_USER_EMAIL so the seed picks the right owner",
+      "no user: pass --user <email> or set MARGIN_TEST_USER_EMAIL so the seed picks the right owner",
     );
   }
   const owner = await requireUserByEmail(userEmail);

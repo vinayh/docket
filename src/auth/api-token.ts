@@ -2,7 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { apiToken } from "../db/schema.ts";
 
-export const TOKEN_PREFIX = "dkt_";
+export const TOKEN_PREFIX = "mgn_";
 const RANDOM_BYTES = 32;
 const PREVIEW_TAIL = 4;
 
@@ -21,7 +21,7 @@ function hashToken(plaintext: string): string {
 }
 
 function previewOf(plaintext: string): string {
-  // "dkt_AbCd…wXyZ" — enough to disambiguate without leaking the secret.
+  // "mgn_AbCd…wXyZ" — enough to disambiguate without leaking the secret.
   const tail = plaintext.slice(-PREVIEW_TAIL);
   return `${TOKEN_PREFIX}…${tail}`;
 }

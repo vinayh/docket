@@ -10,13 +10,13 @@ The smoke flow this playbook covers:
 
 1. Local backend up at `http://localhost:8787`.
 2. Test user (`test.1@hiremath.net`) already OAuth-connected with a long-lived
-   API token (already in `.env` as `DOCKET_TEST_API_TOKEN`).
+   API token (already in `.env` as `MARGIN_TEST_API_TOKEN`).
 3. Fresh `dist/chrome-mv3` installed into the persistent test profile.
 4. Extension settings (backend URL + token + `http://localhost:8787/*`
    permission) pre-seeded into `chrome.storage.local`.
 5. New Google Doc created via `doc.new` → doc id extracted from URL.
 6. Backend DB seeded with a project + v1 row for that doc id
-   (`bun docket e2e seed-project`).
+   (`bun margin e2e seed-project`).
 7. Click the toolbar action → popup renders the **Tracked** view.
 8. Click **Open dashboard** → side panel opens, Dashboard view renders the
    v1 row.
@@ -29,10 +29,10 @@ follow-up slice when seeding a 2nd version becomes possible.
 
 ## Prereqs (one-time)
 
-- `.docket-test-chrome/` exists at the repo root with the test Google
+- `.margin-test-chrome/` exists at the repo root with the test Google
   account already signed in (cookies + keychain in the profile).
-- `.env` has `DOCKET_TEST_USER_EMAIL` and `DOCKET_TEST_API_TOKEN` set —
-  see `.env.example`. The user must already exist in the DB (`bun docket
+- `.env` has `MARGIN_TEST_USER_EMAIL` and `MARGIN_TEST_API_TOKEN` set —
+  see `.env.example`. The user must already exist in the DB (`bun margin
   connect` once with that account if not).
 - `bun run typecheck && bun test` clean.
 
@@ -44,7 +44,7 @@ bun run ext:build
 
 # 2. (Re)start the local backend on :8787.
 #    Run in a separate shell or via `run_in_background`.
-bun docket serve
+bun margin serve
 
 # 3. Sanity: backend reachable.
 curl -fsS http://localhost:8787/healthz
@@ -55,11 +55,11 @@ The MCP-driven Claude does the rest via `chrome-devtools-mcp` tools (see
 
 ```sh
 # 4. Seed the local DB with a project + v1 row for the newly created doc.
-DOCKET_ALLOW_E2E_SEED=1 bun docket e2e seed-project <doc-id>
+MARGIN_ALLOW_E2E_SEED=1 bun margin e2e seed-project <doc-id>
 ```
 
-`--user` defaults to `$DOCKET_TEST_USER_EMAIL`. The CLI refuses to seed
-without `DOCKET_ALLOW_E2E_SEED=1` so we don't trash a production DB.
+`--user` defaults to `$MARGIN_TEST_USER_EMAIL`. The CLI refuses to seed
+without `MARGIN_ALLOW_E2E_SEED=1` so we don't trash a production DB.
 
 ## MCP tool sequence
 
@@ -89,7 +89,7 @@ evaluate_script(
     chrome.storage.local.set({
       settings: {
         backendUrl: "http://localhost:8787",
-        apiToken: "<DOCKET_TEST_API_TOKEN>"
+        apiToken: "<MARGIN_TEST_API_TOKEN>"
       }
     }).then(() => "ok")
   `,
@@ -129,7 +129,7 @@ evaluate_script(expression=`
 Run via Bash, **not** the MCP browser session:
 
 ```sh
-DOCKET_ALLOW_E2E_SEED=1 bun docket e2e seed-project <DOC_ID>
+MARGIN_ALLOW_E2E_SEED=1 bun margin e2e seed-project <DOC_ID>
 ```
 
 ### F. Open the popup, assert Tracked view
@@ -147,10 +147,10 @@ take_snapshot()
 #   - contains "v1"  (or whatever --label was passed to the seed)
 ```
 
-If the popup shows "Add to Docket" (Untracked view) instead, either the
+If the popup shows "Add to Margin" (Untracked view) instead, either the
 SW settings didn't seed (check `chrome.storage.local` in the SW) or the
-backend can't see the seed row (check `bun docket e2e seed-project` output
-or `bun docket project list`).
+backend can't see the seed row (check `bun margin e2e seed-project` output
+or `bun margin project list`).
 
 ### G. Side-panel rendering — open as a standalone page, NOT via the popup
 
@@ -199,7 +199,7 @@ recovery exists. The most reliable cause is the popup self-closing
 
 - In Claude Code: `/mcp` → reconnect `chrome-devtools` (drops the
   protocol session and re-pairs against the running Chrome).
-- Failing that: kill Chrome (`pkill -f .docket-test-chrome`) and re-run
+- Failing that: kill Chrome (`pkill -f .margin-test-chrome`) and re-run
   the playbook from step A. The persistent profile retains cookies + the
   granted host permission, so re-install is the only repeated work.
 
@@ -209,11 +209,11 @@ recovery exists. The most reliable cause is the popup self-closing
   outside a user gesture. The popup wires the call to the button's onClick,
   but if the click was synthesized too far from the popup boot, the API
   rejects. Re-trigger the toolbar action so the popup re-opens, then click.
-- **"Add to Docket" shows up instead of Tracked.** Either the seed didn't
+- **"Add to Margin" shows up instead of Tracked.** Either the seed didn't
   run, the doc id captured from the URL is wrong (Docs sometimes redirects
   through an interstitial), or the popup is querying a backend URL
   different from the one the seed wrote to. Cross-check by running
-  `curl -H "Authorization: Bearer $DOCKET_TEST_API_TOKEN" -d
+  `curl -H "Authorization: Bearer $MARGIN_TEST_API_TOKEN" -d
   '{"docId":"<DOC_ID>"}' http://localhost:8787/api/extension/doc-state`.
 - **Selectors moved.** `DOC_NAME_SELECTORS` in
   `entrypoints/docs.content/index.ts` rots when Docs reships
@@ -233,8 +233,8 @@ recovery exists. The most reliable cause is the popup self-closing
   or Playwright/Puppeteer with the bundled extension) once the surface
   area stabilizes.
 - Diff renderer coverage. Needs 2 versions of a doc the test user has
-  `drive.file` on — easiest via a real `bun docket version create` round
-  trip against a doc Docket itself created (via Picker or
+  `drive.file` on — easiest via a real `bun margin version create` round
+  trip against a doc Margin itself created (via Picker or
   `drive.files.create`). See SPEC §9.2 for why `doc.new`-created docs
   don't qualify.
 - Capture-pipeline coverage. The content script scrapes suggestion-thread
@@ -244,10 +244,10 @@ recovery exists. The most reliable cause is the popup self-closing
 
 ## Hooks for future work
 
-- A `bun docket e2e seed-project-with-two-versions <doc-id-from>
+- A `bun margin e2e seed-project-with-two-versions <doc-id-from>
   <doc-id-to>` would unblock diff-view assertions. Once available, add
   step H: navigate to side-panel diff and assert the structured-diff DOM.
-- A `bun docket e2e reset` (truncate test user's projects) would let the
+- A `bun margin e2e reset` (truncate test user's projects) would let the
   same playbook re-run cleanly without poking the DB by hand. Add when
   re-running starts hurting.
 - Real side-panel coverage (vs. standalone-tab) would mean driving a

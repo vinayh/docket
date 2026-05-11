@@ -34,7 +34,7 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REDIRECT_URI: http://localhost:8787/oauth/callback
-          DOCKET_MASTER_KEY: ${{ secrets.DOCKET_MASTER_KEY }}
+          MARGIN_MASTER_KEY: ${{ secrets.MARGIN_MASTER_KEY }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

@@ -23,9 +23,9 @@ export async function userEmailById(userId: string): Promise<string | null> {
 }
 
 /**
- * Resolve an author email to a Docket user id, returning null when the email
+ * Resolve an author email to a Margin user id, returning null when the email
  * is missing or no user exists for it. Use this for stamping `origin_user_id`
- * on canonical_comment rows whose author may or may not be a Docket user
+ * on canonical_comment rows whose author may or may not be a Margin user
  * (typical for cross-org comments and extension-captured replies).
  */
 export async function userIdByEmail(email: string | null | undefined): Promise<string | null> {
@@ -53,7 +53,7 @@ export async function firstUser(): Promise<User | null> {
 
 export async function requireFirstUser(): Promise<User> {
   const u = await firstUser();
-  if (!u) throw new Error("no user in db — run `bun docket connect` first");
+  if (!u) throw new Error("no user in db — run `bun margin connect` first");
   return u;
 }
 

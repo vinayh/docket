@@ -23,7 +23,7 @@ describe("handleDocStatePost validation", () => {
 
   test("401 with a wrong-prefix token (short-circuits before DB)", async () => {
     const res = await handleDocStatePost(
-      postState({ docId: "abc" }, { auth: "Bearer not-a-docket-token" }),
+      postState({ docId: "abc" }, { auth: "Bearer not-a-margin-token" }),
     );
     expect(res.status).toBe(401);
   });

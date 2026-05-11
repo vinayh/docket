@@ -166,7 +166,7 @@ export type CanonicalCommentStatus = "open" | "addressed" | "wontfix" | "superse
  *   Author/timestamp for the suggestion aren't surfaced by `documents.get`; resolving
  *   them via the Drive revisions API is deferred (SPEC Phase 6). Reply threads typed
  *   into the suggestion's sidebar entry are stored internally by Google and are not
- *   exposed by any public API — verified empirically. Use `bun docket inspect <url>`
+ *   exposed by any public API — verified empirically. Use `bun margin inspect <url>`
  *   to confirm if you suspect a doc has discussion that's not making it through.
  */
 export type CanonicalCommentKind = "comment" | "suggestion_insert" | "suggestion_delete";
@@ -300,11 +300,11 @@ export const driveWatchChannel = sqliteTable(
 );
 
 /**
- * Per-user opaque API tokens. The plaintext is `dkt_<base64url(32 bytes)>`
+ * Per-user opaque API tokens. The plaintext is `mgn_<base64url(32 bytes)>`
  * and is shown to the user exactly once at issue time; the DB stores only a
  * SHA-256 hash. 32 bytes of randomness gives ~256 bits of entropy, so a
  * single-pass hash is sufficient — no key-stretch needed (these aren't
- * passwords). Use `tokenPreview` for display in management UI ("dkt_xxxx…").
+ * passwords). Use `tokenPreview` for display in management UI ("mgn_xxxx…").
  */
 export const apiToken = sqliteTable(
   "api_token",

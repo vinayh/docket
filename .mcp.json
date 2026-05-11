@@ -5,7 +5,7 @@
       "args": [
         "-y",
         "chrome-devtools-mcp@latest",
-        "--userDataDir=./.docket-test-chrome",
+        "--userDataDir=./.margin-test-chrome",
         "--channel=stable",
         "--ignoreDefaultChromeArg=--disable-extensions",
         "--categoryExtensions"

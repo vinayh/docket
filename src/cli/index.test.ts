@@ -17,7 +17,7 @@ interface CliResult {
 
 /**
  * Run `bun src/cli/index.ts <args…>` as a subprocess. The child inherits
- * `DOCKET_DB_PATH` + `DOCKET_MASTER_KEY` from the parent test process, so
+ * `MARGIN_DB_PATH` + `MARGIN_MASTER_KEY` from the parent test process, so
  * both processes operate on the same temp SQLite (WAL mode handles the
  * cross-process concurrency).
  */
@@ -122,9 +122,9 @@ describe("token", () => {
     expect(issued.exitCode).toBe(0);
     expect(issued.stdout).toContain("issued token for tester@example.com");
     // The plaintext is printed once — extract it from the output.
-    const plaintext = issued.stdout.match(/\b(dkt_[A-Za-z0-9_-]+)\b/)?.[1];
+    const plaintext = issued.stdout.match(/\b(mgn_[A-Za-z0-9_-]+)\b/)?.[1];
     expect(plaintext).toBeDefined();
-    expect(plaintext!.startsWith("dkt_")).toBe(true);
+    expect(plaintext!.startsWith("mgn_")).toBe(true);
 
     const listed = await runCli(["token", "list", "--user", u.email]);
     expect(listed.exitCode).toBe(0);

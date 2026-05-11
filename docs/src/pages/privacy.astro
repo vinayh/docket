@@ -3,11 +3,11 @@ import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout
-  title="Privacy. Docket."
-  description="What Docket stores, where it stores it, and what it never sees."
+  title="Privacy. Margin."
+  description="What Margin stores, where it stores it, and what it never sees."
 >
   <main class="mx-auto max-w-[760px] px-6 sm:px-10 md:px-14 py-16">
-    <a href="/" class="font-display text-3xl leading-none">docket</a>
+    <a href="/" class="font-display text-3xl leading-none">margin</a>
 
     <h1 class="font-display text-[40px] leading-[0.95] mt-10 mb-4">Privacy.</h1>
     <p class="text-[15px] text-[color:var(--color-muted)] mb-10">
@@ -16,11 +16,11 @@ import Layout from "../layouts/Layout.astro";
 
     <section class="text-[15px] leading-7 text-[color:var(--color-ink-2)] space-y-4">
       <p>
-        Docket runs on infrastructure you control. The hosted instance at
-        docket.vinayh.com is the same code, configured for one tenant.
+        Margin runs on infrastructure you control. The hosted instance at
+        margin.vinayh.com is the same code, configured for one tenant.
       </p>
 
-      <h2 class="font-display text-2xl pt-6">What Docket stores</h2>
+      <h2 class="font-display text-2xl pt-6">What Margin stores</h2>
       <p>
         Per-user OAuth refresh tokens (envelope-encrypted with a per-row data
         key wrapped by the server's master key). API tokens stored as sha256
@@ -28,10 +28,10 @@ import Layout from "../layouts/Layout.astro";
         their comments and suggestion threads.
       </p>
 
-      <h2 class="font-display text-2xl pt-6">What Docket never sees</h2>
+      <h2 class="font-display text-2xl pt-6">What Margin never sees</h2>
       <p>
         Any Google Doc you have not explicitly opened with the add-on, picked
-        from Drive Picker, or created from Docket. The OAuth scope is
+        from Drive Picker, or created from Margin. The OAuth scope is
         <code>drive.file</code>; the backend has no read access to your
         broader Drive.
       </p>

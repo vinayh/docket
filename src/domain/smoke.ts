@@ -28,7 +28,7 @@ export async function runSmoke(opts: {
   const tp = tokenProviderForUser(opts.userId);
   const file = await getFile(tp, opts.docId);
   const copy = await copyFile(tp, opts.docId, {
-    name: `[Docket smoke] ${file.name}`,
+    name: `[Margin smoke] ${file.name}`,
   });
   const comments = await listComments(tp, opts.docId);
   const doc = await getDocument(tp, opts.docId);

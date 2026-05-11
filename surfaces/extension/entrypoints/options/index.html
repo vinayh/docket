@@ -2,15 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Docket — options</title>
+    <title>Margin — options</title>
     <meta name="manifest.open_in_tab" content="true" />
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <main>
-      <h1>Docket extension</h1>
+      <h1>Margin extension</h1>
       <p>
-        Connect this browser to your Docket backend. The extension's only
+        Connect this browser to your Margin backend. The extension's only
         job today is to capture replies on Google Docs suggestion threads
         — the public Drive/Docs APIs don't expose them, and they're lost
         when the doc moves on without an extension-equipped viewer.
@@ -24,11 +24,11 @@
             id="backendUrl"
             name="backendUrl"
             required
-            placeholder="https://docket.example.com"
+            placeholder="https://margin.example.com"
           />
           <small>
             Local dev: <code>http://localhost:8787</code>. Must match the
-            host running <code>bun docket serve</code>.
+            host running <code>bun margin serve</code>.
           </small>
         </label>
 
@@ -40,10 +40,10 @@
             name="apiToken"
             required
             autocomplete="off"
-            placeholder="dkt_..."
+            placeholder="mgn_..."
           />
           <small>
-            Issue one with <code>bun docket token issue --user &lt;email&gt;</code>.
+            Issue one with <code>bun margin token issue --user &lt;email&gt;</code>.
             The token authenticates POSTs to
             <code>/api/extension/captures</code>.
           </small>

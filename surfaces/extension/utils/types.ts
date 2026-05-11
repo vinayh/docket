@@ -1,6 +1,6 @@
 /**
  * Wire format shared between the content script, service worker, and the
- * Docket backend's `/api/extension/captures` endpoint. Mirror of the
+ * Margin backend's `/api/extension/captures` endpoint. Mirror of the
  * `CaptureInput` type in `src/domain/capture.ts` — keep in sync.
  */
 export interface CaptureInput {

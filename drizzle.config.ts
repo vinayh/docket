@@ -5,6 +5,6 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "sqlite",
   dbCredentials: {
-    url: process.env.DOCKET_DB_PATH ?? "./docket.db",
+    url: process.env.MARGIN_DB_PATH ?? "./margin.db",
   },
 });

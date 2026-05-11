@@ -4,8 +4,8 @@ import { usage, dispatchSubcommands, resolveUser } from "./util.ts";
 
 const USAGE = `\
 usage:
-  bun docket project create <doc-url-or-id> [--user <email>]
-  bun docket project list`;
+  bun margin project create <doc-url-or-id> [--user <email>]
+  bun margin project list`;
 
 export const run = (args: string[]) =>
   dispatchSubcommands(args, USAGE, {

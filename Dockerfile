@@ -15,7 +15,7 @@ COPY index.ts ./
 
 ENV NODE_ENV=production
 ENV PORT=8787
-ENV DOCKET_DB_PATH=/data/docket.db
+ENV MARGIN_DB_PATH=/data/margin.db
 
 EXPOSE 8787
 

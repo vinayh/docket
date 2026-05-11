@@ -35,8 +35,8 @@ function docFromParagraphs(paragraphs: string[]): Document {
 }
 
 const PARAGRAPHS_V1 = [
-  "Introduction to Docket.",
-  "The reanchoring engine is authoritative — canonical anchors live in Docket's own schema.",
+  "Introduction to Margin.",
+  "The reanchoring engine is authoritative — canonical anchors live in Margin's own schema.",
   "Final paragraph with no special content.",
 ];
 
@@ -88,7 +88,7 @@ describe("reanchor", () => {
 
   test("clean ≥ 90 when paragraph drifted but quoted text + context intact", () => {
     const v2 = [
-      "Introduction to Docket — revised.", // paragraph 0 edited → hash changed
+      "Introduction to Margin — revised.", // paragraph 0 edited → hash changed
       PARAGRAPHS_V1[1]!,
       PARAGRAPHS_V1[2]!,
     ];
@@ -103,7 +103,7 @@ describe("reanchor", () => {
   test("fuzzy when quoted text was edited (LCS path)", () => {
     const v2 = [
       PARAGRAPHS_V1[0]!,
-      "The re-anchoring engine is authoritative — canonical anchors live in Docket's own schema.",
+      "The re-anchoring engine is authoritative — canonical anchors live in Margin's own schema.",
       PARAGRAPHS_V1[2]!,
     ];
     const doc = docFromParagraphs(v2);

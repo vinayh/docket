@@ -25,7 +25,7 @@ export function unauthorized(): Response {
     status: 401,
     headers: {
       "content-type": "application/json",
-      "www-authenticate": `Bearer realm="docket"`,
+      "www-authenticate": `Bearer realm="margin"`,
     },
   });
 }

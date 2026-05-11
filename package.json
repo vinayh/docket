@@ -1,10 +1,10 @@
 {
-  "name": "docket",
+  "name": "margin",
   "module": "index.ts",
   "type": "module",
   "private": true,
   "scripts": {
-    "docket": "bun src/cli/index.ts",
+    "margin": "bun src/cli/index.ts",
     "migrate": "bun src/db/migrate.ts",
     "test": "bun test",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage",

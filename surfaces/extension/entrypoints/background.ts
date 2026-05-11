@@ -31,7 +31,7 @@ import type {
 /**
  * MV3 service worker. Three concerns:
  *  1. Receive capture batches from the content script and persist them.
- *  2. Flush the queue to the Docket backend, batching + dedup'd against
+ *  2. Flush the queue to the Margin backend, batching + dedup'd against
  *     previously-acknowledged ids.
  *  3. Wake up periodically (chrome.alarms) so an offline-then-online host
  *     drains its queue without needing the user to revisit a Docs tab.
@@ -41,7 +41,7 @@ import type {
  */
 
 const FLUSH_BATCH = 25;
-const FLUSH_ALARM = "docket-flush";
+const FLUSH_ALARM = "margin-flush";
 const FLUSH_ALARM_PERIOD_MIN = 1; // every minute when there's queued work
 
 export default defineBackground(() => {
@@ -50,7 +50,7 @@ export default defineBackground(() => {
       void handleMessage(message)
         .then(sendResponse)
         .catch((err) => {
-          console.error("[docket] message handler:", err);
+          console.error("[margin] message handler:", err);
           const msg = err instanceof Error ? err.message : String(err);
           // Echo the original kind so callers route the error to the same
           // discriminant arm they were waiting on.
@@ -331,7 +331,7 @@ async function reconcileQueue(
     if (bumped.attempts >= MAX_ATTEMPTS) {
       dropped++;
       console.warn(
-        `[docket] dropping capture ${id} after ${bumped.attempts} attempts (${reason})`,
+        `[margin] dropping capture ${id} after ${bumped.attempts} attempts (${reason})`,
       );
       continue;
     }

@@ -26,8 +26,8 @@ export default defineConfig({
     plugins: [preact()],
   }),
   manifest: ({ browser }) => ({
-    name: "Docket",
-    short_name: "Docket",
+    name: "Margin",
+    short_name: "Margin",
     version: "0.1.0",
     description:
       "Capture replies on Google Docs suggestion threads — the public Drive/Docs APIs do not expose them.",
@@ -45,7 +45,7 @@ export default defineConfig({
     // options page on save. See entrypoints/options/main.ts.
     optional_host_permissions: ["<all_urls>"],
     action: {
-      default_title: "Docket",
+      default_title: "Margin",
       default_icon: {
         16: "icons/icon-16.png",
         32: "icons/icon-32.png",
@@ -62,7 +62,7 @@ export default defineConfig({
     ...(browser === "firefox" && {
       browser_specific_settings: {
         gecko: {
-          id: "extension@docket.dev",
+          id: "extension@margin.dev",
           strict_min_version: "121.0",
         },
       },
@@ -71,7 +71,7 @@ export default defineConfig({
       // (declared in the chromium branch below).
       sidebar_action: {
         default_panel: "sidepanel.html",
-        default_title: "Docket",
+        default_title: "Margin",
         default_icon: {
           16: "icons/icon-16.png",
           32: "icons/icon-32.png",

@@ -94,18 +94,18 @@ describe("startServer background loops", () => {
     expect(true).toBe(true);
   });
 
-  test("backgroundLoops on with no DOCKET_PUBLIC_BASE_URL is a no-op", async () => {
-    // .env doesn't set DOCKET_PUBLIC_BASE_URL during `bun test`, so the
+  test("backgroundLoops on with no MARGIN_PUBLIC_BASE_URL is a no-op", async () => {
+    // .env doesn't set MARGIN_PUBLIC_BASE_URL during `bun test`, so the
     // loop initializer logs "skipping" and schedules nothing. Just verify
     // the server still boots and stops.
-    const original = Bun.env.DOCKET_PUBLIC_BASE_URL;
-    delete Bun.env.DOCKET_PUBLIC_BASE_URL;
+    const original = Bun.env.MARGIN_PUBLIC_BASE_URL;
+    delete Bun.env.MARGIN_PUBLIC_BASE_URL;
     try {
       const server = startServer({ port: 0, backgroundLoops: true });
       await server.stop();
       expect(true).toBe(true);
     } finally {
-      if (original !== undefined) Bun.env.DOCKET_PUBLIC_BASE_URL = original;
+      if (original !== undefined) Bun.env.MARGIN_PUBLIC_BASE_URL = original;
     }
   });
 });

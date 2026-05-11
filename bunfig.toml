@@ -1,6 +1,6 @@
 [test]
 # `setup.ts` MUST run before `coverage.ts` — coverage.ts eagerly imports every
 # `src/**` module (including `db/client.ts`, which opens its sqlite handle on
-# import). setup.ts pins DOCKET_DB_PATH at a per-process temp file before that
+# import). setup.ts pins MARGIN_DB_PATH at a per-process temp file before that
 # happens.
 preload = ["./test/setup.ts", "./test/coverage.ts"]

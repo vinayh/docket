@@ -62,7 +62,7 @@ function corsRoute(handlers: MethodHandlers): MethodHandlers {
  *
  * `backgroundLoops` (default true) controls the in-process renew + poll
  * timers (SPEC §9.3). Tests pass `false` to keep the server quiet; in
- * prod the loops gate themselves on `DOCKET_PUBLIC_BASE_URL` being set.
+ * prod the loops gate themselves on `MARGIN_PUBLIC_BASE_URL` being set.
  */
 export interface StartServerResult {
   port: number | undefined;
@@ -97,7 +97,7 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       // Google Search Console domain verification. Required before Drive
       // `files.watch` will accept this host as a webhook address (SPEC §9.3).
       // The token below is from the Search Console URL-prefix flow for
-      // https://docket-server.fly.dev/. Safe to commit — it identifies the
+      // https://margin-server.fly.dev/. Safe to commit — it identifies the
       // verification claim, not a credential.
       "/google4c42fb2047912f0c.html": {
         GET: () =>
@@ -139,13 +139,13 @@ interface BackgroundLoops {
 
 /**
  * Start the in-process renew + polling loops. Both gate on
- * `DOCKET_PUBLIC_BASE_URL`: there's nothing to renew if no production
+ * `MARGIN_PUBLIC_BASE_URL`: there's nothing to renew if no production
  * webhook address has been configured, and the polling fallback is just
  * paired infrastructure for the same setup.
  */
 function startBackgroundLoops(): BackgroundLoops {
   if (!config.publicBaseUrl) {
-    console.log("background loops: DOCKET_PUBLIC_BASE_URL not set, skipping");
+    console.log("background loops: MARGIN_PUBLIC_BASE_URL not set, skipping");
     return { stop() {} };
   }
 

@@ -10,7 +10,7 @@ import {
 describe("authenticateBearer", () => {
   // These test the format-level short-circuits in `authenticateBearer` —
   // the DB hash lookup is only invoked when the header matches the Bearer
-  // grammar AND the token starts with the `dkt_` prefix. None of the cases
+  // grammar AND the token starts with the `mgn_` prefix. None of the cases
   // below should reach the DB.
 
   test("returns null when Authorization header is absent", async () => {
@@ -29,7 +29,7 @@ describe("authenticateBearer", () => {
   test("returns null when token has the wrong prefix", async () => {
     const req = new Request("http://localhost/", {
       method: "POST",
-      headers: { authorization: "Bearer not-a-docket-token" },
+      headers: { authorization: "Bearer not-a-margin-token" },
     });
     expect(await authenticateBearer(req)).toBeNull();
   });

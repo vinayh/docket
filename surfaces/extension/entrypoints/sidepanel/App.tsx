@@ -84,7 +84,7 @@ function Body({ view, setView }: { view: View; setView: (v: View) => void }) {
         <>
           <p class="title">No project</p>
           <p class="muted">
-            Open a Google Doc that's tracked by Docket — or add a new project
+            Open a Google Doc that's tracked by Margin — or add a new project
             from the toolbar popup — to see its dashboard here.
           </p>
         </>

@@ -1,8 +1,8 @@
-# Project Spec: Docket — Research Doc Review & Versioning
+# Project Spec: Margin — Research Doc Review & Versioning
 
 ## 1. Objective
 
-Docket helps research teams run structured review of Google Docs across drafts, audiences, and orgs without leaving Docs. It addresses three pain points:
+Margin helps research teams run structured review of Google Docs across drafts, audiences, and orgs without leaving Docs. It addresses three pain points:
 
 - Forking a doc for an external audience while the original keeps evolving, then integrating comments back.
 - Maintaining derivative versions with systematic edits (redactions, audience context) re-applicable as the parent changes.
@@ -15,9 +15,9 @@ Docket helps research teams run structured review of Google Docs across drafts, 
 - **Project** — long-lived workspace tied to one canonical Google Doc (the *parent*). Owns versions, comments, overlays, reviews.
 - **Version (snapshot)** — frozen Drive copy of the parent at a point in time. Real Google Doc + DB row with parent→child link.
 - **Overlay** — named, ordered list of content-addressed edit ops (redact / replace / insert / append) applied to a parent to produce a derivative.
-- **Canonical comment** — Docket's own comment-thread representation. Anchored by quoted text + structural context. Projected into Doc versions as native comments. Carries status (open / addressed / wontfix / superseded), origin metadata, history.
+- **Canonical comment** — Margin's own comment-thread representation. Anchored by quoted text + structural context. Projected into Doc versions as native comments. Carries status (open / addressed / wontfix / superseded), origin metadata, history.
 - **Review request** — bundle of frozen version + reviewers + deadline + status + Slack/web thread. The unit users interact with.
-- **Participant** — Docket user, authed via Google OAuth (light scope) or other. Distinct from *doc owner* (the participant whose Drive token authorizes Docket's operations on a project).
+- **Participant** — Margin user, authed via Google OAuth (light scope) or other. Distinct from *doc owner* (the participant whose Drive token authorizes Margin's operations on a project).
 
 ## 3. Architecture overview
 
@@ -53,8 +53,8 @@ The anchor schema is rich enough to resolve to on-screen coordinates without Goo
 ## 5. Backend services
 
 - **Doc-watcher.** `drive.files.watch` per project + active forks; channel-renewer cron + polling fallback (§9.3). On event → re-fetch comments, update canonical store.
-- **Reanchoring engine.** Given an anchor + target version: exact text match (high) → fuzzy within paragraph (medium, edit distance + structural context) → orphan. Returns confidence; thresholds drive auto-project vs. surface-for-review. Docket owns anchoring end-to-end; Google's kix anchor is one input, never authoritative (§9.1).
-- **Comment projection.** Native comments authored by Docket are unanchored from Google's view (§9.1). Body is prefixed `Re: "<quoted snippet>" — <body>`. The add-on layers named ranges for "comments at this paragraph"; the extension layers on-canvas overlays.
+- **Reanchoring engine.** Given an anchor + target version: exact text match (high) → fuzzy within paragraph (medium, edit distance + structural context) → orphan. Returns confidence; thresholds drive auto-project vs. surface-for-review. Margin owns anchoring end-to-end; Google's kix anchor is one input, never authoritative (§9.1).
+- **Comment projection.** Native comments authored by Margin are unanchored from Google's view (§9.1). Body is prefixed `Re: "<quoted snippet>" — <body>`. The add-on layers named ranges for "comments at this paragraph"; the extension layers on-canvas overlays.
 - **Overlay applier.** Translates ops to `documents.batchUpdate` (mapping in §9.7). Anchor → index resolution happens upstream. Below-threshold ops surface for review, not silent skip.
 - **Review orchestrator.** Lifecycle: create fork, share with reviewers, post Slack thread, notify, aggregate status, close + pull comments back.
 - **Notification dispatcher.** Routes events to Slack / add-on / web / email.
@@ -77,8 +77,8 @@ Primary chat surface for review coordination.
 
 - **On project parent:** version list + status per version, active reviews, pending reanchorings, buttons (Request review / Checkpoint / Open in extension).
 - **On fork:** banner ("This is v2 of [project] for [audience]" or "Author is editing v3 in [link]"), reviewer status, buttons (Mark reviewed / Open Slack thread / Back to parent).
-- **On unknown doc:** onboarding card. Granting scope here triggers `onFileScopeGranted` → Docket gains `drive.file` for that doc (§9.2).
-- **Auth.** Apps Script identity token verified backend-side; Drive scope held by Docket OAuth client (per §8).
+- **On unknown doc:** onboarding card. Granting scope here triggers `onFileScopeGranted` → Margin gains `drive.file` for that doc (§9.2).
+- **Auth.** Apps Script identity token verified backend-side; Drive scope held by Margin OAuth client (per §8).
 - **Constraints.** CardService widgets only — no HTML/JS, no selection access (§9.4, §9.5).
 - **Comment visualization.** Side panel renders canonical threads + projection status + reply chains. Cross-references named ranges to render per-section comment counts and "jump to next."
 
@@ -100,7 +100,7 @@ Project dashboards, diff viewer, reconciliation UI, overlay editor, settings liv
 Chrome / Firefox / Edge extension on `docs.google.com/*` + popup/options pages. Four roles across four phases:
 
 - **Capture (Phase 2 — MVP).** `MutationObserver` on the discussion sidebar; scrapes suggestion-thread replies; matches by kix discussion ID (preferred) or quoted-text equality (fallback); POSTs to backend. Service-worker queue + `chrome.storage.local` dedupe.
-- **Project surface (Phase 3 — current).** The popup is the primary "is this doc tracked, what state is it in, sync it now, add it as a new project" surface. Reads tab URL → doc id, queries backend `/api/extension/doc-state`, branches into onboarding / tracked views. "Add to Docket" mounts a sandboxed Drive Picker iframe inline on Chromium (Firefox MV3: opens the backend `/picker` page in a tab as fallback). "Sync now" calls `/api/extension/doc-sync` to re-ingest comments. No Workspace add-on required.
+- **Project surface (Phase 3 — current).** The popup is the primary "is this doc tracked, what state is it in, sync it now, add it as a new project" surface. Reads tab URL → doc id, queries backend `/api/extension/doc-state`, branches into onboarding / tracked views. "Add to Margin" mounts a sandboxed Drive Picker iframe inline on Chromium (Firefox MV3: opens the backend `/picker` page in a tab as fallback). "Sync now" calls `/api/extension/doc-sync` to re-ingest comments. No Workspace add-on required.
 - **Rich UI (Phase 4).** Preact app in the side panel: project dashboard (versions, derivatives, review history, reviewer participation), structured side-by-side version diff (see §12 Phase 4), comment reconciliation UI for fuzzy/orphan projections, overlay editor with live preview, settings. Talks to backend with per-user API token.
 - **Visualization (Phase 6).** Highlights overlaid on the doc body, gutter markers, hover previews, right-click "comment on selection," native-comment-rail integration. Doc body is `<canvas>` (§9.6) — needs accessibility-DOM mirror or selection-event hooks.
 
@@ -159,10 +159,10 @@ Same as 7.1, with:
 ### 9.1 Anchored comments cannot be authored via API
 Drive `comments.create` accepts `anchor`, but for Docs editor files anchored comments authored via the API are not supported. Apps Script `DocumentApp` has no comment-creation method. The kix anchor blob is unstable.
 
-**Implications:** Docket owns anchoring. Native comments produced by Docket are unanchored from Google's view; quoted snippet inlined in the body. Reading anchored comments authored in the UI works fully — only the outbound projection path is constrained.
+**Implications:** Margin owns anchoring. Native comments produced by Margin are unanchored from Google's view; quoted snippet inlined in the body. Reading anchored comments authored in the UI works fully — only the outbound projection path is constrained.
 
 ### 9.2 `drive.file` scope semantics
-Per-file. Granted only via files Docket created OR explicit Picker / Workspace Add-on file-scope flow. Typing a URL into Slack does not grant access.
+Per-file. Granted only via files Margin created OR explicit Picker / Workspace Add-on file-scope flow. Typing a URL into Slack does not grant access.
 
 **Implications:** Every entry surface needs a "first-time authorization" affordance. Cross-org review depends on the *doc owner's* `drive.file` token; external reviewers grant no Drive scope.
 
@@ -220,17 +220,17 @@ Phases 1–4 = MVP. Phase 5 adds Slack. Phase 6 = cross-org polish + extension v
 ### Phase 1 — Core engine
 **Status: shipped.** ✅
 
-Headless backend + CLI. Drizzle schema (12 tables) on `bun:sqlite` WAL; envelope-encrypted refresh tokens; Google OAuth + per-user `TokenProvider`; Drive/Docs REST wrappers; domain primitives (`createProject`, `createVersion`); canonical comment ingest; reanchoring engine with confidence scoring; overlay applier; doc-watcher with channel renewer + polling fallback; `bun docket <subcommand>` CLI dispatcher.
+Headless backend + CLI. Drizzle schema (12 tables) on `bun:sqlite` WAL; envelope-encrypted refresh tokens; Google OAuth + per-user `TokenProvider`; Drive/Docs REST wrappers; domain primitives (`createProject`, `createVersion`); canonical comment ingest; reanchoring engine with confidence scoring; overlay applier; doc-watcher with channel renewer + polling fallback; `bun margin <subcommand>` CLI dispatcher.
 
 ### Phase 2 — Backend HTTP API + browser extension (capture) + minimal web entry points
 **Status: shipped.** ✅
 
-Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun docket serve` HTTP host: `/healthz`, `/oauth/{start,callback}`, `/picker` (real Drive Picker iframe with GIS-backed tokens, gated on `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`), `/webhooks/drive`, `/api/extension/captures`, `/api/picker/register-doc`. Per-user opaque API tokens with bearer middleware. MV3 extension (Chrome / Edge / Firefox, single codebase) with the capture role (sidebar `MutationObserver`, SW queue + alarm-driven retry, end-to-end idempotency). Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops, gated on `DOCKET_PUBLIC_BASE_URL`.
+Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun margin serve` HTTP host: `/healthz`, `/oauth/{start,callback}`, `/picker` (real Drive Picker iframe with GIS-backed tokens, gated on `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`), `/webhooks/drive`, `/api/extension/captures`, `/api/picker/register-doc`. Per-user opaque API tokens with bearer middleware. MV3 extension (Chrome / Edge / Firefox, single codebase) with the capture role (sidebar `MutationObserver`, SW queue + alarm-driven retry, end-to-end idempotency). Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops, gated on `MARGIN_PUBLIC_BASE_URL`.
 
 ### Phase 3 — Extension popup as project surface
 **Status: shipped.** ✅
 
-Replaces the Workspace add-on as the lightweight "I'm in a doc, what does Docket know about it?" surface (§6.4). Same affordances, no Apps Script / CardService dependency, no separate install. The Workspace add-on is deferred to Phase 7 as a managed-device fallback.
+Replaces the Workspace add-on as the lightweight "I'm in a doc, what does Margin know about it?" surface (§6.4). Same affordances, no Apps Script / CardService dependency, no separate install. The Workspace add-on is deferred to Phase 7 as a managed-device fallback.
 
 New backend routes:
 
@@ -241,7 +241,7 @@ New backend routes:
 
 Popup state machine + sandboxed-Picker mechanics live in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Notable design choices: popup never holds the API token (everything routes through the SW); sandboxed Picker on Chromium runs at `null` origin and postMessages back to the popup; Firefox MV3 falls back to opening the backend `/picker` tab because `sandbox.pages` isn't supported yet.
 
-**Delivers:** the popup owns the entire "track → check state → sync now" loop. New users never see a Docket-hosted page after OAuth.
+**Delivers:** the popup owns the entire "track → check state → sync now" loop. New users never see a Margin-hosted page after OAuth.
 
 ### Phase 4 — Extension rich UI + magic-link action handlers
 **Status: not started.**
@@ -281,7 +281,7 @@ Builds on the Phase-3 popup project surface. The popup retains the lightweight r
 ### Phase 7 — Workspace add-on, marketplace listings, advanced features
 **Status: not started.**
 
-- **Workspace add-on (deferred from earlier MVP plan).** Unified Workspace Add-on (CardService UI; §9.4) covering the same affordances as the Phase-3 popup, for users on managed devices or in environments that block extension installs. `onFileScopeGranted` integrates per-file `drive.file` with Docket's token store (§9.2). Apps Script identity-token verification on the backend. Banner UX nudging reviewers to leave a regular comment rather than a suggestion-thread reply. Named-range bookkeeping in the overlay applier — powers add-on "comments at this paragraph" affordances.
+- **Workspace add-on (deferred from earlier MVP plan).** Unified Workspace Add-on (CardService UI; §9.4) covering the same affordances as the Phase-3 popup, for users on managed devices or in environments that block extension installs. `onFileScopeGranted` integrates per-file `drive.file` with Margin's token store (§9.2). Apps Script identity-token verification on the backend. Banner UX nudging reviewers to leave a regular comment rather than a suggestion-thread reply. Named-range bookkeeping in the overlay applier — powers add-on "comments at this paragraph" affordances.
 - Workspace Marketplace listing (OAuth verification + security assessment).
 - Slack App Directory listing.
 - Browser-extension store listings (Chrome Web Store, Firefox Add-ons, Edge Add-ons).
@@ -294,7 +294,7 @@ Builds on the Phase-3 popup project surface. The popup retains the lightweight r
 Not scheduled. Listed so they inform schema/API decisions today.
 
 ### 13.1 External read API + webhooks
-Scoped, versioned, read-mostly HTTPS API over canonical comments + projections + review state. Distinct from internal `/api/extension/*`. Same `dkt_` token auth.
+Scoped, versioned, read-mostly HTTPS API over canonical comments + projections + review state. Distinct from internal `/api/extension/*`. Same `mgn_` token auth.
 
 - `GET /api/v1/projects`
 - `GET /api/v1/projects/:id/comments?version=&status=&since=`
@@ -307,7 +307,7 @@ Thin shell over `src/domain/*` exposing canonical state as MCP resources + tools
 
 - **Resources:** project summary, version diffs, comment threads (one URI per thread, paginated indexes per project).
 - **Tools:** `search_comments`, `summarize_review_request`, `mark_comment_addressed`, `create_version_checkpoint`, `request_review`. Side-effects scoped to caller; same authorization model as §8.
-- **Auth:** same `dkt_` per-user tokens, exchanged on first MCP handshake.
+- **Auth:** same `mgn_` per-user tokens, exchanged on first MCP handshake.
 
 ### 13.3 In-browser AI tools
 Extension side-panel chat with the canonical store wired in as live context (via §13.2 MCP, or directly via the Phase-4 React app's API client).
@@ -317,4 +317,4 @@ Extension side-panel chat with the canonical store wired in as live context (via
 - **Author co-review** — flag passages likely to draw the same kinds of comments past reviewers left on this project.
 - **"Explain this comment in context"** — pulls parent suggestion + surrounding paragraph + cross-version replies into a single summary.
 
-Privacy: LLM only sees what the calling user can already see. Doc body fetched fresh per turn through Docket's `drive.file`-scoped credentials. Provider choice (Claude / OpenAI / local) in extension settings; default "ask before sending."
+Privacy: LLM only sees what the calling user can already see. Doc body fetched fresh per turn through Margin's `drive.file`-scoped credentials. Provider choice (Claude / OpenAI / local) in extension settings; default "ask before sending."

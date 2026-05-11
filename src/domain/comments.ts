@@ -43,7 +43,7 @@ export interface IngestResult {
  * back to its source Drive comment on that version. Idempotent: re-running on the same
  * version skips comments already projected onto it.
  *
- * Per SPEC §5, the anchor stored on canonical_comment is Docket's own (quoted text +
+ * Per SPEC §5, the anchor stored on canonical_comment is Margin's own (quoted text +
  * paragraph hash + structural offset). The kix anchor blob in `comment.anchor` is
  * intentionally ignored on ingest — quoted_file_content.value is what we anchor against.
  */

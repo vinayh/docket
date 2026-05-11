@@ -41,7 +41,7 @@ export async function createVersion(opts: {
   }
 
   const copy = await copyFile(tp, proj.parentDocId, {
-    name: `[Docket ${label}] ${parentFile.name}`,
+    name: `[Margin ${label}] ${parentFile.name}`,
   });
 
   const doc = await getDocument(tp, copy.id);
@@ -61,7 +61,7 @@ export async function createVersion(opts: {
     .returning();
   const ver = inserted[0]!;
 
-  // Best-effort: in production (DOCKET_PUBLIC_BASE_URL set), subscribe a
+  // Best-effort: in production (MARGIN_PUBLIC_BASE_URL set), subscribe a
   // Drive `files.watch` channel so the doc-watcher picks up downstream
   // edits without operator intervention. Polling fallback covers the
   // failure case, so we never block version creation on this. The .catch
