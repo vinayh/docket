@@ -1,6 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { version } from "../db/schema.ts";
+import { project, version } from "../db/schema.ts";
 import { tokenProviderForUser } from "../auth/credentials.ts";
 import { copyFile, getFile } from "../google/drive.ts";
 import { extractPlainText, getDocument } from "../google/docs.ts";
@@ -142,4 +142,27 @@ export async function requireVersion(id: string): Promise<Version> {
 
 export async function archiveVersion(id: string): Promise<void> {
   await db.update(version).set({ status: "archived" }).where(eq(version.id, id));
+}
+
+/**
+ * Owner-scoped version lookup. Returns the version when it exists AND the
+ * caller is the project owner, otherwise `null`. Collapsing both "no such
+ * version" and "version not owned by caller" into the same null result is
+ * intentional: callers map it to a 404 so the response can't be used to
+ * probe for the existence of versions in projects the caller can't see.
+ */
+export async function loadOwnedVersion(
+  versionId: string,
+  userId: string,
+): Promise<Version | null> {
+  const rows = await db
+    .select({ ver: version, ownerUserId: project.ownerUserId })
+    .from(version)
+    .innerJoin(project, eq(project.id, version.projectId))
+    .where(eq(version.id, versionId))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  if (row.ownerUserId !== userId) return null;
+  return row.ver;
 }

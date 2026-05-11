@@ -353,6 +353,39 @@ async function postJson<T>(
   body: unknown,
   settings: Settings,
 ): Promise<T> {
+  const res = await postJsonRaw(path, body, settings);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${path} ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return (await res.json()) as T;
+}
+
+/**
+ * Variant of postJson where the route signals "not found / not visible
+ * to this caller" with a 404. Returns null on 404; throws on everything
+ * else non-ok. Used by side-panel routes that map missing/not-owner
+ * cases into a "no such project" UI state.
+ */
+async function postJsonOrNull<T>(
+  path: string,
+  body: unknown,
+  settings: Settings,
+): Promise<T | null> {
+  const res = await postJsonRaw(path, body, settings);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${path} ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function postJsonRaw(
+  path: string,
+  body: unknown,
+  settings: Settings,
+): Promise<Response> {
   const url = new URL(path, settings.backendUrl).toString();
   const res = await fetch(url, {
     method: "POST",
@@ -365,11 +398,7 @@ async function postJson<T>(
   if (res.status === 401 || res.status === 403) {
     throw new Error("API token rejected — issue a new one");
   }
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`${path} ${res.status}: ${text.slice(0, 200)}`);
-  }
-  return (await res.json()) as T;
+  return res;
 }
 
 function postCaptures(
@@ -465,21 +494,11 @@ async function registerDoc(docUrlOrId: string): Promise<RegisterDocResult> {
 async function fetchProjectDetail(projectId: string): Promise<ProjectDetail | null> {
   const settings = await getSettings();
   if (!settings) return null;
-  const url = new URL("/api/extension/project", settings.backendUrl).toString();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${settings.apiToken}`,
-    },
-    body: JSON.stringify({ projectId }),
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`project-detail ${res.status}: ${text.slice(0, 200)}`);
-  }
-  return (await res.json()) as ProjectDetail;
+  return postJsonOrNull<ProjectDetail>(
+    "/api/extension/project",
+    { projectId },
+    settings,
+  );
 }
 
 async function fetchVersionDiff(
@@ -488,21 +507,11 @@ async function fetchVersionDiff(
 ): Promise<VersionDiffPayload | null> {
   const settings = await getSettings();
   if (!settings) return null;
-  const url = new URL("/api/extension/version-diff", settings.backendUrl).toString();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${settings.apiToken}`,
-    },
-    body: JSON.stringify({ fromVersionId, toVersionId }),
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`version-diff ${res.status}: ${text.slice(0, 200)}`);
-  }
-  return (await res.json()) as VersionDiffPayload;
+  return postJsonOrNull<VersionDiffPayload>(
+    "/api/extension/version-diff",
+    { fromVersionId, toVersionId },
+    settings,
+  );
 }
 
 async function fetchVersionComments(
@@ -510,24 +519,11 @@ async function fetchVersionComments(
 ): Promise<VersionCommentsPayload | null> {
   const settings = await getSettings();
   if (!settings) return null;
-  const url = new URL(
+  return postJsonOrNull<VersionCommentsPayload>(
     "/api/extension/version-comments",
-    settings.backendUrl,
-  ).toString();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${settings.apiToken}`,
-    },
-    body: JSON.stringify({ versionId }),
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`version-comments ${res.status}: ${text.slice(0, 200)}`);
-  }
-  return (await res.json()) as VersionCommentsPayload;
+    { versionId },
+    settings,
+  );
 }
 
 async function fetchPickerConfig(): Promise<PickerConfig | null> {

@@ -2,11 +2,10 @@ import { useEffect, useState } from "preact/hooks";
 import { browser } from "wxt/browser";
 import { parseDocIdFromUrl } from "../../utils/ids.ts";
 import { Header } from "../../ui/Header.tsx";
-import { sendMessage } from "../../ui/sendMessage.ts";
+import { getSettings, sendMessage } from "../../ui/sendMessage.ts";
 import type {
   DocState,
   ProjectDetail,
-  Settings,
 } from "../../utils/types.ts";
 import { Comments } from "./views/Comments.tsx";
 import { Dashboard } from "./views/Dashboard.tsx";
@@ -168,12 +167,6 @@ async function boot(setView: (v: View) => void): Promise<void> {
       message: err instanceof Error ? err.message : String(err),
     });
   }
-}
-
-async function getSettings(): Promise<Settings | null> {
-  const r = await sendMessage({ kind: "settings/get" });
-  if (r?.kind === "settings/get") return r.settings;
-  return null;
 }
 
 async function getActiveDocId(): Promise<string | null> {

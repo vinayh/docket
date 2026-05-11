@@ -1,4 +1,10 @@
-import { authenticateBearer, badRequest, jsonOk, unauthorized } from "./middleware.ts";
+import {
+  authenticateBearer,
+  jsonOk,
+  readJsonBody,
+  readStringField,
+  unauthorized,
+} from "./middleware.ts";
 import { getDocState } from "../domain/doc-state.ts";
 
 const MAX_BODY_BYTES = 4 * 1024;
@@ -19,29 +25,14 @@ export async function handleDocStatePost(req: Request): Promise<Response> {
   if (!auth) return unauthorized();
 
   const docId = await readDocId(req);
-  if (typeof docId !== "string") return docId;
+  if (docId instanceof Response) return docId;
 
   const state = await getDocState({ docId, userId: auth.userId });
   return jsonOk(state);
 }
 
 export async function readDocId(req: Request): Promise<string | Response> {
-  const contentLength = Number(req.headers.get("content-length") ?? "0");
-  if (contentLength > MAX_BODY_BYTES) {
-    return badRequest(`request too large: ${contentLength} > ${MAX_BODY_BYTES}`);
-  }
-  let payload: unknown;
-  try {
-    payload = await req.json();
-  } catch {
-    return badRequest("invalid json");
-  }
-  if (!payload || typeof payload !== "object") {
-    return badRequest("expected { docId: string }");
-  }
-  const raw = (payload as { docId?: unknown }).docId;
-  if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_DOC_ID_LEN) {
-    return badRequest("expected { docId: string }");
-  }
-  return raw;
+  const payload = await readJsonBody(req, MAX_BODY_BYTES);
+  if (payload instanceof Response) return payload;
+  return readStringField(payload, "docId", MAX_DOC_ID_LEN);
 }

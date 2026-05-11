@@ -46,4 +46,20 @@ export const config = {
   get publicBaseUrl() {
     return optional("MARGIN_PUBLIC_BASE_URL");
   },
+  /**
+   * Gate for the `bun margin e2e seed-project` CLI. Must equal "1" for the
+   * seed to proceed — the seeder bypasses Drive validation and would shred a
+   * prod DB if invoked by accident. Set in the test harness shell only.
+   */
+  get allowE2eSeed() {
+    return Bun.env.MARGIN_ALLOW_E2E_SEED === "1";
+  },
+  /**
+   * Default user email for `bun margin e2e seed-project` when the operator
+   * doesn't pass `--user`. The user must already exist (run `bun margin
+   * connect` once with that account).
+   */
+  get testUserEmail() {
+    return optional("MARGIN_TEST_USER_EMAIL");
+  },
 };

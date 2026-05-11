@@ -1,6 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { sendMessage } from "./Popup.tsx";
-import type { Settings } from "../../utils/types.ts";
+import { getSettings, sendMessage } from "../../ui/sendMessage.ts";
 
 /**
  * The diagnostics panel folded into a <details> at the bottom of the popup.
@@ -77,12 +76,6 @@ export function Diagnostics({ initiallyOpen }: Props) {
       </button>
     </details>
   );
-}
-
-async function getSettings(): Promise<Settings | null> {
-  const r = await sendMessage({ kind: "settings/get" });
-  if (r?.kind === "settings/get") return r.settings;
-  return null;
 }
 
 async function probeBackend(

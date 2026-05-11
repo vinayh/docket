@@ -1,4 +1,11 @@
-import { authenticateBearer, badRequest, jsonOk, unauthorized } from "./middleware.ts";
+import {
+  authenticateBearer,
+  jsonOk,
+  notFound,
+  readJsonBody,
+  readStringField,
+  unauthorized,
+} from "./middleware.ts";
 import { getProjectDetail } from "../domain/project-detail.ts";
 
 const MAX_BODY_BYTES = 4 * 1024;
@@ -24,35 +31,15 @@ export async function handleProjectDetailPost(req: Request): Promise<Response> {
   if (!auth) return unauthorized();
 
   const projectId = await readProjectId(req);
-  if (typeof projectId !== "string") return projectId;
+  if (projectId instanceof Response) return projectId;
 
   const detail = await getProjectDetail({ projectId, userId: auth.userId });
-  if (!detail) {
-    return new Response(JSON.stringify({ error: "not_found" }), {
-      status: 404,
-      headers: { "content-type": "application/json" },
-    });
-  }
+  if (!detail) return notFound();
   return jsonOk(detail);
 }
 
 async function readProjectId(req: Request): Promise<string | Response> {
-  const contentLength = Number(req.headers.get("content-length") ?? "0");
-  if (contentLength > MAX_BODY_BYTES) {
-    return badRequest(`request too large: ${contentLength} > ${MAX_BODY_BYTES}`);
-  }
-  let payload: unknown;
-  try {
-    payload = await req.json();
-  } catch {
-    return badRequest("invalid json");
-  }
-  if (!payload || typeof payload !== "object") {
-    return badRequest("expected { projectId: string }");
-  }
-  const raw = (payload as { projectId?: unknown }).projectId;
-  if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_ID_LEN) {
-    return badRequest("expected { projectId: string }");
-  }
-  return raw;
+  const payload = await readJsonBody(req, MAX_BODY_BYTES);
+  if (payload instanceof Response) return payload;
+  return readStringField(payload, "projectId", MAX_ID_LEN);
 }

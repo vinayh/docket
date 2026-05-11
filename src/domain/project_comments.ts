@@ -1,4 +1,4 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import {
   canonicalComment,
@@ -53,6 +53,28 @@ export async function projectCommentsOntoVersion(
       ),
     );
 
+  // Batch-load existing projections for this target version so the
+  // per-comment loop is a Map lookup, not an N+1 query.
+  const existingByCanonical = new Map<
+    string,
+    typeof commentProjection.$inferSelect
+  >();
+  if (comments.length > 0) {
+    const rows = await db
+      .select()
+      .from(commentProjection)
+      .where(
+        and(
+          eq(commentProjection.versionId, targetVersionId),
+          inArray(
+            commentProjection.canonicalCommentId,
+            comments.map((c) => c.id),
+          ),
+        ),
+      );
+    for (const row of rows) existingByCanonical.set(row.canonicalCommentId, row);
+  }
+
   const result: ProjectionRunResult = {
     versionId: targetVersionId,
     scanned: 0,
@@ -67,18 +89,7 @@ export async function projectCommentsOntoVersion(
     result.scanned++;
     const r = reanchor(doc, cc.anchor);
     result.details.push({ canonicalComment: cc, result: r });
-    const existing = (
-      await db
-        .select()
-        .from(commentProjection)
-        .where(
-          and(
-            eq(commentProjection.canonicalCommentId, cc.id),
-            eq(commentProjection.versionId, targetVersionId),
-          ),
-        )
-        .limit(1)
-    )[0];
+    const existing = existingByCanonical.get(cc.id);
 
     if (existing?.projectionStatus === "manually_resolved") {
       result.unchanged++;

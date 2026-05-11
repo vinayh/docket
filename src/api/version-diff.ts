@@ -1,4 +1,12 @@
-import { authenticateBearer, badRequest, jsonOk, unauthorized } from "./middleware.ts";
+import {
+  authenticateBearer,
+  badRequest,
+  jsonOk,
+  notFound,
+  readJsonBody,
+  readStringField,
+  unauthorized,
+} from "./middleware.ts";
 import { getVersionDiffPayload } from "../domain/version-diff.ts";
 
 const MAX_BODY_BYTES = 4 * 1024;
@@ -20,19 +28,14 @@ export async function handleVersionDiffPost(req: Request): Promise<Response> {
   if (!auth) return unauthorized();
 
   const ids = await readVersionIds(req);
-  if ("error" in ids) return ids.error;
+  if (ids instanceof Response) return ids;
 
   const payload = await getVersionDiffPayload({
     fromVersionId: ids.fromVersionId,
     toVersionId: ids.toVersionId,
     userId: auth.userId,
   });
-  if (!payload) {
-    return new Response(JSON.stringify({ error: "not_found" }), {
-      status: 404,
-      headers: { "content-type": "application/json" },
-    });
-  }
+  if (!payload) return notFound();
   return jsonOk(payload);
 }
 
@@ -41,40 +44,15 @@ interface VersionIds {
   toVersionId: string;
 }
 
-async function readVersionIds(
-  req: Request,
-): Promise<VersionIds | { error: Response }> {
-  const contentLength = Number(req.headers.get("content-length") ?? "0");
-  if (contentLength > MAX_BODY_BYTES) {
-    return { error: badRequest(`request too large: ${contentLength} > ${MAX_BODY_BYTES}`) };
-  }
-  let payload: unknown;
-  try {
-    payload = await req.json();
-  } catch {
-    return { error: badRequest("invalid json") };
-  }
-  if (!payload || typeof payload !== "object") {
-    return {
-      error: badRequest("expected { fromVersionId: string, toVersionId: string }"),
-    };
-  }
-  const from = (payload as { fromVersionId?: unknown }).fromVersionId;
-  const to = (payload as { toVersionId?: unknown }).toVersionId;
-  if (
-    typeof from !== "string" ||
-    from.length === 0 ||
-    from.length > MAX_ID_LEN ||
-    typeof to !== "string" ||
-    to.length === 0 ||
-    to.length > MAX_ID_LEN
-  ) {
-    return {
-      error: badRequest("expected { fromVersionId: string, toVersionId: string }"),
-    };
-  }
+async function readVersionIds(req: Request): Promise<VersionIds | Response> {
+  const payload = await readJsonBody(req, MAX_BODY_BYTES);
+  if (payload instanceof Response) return payload;
+  const from = readStringField(payload, "fromVersionId", MAX_ID_LEN);
+  if (from instanceof Response) return from;
+  const to = readStringField(payload, "toVersionId", MAX_ID_LEN);
+  if (to instanceof Response) return to;
   if (from === to) {
-    return { error: badRequest("fromVersionId and toVersionId must differ") };
+    return badRequest("fromVersionId and toVersionId must differ");
   }
   return { fromVersionId: from, toVersionId: to };
 }

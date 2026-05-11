@@ -19,7 +19,7 @@ export async function handleDocSyncPost(req: Request): Promise<Response> {
   if (!auth) return unauthorized();
 
   const docId = await readDocId(req);
-  if (typeof docId !== "string") return docId;
+  if (docId instanceof Response) return docId;
 
   const before = await getDocState({ docId, userId: auth.userId });
   if (!before.tracked) return jsonOk(before);

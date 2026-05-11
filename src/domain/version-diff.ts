@@ -1,8 +1,6 @@
-import { eq } from "drizzle-orm";
-import { db } from "../db/client.ts";
-import { project, version } from "../db/schema.ts";
 import { tokenProviderForUser } from "../auth/credentials.ts";
 import { getDocument, type Document, type TextRun } from "../google/docs.ts";
+import { loadOwnedVersion } from "./version.ts";
 
 /**
  * Side-panel "structured diff" payload (SPEC §12 Phase 4). The frontend
@@ -99,40 +97,6 @@ export async function getVersionDiffPayload(opts: {
       googleDocId: to.googleDocId,
       paragraphs: summarizeDocument(toDoc),
     },
-  };
-}
-
-interface OwnedVersion {
-  id: string;
-  projectId: string;
-  googleDocId: string;
-  label: string;
-}
-
-async function loadOwnedVersion(
-  versionId: string,
-  userId: string,
-): Promise<OwnedVersion | null> {
-  const rows = await db
-    .select({
-      id: version.id,
-      projectId: version.projectId,
-      googleDocId: version.googleDocId,
-      label: version.label,
-      ownerUserId: project.ownerUserId,
-    })
-    .from(version)
-    .innerJoin(project, eq(project.id, version.projectId))
-    .where(eq(version.id, versionId))
-    .limit(1);
-  const row = rows[0];
-  if (!row) return null;
-  if (row.ownerUserId !== userId) return null;
-  return {
-    id: row.id,
-    projectId: row.projectId,
-    googleDocId: row.googleDocId,
-    label: row.label,
   };
 }
 

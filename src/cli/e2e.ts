@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { project, version } from "../db/schema.ts";
+import { config } from "../config.ts";
 import { requireUserByEmail } from "../domain/user.ts";
 import { googleDocUrl, parseGoogleDocId } from "../domain/google-doc-url.ts";
 import { fatal, usage, dispatchSubcommands } from "./util.ts";
@@ -25,7 +26,7 @@ export const run = (args: string[]) =>
   });
 
 async function seedProject(rest: string[]): Promise<void> {
-  if (Bun.env.MARGIN_ALLOW_E2E_SEED !== "1") {
+  if (!config.allowE2eSeed) {
     fatal(
       "refusing to seed: set MARGIN_ALLOW_E2E_SEED=1 to confirm this is a non-prod DB",
     );
@@ -43,7 +44,7 @@ async function seedProject(rest: string[]): Promise<void> {
   if (!target) usage(USAGE);
 
   const docId = parseGoogleDocId(target);
-  const userEmail = values.user ?? Bun.env.MARGIN_TEST_USER_EMAIL;
+  const userEmail = values.user ?? config.testUserEmail;
   if (!userEmail) {
     fatal(
       "no user: pass --user <email> or set MARGIN_TEST_USER_EMAIL so the seed picks the right owner",

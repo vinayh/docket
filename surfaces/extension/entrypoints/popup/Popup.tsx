@@ -6,10 +6,9 @@ import type {
   DocState,
   PickerConfig,
   RegisterDocResult,
-  Settings,
 } from "../../utils/types.ts";
 import { Header } from "../../ui/Header.tsx";
-import { sendMessage } from "../../ui/sendMessage.ts";
+import { getSettings, sendMessage } from "../../ui/sendMessage.ts";
 import { Diagnostics } from "./Diagnostics.tsx";
 import { PickerOverlay } from "./PickerOverlay.tsx";
 import { NoSettings } from "./views/NoSettings.tsx";
@@ -275,12 +274,6 @@ async function completeRegistration(
 
 // ---- helpers -------------------------------------------------------------
 
-async function getSettings(): Promise<Settings | null> {
-  const r = await sendMessage({ kind: "settings/get" });
-  if (r?.kind === "settings/get") return r.settings;
-  return null;
-}
-
 async function getActiveDocTab(): Promise<ActiveDocTab | null> {
   const tabs = await browser.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
@@ -290,5 +283,3 @@ async function getActiveDocTab(): Promise<ActiveDocTab | null> {
   const title = (await getDocTitle(docId)) ?? "";
   return { docId, title };
 }
-
-export { sendMessage };

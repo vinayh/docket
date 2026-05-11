@@ -3,13 +3,13 @@ import { db } from "../db/client.ts";
 import {
   canonicalComment,
   commentProjection,
-  project,
   version,
   type CanonicalCommentKind,
   type CanonicalCommentStatus,
   type CommentAnchor,
   type ProjectionStatus,
 } from "../db/schema.ts";
+import { loadOwnedVersion } from "./version.ts";
 
 /**
  * Side-panel "comments on this version" payload (SPEC §12 Phase 4, comment-
@@ -102,31 +102,4 @@ export async function getVersionCommentsPayload(opts: {
       },
     })),
   };
-}
-
-interface OwnedVersion {
-  id: string;
-  projectId: string;
-  label: string;
-}
-
-async function loadOwnedVersion(
-  versionId: string,
-  userId: string,
-): Promise<OwnedVersion | null> {
-  const rows = await db
-    .select({
-      id: version.id,
-      projectId: version.projectId,
-      label: version.label,
-      ownerUserId: project.ownerUserId,
-    })
-    .from(version)
-    .innerJoin(project, eq(project.id, version.projectId))
-    .where(eq(version.id, versionId))
-    .limit(1);
-  const row = rows[0];
-  if (!row) return null;
-  if (row.ownerUserId !== userId) return null;
-  return { id: row.id, projectId: row.projectId, label: row.label };
 }

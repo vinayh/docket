@@ -51,7 +51,7 @@ export const project = sqliteTable("project", {
   parentDocId: text("parent_doc_id").notNull(),
   ownerUserId: text("owner_user_id")
     .notNull()
-    .references(() => user.id),
+    .references(() => user.id, { onDelete: "cascade" }),
   settings: text("settings", { mode: "json" })
     .$type<ProjectSettings>()
     .notNull()
