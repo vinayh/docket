@@ -89,6 +89,10 @@ typings/
 .wxt
 .output
 
+# Local Chrome profile for E2E testing the extension via chrome-devtools-mcp.
+# Warmed once with the test Google account; see .mcp.json for how it's wired.
+.docket-test-chrome/
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 
