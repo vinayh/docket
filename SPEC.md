@@ -101,21 +101,10 @@ Chrome / Firefox / Edge extension on `docs.google.com/*` + popup/options pages. 
 
 - **Capture (Phase 2 — MVP).** `MutationObserver` on the discussion sidebar; scrapes suggestion-thread replies; matches by kix discussion ID (preferred) or quoted-text equality (fallback); POSTs to backend. Service-worker queue + `chrome.storage.local` dedupe.
 - **Project surface (Phase 3 — current).** The popup is the primary "is this doc tracked, what state is it in, sync it now, add it as a new project" surface. Reads tab URL → doc id, queries backend `/api/extension/doc-state`, branches into onboarding / tracked views. "Add to Docket" mounts a sandboxed Drive Picker iframe inline on Chromium (Firefox MV3: opens the backend `/picker` page in a tab as fallback). "Sync now" calls `/api/extension/doc-sync` to re-ingest comments. No Workspace add-on required.
-- **Rich UI (Phase 4).** React app from extension origin: project dashboard (versions, derivatives, review history, reviewer participation), side-by-side version diff (HTML, computed locally over `documents.get` plaintext), comment reconciliation UI for fuzzy/orphan projections, overlay editor with live preview, settings. Talks to backend with per-user API token.
+- **Rich UI (Phase 4).** Preact app in the side panel: project dashboard (versions, derivatives, review history, reviewer participation), structured side-by-side version diff (see §12 Phase 4), comment reconciliation UI for fuzzy/orphan projections, overlay editor with live preview, settings. Talks to backend with per-user API token.
 - **Visualization (Phase 6).** Highlights overlaid on the doc body, gutter markers, hover previews, right-click "comment on selection," native-comment-rail integration. Doc body is `<canvas>` (§9.6) — needs accessibility-DOM mirror or selection-event hooks.
 
-**Capture-role mechanics.**
-
-- Doc-title cache (`shared/storage.ts`) used by the popup to seed the Picker query — localized tab titles break Picker token-AND name matching.
-- Manifest declares `host_permissions: ["https://docs.google.com/*"]` + `optional_host_permissions: ["<all_urls>"]`. Options page calls `chrome.permissions.request` from a click handler.
-- Cross-browser shim picks `globalThis.browser ?? chrome`. No `webextension-polyfill`.
-
-**Project-surface mechanics.**
-
-- Popup states (`untracked`, `tracked`, `no-doc`, `no-settings`, error/loading) dispatch from a single `boot()` based on settings + active tab URL + backend response. All backend calls go through the SW so the API token isn't duplicated to the popup origin.
-- Sandboxed Picker (Chromium): the popup loads `popup/picker-sandbox.html` in an iframe. The chromium manifest's `sandbox.pages` + `content_security_policy.sandbox` lift the regular extension_pages CSP so the iframe can load `apis.google.com` / `accounts.google.com`. The sandbox runs at `null` origin (no `chrome.*` access, not in backend CORS allow-list); it postMessages the picked doc id back to the popup, and the popup hits `/api/picker/register-doc` from its `chrome-extension://...` origin.
-- Firefox MV3 has no `sandbox.pages` support yet. The popup detects via UA token and falls back to opening `/picker` (with the API token in `location.hash`, doc id + title as `suggestedDocId` / `suggestedTitle`) in a new tab.
-- Diagnostics (`<details>`: queue size / last error / Flush) is the old popup body, retained beneath the project surface for ops use.
+Implementation detail (popup state machine, sandboxed-Picker handshake, doc-title cache, manifest origin permissions, selector-rot contract, cross-browser shim) lives in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Conventions for working on this surface: [`AGENTS.md`](./AGENTS.md#browser-extension-surfacesextension).
 
 **Out of scope:** mobile / iPad Docs.
 
@@ -236,28 +225,23 @@ Headless backend + CLI. Drizzle schema (12 tables) on `bun:sqlite` WAL; envelope
 ### Phase 2 — Backend HTTP API + browser extension (capture) + minimal web entry points
 **Status: shipped.** ✅
 
-Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun docket serve` HTTP host with `/healthz`, `/oauth/{start,callback}`, `/picker` (real Drive Picker iframe with GIS-backed access tokens, gated on `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`), `/webhooks/drive`, `/api/extension/captures`, `/api/picker/register-doc` (bearer-auth → `createProject`). Per-user opaque API tokens (issue/list/revoke CLI + bearer middleware). MV3 extension (Chrome / Edge / Firefox sharing one codebase) with sidebar `MutationObserver` + kix-discussion-id matching plus a popup "Track this doc" button that opens the Picker page with the open doc's id+title as a hint. Service-worker queue with `chrome.storage.local` dedupe + alarm-driven retry. Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops gated on `DOCKET_PUBLIC_BASE_URL`.
+Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun docket serve` HTTP host: `/healthz`, `/oauth/{start,callback}`, `/picker` (real Drive Picker iframe with GIS-backed tokens, gated on `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`), `/webhooks/drive`, `/api/extension/captures`, `/api/picker/register-doc`. Per-user opaque API tokens with bearer middleware. MV3 extension (Chrome / Edge / Firefox, single codebase) with the capture role (sidebar `MutationObserver`, SW queue + alarm-driven retry, end-to-end idempotency). Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops, gated on `DOCKET_PUBLIC_BASE_URL`.
 
 ### Phase 3 — Extension popup as project surface
 **Status: shipped.** ✅
 
 Replaces the Workspace add-on as the lightweight "I'm in a doc, what does Docket know about it?" surface (§6.4). Same affordances, no Apps Script / CardService dependency, no separate install. The Workspace add-on is deferred to Phase 7 as a managed-device fallback.
 
-Backend API:
+New backend routes:
 
-- `POST /api/extension/doc-state` — tracked? state for the open doc. Resolves doc id → project (parent or version role), returns project metadata, current version label, `lastSyncedAt`, comment + open-review counts. Owner-scoped — cross-user reads return `tracked: false` (no information leak).
-- `POST /api/extension/doc-sync` — popup "Sync now" handler. Looks up the relevant version (the version row when the user is on a version doc; latest active when on the parent), runs `ingestVersionComments`, returns refreshed state.
-- `GET /api/picker/config` — public endpoint exposing the same Picker config the inline `/picker` page already inlines (clientId / apiKey / projectNumber). Lets the in-popup sandboxed Picker iframe boot without an API-token round-trip. Not a secret — every value is already visible to any unauthenticated browser hitting `/picker`.
-- CORS allow-list extended to the chromium / firefox extension origins for all `/api/extension/*` and `/api/picker/*` routes.
+- `POST /api/extension/doc-state` — tracked? state for the open doc. Owner-scoped (cross-user reads return `tracked: false`).
+- `POST /api/extension/doc-sync` — "Sync now" — re-runs `ingestVersionComments` on the relevant version and returns refreshed state.
+- `GET /api/picker/config` — public, exposes the same Picker config the inline `/picker` page already inlines. Lets the in-popup sandboxed Picker boot without an API-token round-trip. Not a secret.
+- CORS allow-list extended to chromium / firefox extension origins on `/api/extension/*` and `/api/picker/*`.
 
-Extension popup:
+Popup state machine + sandboxed-Picker mechanics live in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Notable design choices: popup never holds the API token (everything routes through the SW); sandboxed Picker on Chromium runs at `null` origin and postMessages back to the popup; Firefox MV3 falls back to opening the backend `/picker` tab because `sandbox.pages` isn't supported yet.
 
-- Popup state machine: `no-settings` → options nudge; `no-doc` → muted "open a Google Doc"; `untracked` → "Add to Docket" affordance; `tracked` → role + version + comment count + last-synced + "Sync now" button. Errors / loading states dispatched from the same shell.
-- In-popup sandboxed Drive Picker iframe (Chromium): loads `popup/picker-sandbox.html` inside the popup, lifted CSP via the chromium manifest's `sandbox.pages` + `content_security_policy.sandbox`. The sandbox postMessages the picked doc id back to the popup, the popup calls `/api/picker/register-doc` from its `chrome-extension://...` origin.
-- Firefox MV3 fallback: no `sandbox.pages` support yet; popup detects via UA token and opens the existing `/picker` page in a new tab.
-- All backend calls routed through the service worker so the API token doesn't leak to the popup origin or the picker sandbox.
-
-**Delivers:** the extension popup is the primary surface for the entire "track this doc → check its state → sync now" loop. New users with the extension installed never see a Docket-hosted page after OAuth; existing users get an inline view of project state without leaving Docs.
+**Delivers:** the popup owns the entire "track → check state → sync now" loop. New users never see a Docket-hosted page after OAuth.
 
 ### Phase 4 — Extension rich UI + magic-link action handlers
 **Status: not started.**

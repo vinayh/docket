@@ -8,11 +8,7 @@ See [`SPEC.md`](./SPEC.md) for the full design and per-phase build status — [�
 
 ## Stack
 
-- Runtime: Bun
-- DB: `bun:sqlite` + Drizzle ORM (Postgres later, when we need multi-process)
-- HTTP: `Bun.serve()` (no Express)
-- Encryption: WebCrypto AES-GCM, envelope-style for refresh tokens
-- Tests: `bun test`
+Bun runtime, `bun:sqlite` + Drizzle (Postgres later when we need multi-process), `Bun.serve()` for HTTP, WebCrypto AES-GCM envelope encryption for refresh tokens, `bun test` for tests. Conventions: [`AGENTS.md`](./AGENTS.md).
 
 ## Setup
 
@@ -121,7 +117,7 @@ bun docket connect
 # 2. Create a fresh doc to test against.
 #    drive.file access is granted automatically because the OAuth client created the file.
 #    For pre-existing docs you own, use the Drive Picker entry — see "Track an
-#    existing doc via the Drive Picker" below — or the Workspace Add-on (Phase 3).
+#    existing doc via the Drive Picker" below.
 bun docket doc create --seed
 # -> created doc <doc-id>
 #    url: https://docs.google.com/document/d/<doc-id>/edit
@@ -147,51 +143,23 @@ bun docket comments list <project-id>
 
 The Picker is the only mechanism that grants `drive.file` access to a doc the OAuth client didn't create (SPEC §9.2). Two equivalent entry points:
 
-- **Extension popup (priority).** Open any Google Doc, click the Docket toolbar icon, click **Track this doc**. The popup opens `<backend>/picker#token=…&suggestedDocId=…&suggestedTitle=…` in a new tab; pick the same doc in the Picker and Docket registers it as a project. (Requires the extension to be configured with a backend URL + API token — see "Test the browser extension" below.)
+- **Extension popup (priority).** Open any Google Doc, click the Docket toolbar icon, click **Add to Docket**. On Chromium the Picker mounts inline in the popup; on Firefox MV3 it falls back to opening `<backend>/picker` in a new tab. Pick the same doc and Docket registers it as a project. Requires the extension to be configured — see "Test the browser extension" below.
 - **Web entry point.** Open `http://localhost:8787/picker` directly, paste your API token, click **Open Drive Picker**, pick a doc. Same end result.
 
 Both paths POST to `/api/picker/register-doc`; the response includes the new project id (or `409 already_exists` with the existing id).
 
 ## Test the browser extension
 
-The Phase-2 capture extension (Manifest V3, Chrome / Edge / Firefox) lives in [`surfaces/extension/`](./surfaces/extension/) — its [README](./surfaces/extension/README.md) covers the build pipeline and the DOM-selector maintenance contract. End-to-end test flow:
+The MV3 extension (Chrome / Edge / Firefox) lives in [`surfaces/extension/`](./surfaces/extension/) — its [README](./surfaces/extension/README.md) covers build, layout, popup state machine, and the DOM-selector maintenance contract. End-to-end smoke test:
 
-1. **Start the backend** in one terminal:
-
-   ```sh
-   bun docket serve
-   # -> docket api listening on http://localhost:8787
-   ```
-
-2. **Connect a Google account** (skip if already done — check `bun docket project list` etc.):
-
-   ```sh
-   bun docket connect
-   ```
-
-3. **Issue an API token** for the extension:
-
-   ```sh
-   bun docket token issue --user <your-email> --label "local-dev"
-   # -> token: dkt_...   (copy this — shown once)
-   ```
-
-4. **Build the extension** and load it unpacked:
-
-   ```sh
-   bun run surfaces/extension/build.ts
-   ```
-
-   - **Chrome / Edge:** `chrome://extensions` → enable Developer Mode → **Load unpacked** → pick `surfaces/extension/dist/chromium`.
-   - **Firefox:** `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on** → pick any file inside `surfaces/extension/dist/firefox` (e.g. `manifest.json`).
-
-5. **Configure the extension.** Open its **Options** page (right-click toolbar icon → Options, or `chrome://extensions` → Details → Extension options). Enter:
-   - **Backend URL:** `http://localhost:8787`
-   - **API token:** the `dkt_...` value from step 3
-
-   Click **Test connection** — Chrome will prompt you to grant access to the backend's origin (the manifest declares `optional_host_permissions: ["<all_urls>"]` and the extension requests the specific origin you typed; this is what lets a single build hit both `localhost` and your Fly app). Approve, then **Save**.
-
-6. **Create a test doc and register it** as a project + version (the extension only ingests captures for docs Docket already knows about):
+1. Start the backend: `bun docket serve` (defaults to `http://localhost:8787`).
+2. Connect a Google account: `bun docket connect` (skip if already done).
+3. Issue an API token for the extension: `bun docket token issue --user <your-email> --label "local-dev"` (the `dkt_...` value is shown once).
+4. Build and load the extension:
+   - **Chrome / Edge:** `bun run ext:build` → `chrome://extensions` → Developer Mode → **Load unpacked** → `surfaces/extension/dist/chrome-mv3`.
+   - **Firefox:** `bun run ext:build:firefox` → `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on** → any file inside `surfaces/extension/dist/firefox-mv3` (e.g. `manifest.json`).
+5. Open the extension's **Options** page, enter the backend URL + API token, click **Test connection** (Chrome will prompt for the backend origin — approve), then **Save**.
+6. Create a test doc and register it as a project + version (the extension only ingests captures for docs Docket already knows about):
 
    ```sh
    bun docket doc create --seed
@@ -200,22 +168,10 @@ The Phase-2 capture extension (Manifest V3, Chrome / Edge / Firefox) lives in [`
    bun docket version create <project-id>
    ```
 
-7. **Add a suggestion reply.** In the doc, switch to **Suggesting** mode (top-right pencil menu → Suggesting), edit some text to create a suggestion, then open the discussion sidebar and type a reply on that suggestion's card. The content script scrapes the sidebar on DOM-mutation settle (~750 ms debounce).
+7. In the doc, switch to **Suggesting** mode, edit text to create a suggestion, then open the discussion sidebar and type a reply on the suggestion's card.
+8. Click the toolbar icon → **Flush queue now**, then `bun docket comments list <project-id>` — the scraped reply should appear alongside any native Drive comments.
 
-8. **Flush and verify.** Click the extension's toolbar icon → **Flush queue now** (otherwise the alarm-driven flush runs every ~60 s). Then:
-
-   ```sh
-   bun docket comments list <project-id>
-   # -> should now show the scraped reply alongside any native Drive comments
-   ```
-
-   The popup shows queue size + last error if anything failed. The doc tab's DevTools console will print one `[docket] content script ready (doc=...)` line on load and a one-line first-scan summary (`threads=N suggestions=N captures=N fresh=N`) — useful for confirming the scraper is alive when nothing's being captured. The SW console (`chrome://extensions` → **Inspect views: service worker**) has the network-side detail.
-
-**Caveats during this phase.**
-
-- Only replies on *suggestion* threads are captured — regular comments come through Drive's API (see [`SPEC.md` §11](./SPEC.md#11-out-of-scope-for-v1)).
-- After clicking the **reload icon** on `chrome://extensions`, the *open doc tab* still runs the previously injected content script. Hard-refresh the tab (Cmd-Shift-R / Ctrl-Shift-R) to pick up the new build.
-- Selectors are tolerant but Docs reships the sidebar UI ~quarterly and failures are silent. See the extension [README](./surfaces/extension/README.md#dom-selector-maintenance) for the maintenance contract.
+Only replies on *suggestion* threads come through the extension; regular comments arrive via Drive's API ([`SPEC.md` §11](./SPEC.md#11-out-of-scope-for-v1)). Selectors rot when Docs reships (~quarterly) and fail silently — see the extension [README](./surfaces/extension/README.md#dom-selector-maintenance).
 
 ## Deployment (Fly.io)
 

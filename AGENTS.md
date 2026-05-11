@@ -6,74 +6,33 @@ Phased build plan in [`SPEC.md` §12](./SPEC.md#12-build-sequence) — each phas
 
 ```
 src/
-  config.ts            lazy env-var getters; importing it doesn't require any env var
-  db/
-    schema.ts          12 tables from SPEC §4
-    client.ts          drizzle + bun:sqlite (WAL, FK on)
-    migrate.ts         applies generated migrations
-  auth/
-    encryption.ts      envelope encryption (KEK → per-row DEK → ciphertext)
-    credentials.ts     TokenProvider with in-memory cache + auto-refresh
-    connect.ts         completes OAuth: upserts user, stores encrypted refresh token
-  google/              endpoint-shaped, typed wrappers (no domain logic here)
-    oauth.ts           authorize URL, code exchange, refresh, userinfo
-    api.ts             authedFetch / authedJson — refresh-on-401
-    drive.ts           files.get / files.copy / comments.list / files.watch / permissions
-    docs.ts            documents.get / documents.batchUpdate + op.* helpers
-  domain/              business logic that composes db/google/auth (no HTTP, no CLI)
-    google-doc-url.ts  parse doc IDs out of URLs
-    project.ts         createProject / getProject / list*
-    version.ts         createVersion (copies parent doc, hashes snapshot) / list / archive
-    anchor.ts          buildAnchor (quoted text → paragraph hash + structural offset)
-    reanchor.ts        reanchor (source CommentAnchor + target Document → confidence + status)
-    suggestions.ts     extractSuggestions (Docs body → tracked-change spans)
-    comments.ts        ingestVersionComments (Drive comments + suggestions → canonical_comment)
-    project_comments.ts projectCommentsOntoVersion (run reanchor for every canonical comment)
-    overlay.ts         overlay/op CRUD, planOverlay (pure), applyOverlayAsDerivative
-    watcher.ts         drive.files.watch subscribe/unsubscribe/handle, polling fallback, renewer
-    doc-state.ts       getDocState (docId+userId → tracked? role, project, version, lastSyncedAt, counts)
-  cli/                 thin parse-and-call shells over src/domain/, via a single dispatcher
-    index.ts           subcommand dispatcher (`bun docket <cmd>`)
-    util.ts            shared helpers (default user, etc.)
-    connect.ts         one-shot OAuth callback receiver
-    doc.ts             doc create (Docs API documents.create, optional --seed)
-    smoke.ts           end-to-end: getFile + copyFile + listComments
-    inspect.ts         dump raw Drive/Docs API responses (verify what's exposed)
-    project.ts         project create / list
-    version.ts         version create / list
-    comments.ts        comments ingest / list
-    reanchor.ts        reanchor <target-version-id>
-    overlay.ts         overlay create / list / add-op / ops / apply; derivative list
-    watcher.ts         watcher subscribe / list / unsubscribe / renew / poll / simulate
-    serve.ts           start the HTTP API (`bun docket serve [--port <n>]`)
-    token.ts           issue / list / revoke per-user API tokens
-  auth/
-    api-token.ts       opaque per-user tokens (sha256 hashed at rest)
-  api/                 Bun.serve HTTP host
-    server.ts          route table + in-process renew/poll loops; dispatches to per-route modules
-    oauth.ts           OAuth start + callback handlers (in-memory state store)
-    middleware.ts      bearer auth + JSON response helpers
-    cors.ts            permissive CORS for cross-origin routes (extension + localhost)
-    extension.ts       POST /api/extension/captures (browser-extension ingest)
-    doc-state.ts       POST /api/extension/doc-state (popup project surface — tracked? state)
-    doc-sync.ts        POST /api/extension/doc-sync (popup "Sync now" — re-poll comments + return state)
-    drive-webhook.ts   POST /webhooks/drive (drive.files.watch push receiver)
-    picker.ts          GET /picker (Drive Picker host page; needs GOOGLE_API_KEY + GOOGLE_PROJECT_NUMBER)
-    picker-config.ts   GET /api/picker/config (public — Picker runtime config for the in-popup sandboxed Picker)
-    picker-register.ts POST /api/picker/register-doc (post-pick project registration)
-  domain/
-    capture.ts         resolve scraped sidebar replies → canonical_comment
-  surfaces/            Slack bot / Workspace add-on / browser extension
-    extension/         MV3 capture-role extension (Chrome / Edge / Firefox) — WXT-driven; see surfaces/extension/README.md
-docs/                  Astro + Preact site (marketing now, auth surface later); deploys to GitHub Pages
-drizzle/               generated migration SQL
-Dockerfile             multi-stage Bun-on-Alpine image; runs migrate then serve
-fly.toml               Fly.io app config (see README §"Deployment")
-.github/workflows/     ci.yml: codecov + fly-deploy; pages.yml: build docs/ + deploy to GitHub Pages
+  config.ts          lazy env-var getters; importing it doesn't require any env var
+  db/                drizzle schema (12 tables, SPEC §4) + bun:sqlite client + migrator
+  auth/              envelope encryption, OAuth credentials/TokenProvider, opaque API tokens
+  google/            endpoint-shaped REST wrappers (oauth/api/drive/docs) — no domain logic
+  domain/            business logic composing db/google/auth — no HTTP, no CLI. project,
+                     version, anchor, reanchor, suggestions, comments, project_comments,
+                     overlay, watcher, capture (extension ingest), doc-state, project-detail,
+                     version-diff, stats, user, review
+  cli/               thin parse-and-call shells dispatched by index.ts (`bun docket <cmd>`)
+  api/               Bun.serve HTTP host. server.ts owns the route table + in-process
+                     renew/poll loops; one module per route (oauth, extension/captures,
+                     doc-state, doc-sync, drive-webhook, picker, picker-config,
+                     picker-register, project-detail, version-diff). middleware.ts +
+                     cors.ts hold the bearer-auth + CORS helpers
+surfaces/extension/  MV3 extension (Chrome / Edge / Firefox), WXT-driven — see
+                     surfaces/extension/README.md
+docs/                Astro + Preact public site; deploys to GitHub Pages
+drizzle/             generated migration SQL
+Dockerfile           multi-stage Bun-on-Alpine image; runs migrate then serve
+fly.toml             Fly.io app config (see README §"Deployment")
+.github/workflows/   ci.yml: typecheck + bun test + codecov + fly-deploy on main.
+                     integration.yml: nightly live-Google suite. pages.yml: docs/ → Pages
 ```
 
 - **Surface** = user-facing UX. **Client** = any other API caller. Per SPEC §3, all state lives in the backend; surfaces are views.
-- Don't put logic in `src/cli/`.
+- Don't put logic in `src/cli/` — it's a parse-and-call shell over `src/domain/`.
+- Don't put logic in `src/api/` — same rule. Routes call into `src/domain/` (e.g. `extension.ts` → `ingestExtensionCaptures`, `picker-register.ts` → `createProject`, `oauth.ts` → `completeOAuth`).
 
 ## CLI
 
@@ -90,16 +49,13 @@ fly.toml               Fly.io app config (see README §"Deployment")
 
 ## HTTP API
 
-- `bun docket serve [--port <n>]` runs the API host (`Bun.serve`, in `src/api/server.ts`). In production, the Fly container runs the same command; `PORT` and `DOCKET_DB_PATH` are set via `fly.toml`, secrets via `flyctl secrets set`.
-- Routes live in `src/api/`. The server keeps a route table — register new routes there, not by branching `pathname` inline.
-- Public routes today: `/healthz`, `/oauth/start`, `/oauth/callback`, `/picker` (real Drive Picker host page — needs `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`; renders a friendly error otherwise).
-- Webhooks: `POST /webhooks/drive` (Drive `files.watch` push receiver). Always responds 200 OK so Google stops retrying — channel-level errors get logged.
-- Bearer-authenticated API surface: anything under `/api/*` runs `authenticateBearer` from `src/api/middleware.ts` first, *except* `GET /api/picker/config` which is intentionally public (it returns the same Drive Picker key + project number that the inline `/picker` HTML already exposes). CORS is permissive (allow-listed extension + localhost origins) on the cross-origin routes. Today: `POST /api/extension/captures`, `POST /api/extension/doc-state`, `POST /api/extension/doc-sync`, `GET /api/picker/config`, `POST /api/picker/register-doc`.
-- API tokens are opaque `dkt_<base64url>` strings stored as sha256 hashes in `api_token`. Issue with `bun docket token issue --user <email>`; the plaintext is shown once. Verification short-circuits before the DB lookup if the prefix doesn't match.
-- The api layer is a thin shell — domain logic stays in `src/auth/`, `src/domain/`, etc. `oauth.ts` reuses `completeOAuth` from `src/auth/connect.ts`; the CLI's `bun docket connect` does too. `extension.ts` calls `ingestExtensionCaptures` from `src/domain/capture.ts`. `picker-register.ts` calls `createProject` from `src/domain/project.ts`.
-- OAuth state is held in an in-memory `Map` for now (single Fly machine, `min_machines_running = 1`). Move to DB or signed cookie when the deploy scales out.
-- Background loops: `startServer` launches `renewExpiringChannels` (~30 min) and `pollAllActiveVersions` (~10 min) timers in-process when `DOCKET_PUBLIC_BASE_URL` is set. `createVersion` also auto-subscribes a Drive `files.watch` channel best-effort using that base URL. Pass `{ backgroundLoops: false }` to `startServer` in tests to keep the timers off.
-- Deployment is documented in [`README.md` §"Deployment"](./README.md#deployment-flyio).
+- `bun docket serve [--port <n>]` runs the API host (`Bun.serve`, in `src/api/server.ts`). The Fly container runs the same command; deployment lives in [`README.md` §"Deployment"](./README.md#deployment-flyio).
+- **Route table.** Register new routes in `server.ts`'s table — never branch `pathname` inline. Each route is its own module under `src/api/` and is a thin shell that delegates into `src/domain/` (e.g. `extension.ts` → `ingestExtensionCaptures`, `picker-register.ts` → `createProject`, `oauth.ts` → `completeOAuth`).
+- **Auth.** `authenticateBearer` from `src/api/middleware.ts` gates everything under `/api/*` *except* `GET /api/picker/config`, which is intentionally public (returns the same Picker key + project number the inline `/picker` HTML already exposes). API tokens are opaque `dkt_<base64url>` strings stored as sha256 hashes; verification short-circuits before the DB lookup if the prefix doesn't match.
+- **CORS.** Permissive allow-list (extension + localhost origins) on cross-origin routes — see `src/api/cors.ts`.
+- **OAuth state.** In-memory `Map` for now (single Fly machine, `min_machines_running = 1`). Move to DB or signed cookie when the deploy scales out.
+- **Background loops.** `startServer` launches `renewExpiringChannels` (~30 min) and `pollAllActiveVersions` (~10 min) timers in-process when `DOCKET_PUBLIC_BASE_URL` is set. `createVersion` also auto-subscribes a Drive `files.watch` channel best-effort using that base URL. Pass `{ backgroundLoops: false }` to `startServer` in tests.
+- **Webhooks.** `POST /webhooks/drive` always responds 200 OK so Google stops retrying — channel-level errors get logged.
 
 ## Frontend stack
 
@@ -107,18 +63,19 @@ fly.toml               Fly.io app config (see README §"Deployment")
 
 ## Browser extension (`surfaces/extension/`)
 
-- Manifest V3, shared codebase across Chrome / Edge / Firefox. Phase 2 shipped the capture role; Phase 3 (current) layers the popup as a project surface — see "Popup states" below. The popup reads `tab.url` without the `tabs` permission because the manifest's `host_permissions: ["https://docs.google.com/*"]` covers Docs tabs.
-- Build with `bun run ext:build` (Chrome/Edge) / `bun run ext:build:firefox` → `dist/{chrome-mv3,firefox-mv3}/`. Driven by [WXT](https://wxt.dev) (Vite under the hood). One `wxt.config.ts` produces both targets; per-browser manifest differences (`browser_specific_settings`, `background.scripts` vs `service_worker`, `sandbox.pages`, sandbox CSP) live in the `manifest: ({ browser }) => …` factory there. Run `bunx wxt prepare` (or `bun run ext:dev`) after edits that affect TypeScript so `.wxt/wxt.d.ts` regenerates.
-- Entrypoint files (`entrypoints/<name>{.content,.sandbox}{.ts,.html,/index.{ts,html}}`) follow WXT's filename-convention auto-detection. Background, content scripts, and unlisted scripts use `defineBackground` / `defineContentScript` etc.; HTML entrypoints (popup, options, sandbox) emit their own `<script type="module">` that Vite hashes and inlines.
-- DOM selectors live in two places: `surfaces/extension/entrypoints/docs.content/sidebar-scraper.ts` (suggestion-thread replies) and `surfaces/extension/entrypoints/docs.content/index.ts`'s `DOC_NAME_SELECTORS` (the doc title input — used to populate the popup label and the Picker query in a locale-safe way). Both are a moving target (Docs reships ~quarterly); add new selectors at the head of the array, keep older ones for back-compat. Failures are silent by design. Replies are normalized up to their outermost `.docos-anchoredreplyview` wrapper before extraction so multiple selectors hitting nested descendants of the same reply don't double-count.
-- Bootstrap diagnostics: the content script logs one `[docket] content script ready (doc=…)` line on load and one `[docket] first scan: threads=N suggestions=N captures=N fresh=N` summary on the first non-empty scan. Keep these — they're the only signal when the queue stays at 0 and you need to know whether the script ran, the selectors matched, or the suggestion-only filter dropped everything.
-- Capture flow: content script → SW (dedupe vs `chrome.storage.local`) → POST `/api/extension/captures` with the user's API token. End-to-end idempotency is `(version_id, external_id)` on `canonical_comment`; the seen-id cache is just a perf hint.
-- Doc-title cache: every scan also calls `setDocTitle(docId, name)` (`utils/storage.ts`) using the DOM-scraped doc name. The popup reads from this map instead of the localized `tab.title` (which carries a translatable " - Google Docs" suffix that breaks Picker's token-AND query matching). First popup-open after a fresh install may show "Google Doc" until the first scan completes (~750 ms after page load).
-- **Backend origin permission.** The configured backend URL isn't known at build time, so the manifest declares `host_permissions: ["https://docs.google.com/*"]` for the content script and `optional_host_permissions: ["<all_urls>"]` for the SW's POSTs. The Options page's `Test connection` / `Save` handlers call `chrome.permissions.request({ origins: [...] })` for the typed origin (must run from a click — Chrome rejects programmatic `permissions.request` outside a user gesture). One build serves both `localhost` dev and Fly prod without manifest churn.
-- Cross-browser: import `{ browser }` from `wxt/browser` — WXT ships its own promisified shim. Don't add `webextension-polyfill` (30 KB) or hand-roll a `chrome ?? browser` picker.
-- Reloading the extension at `chrome://extensions` does not re-inject the content script into already-open doc tabs; hard-refresh the tab (Cmd-Shift-R) when iterating on the scraper. `bun run ext:dev` gives HMR for popup/options/sandbox but the SW + content script still need an extension reload.
-- **Popup states** (`entrypoints/popup/Popup.tsx`, single `View` discriminated union driven by `setView`): `loading` (boot), `no-settings` (configure backend), `no-doc` (no Docs tab active), `untracked` ("Add to Docket" → opens the in-popup sandboxed Picker on Chromium / falls back to a backend `/picker` tab on Firefox), `picker` (sandbox iframe lifecycle owned by `<PickerOverlay/>`), `registering` (transient after pick → before re-fetched tracked state), `tracked` (project info, version label, last-synced, comment count, "Sync now" button), `error` (with optional Retry). View components live in `entrypoints/popup/views/`; `Diagnostics.tsx` is always rendered at the bottom. The popup is the only Preact entrypoint — options, SW, content script, and the picker sandbox stay plain TS, since none of them have UI state worth a component framework. All project-surface paths talk to the SW via the `Message` envelope (`utils/messages.ts`) — `doc/state`, `doc/sync`, `doc/register`, `picker/config` — which forwards to the matching backend route with the user's API token.
-- **Sandboxed Picker** (`entrypoints/picker-sandbox.sandbox/{index.html,main.ts,style.css}`). WXT registers the page in `sandbox.pages` from the `.sandbox.html` filename suffix on Chromium and skips it on Firefox (Firefox MV3 doesn't support `sandbox.pages`); the chromium-only branch of the manifest factory sets `content_security_policy.sandbox` to allow the external `https://accounts.google.com` and `https://apis.google.com` script loads that the regular extension_pages CSP forbids. The sandbox runs at `null` origin, so it can't reach the backend through CORS — instead it postMessages the picked doc id back up to the popup, and the popup (chrome-extension origin) hits `/api/picker/register-doc`. On Firefox the popup detects via UA string and opens the backend `/picker` page in a new tab instead.
+Build pipeline, file layout, popup state machine, Picker mechanics, and DOM-selector contract live in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Design intent + phase scope: [`SPEC.md` §6.4](./SPEC.md#64-browser-extension). Conventions to know when working on this surface:
+
+- **Don't build by hand.** Always go through the WXT scripts (`bun run ext:build` / `ext:build:firefox` / `ext:dev`). Run `bunx wxt prepare` after edits that affect TypeScript so `.wxt/wxt.d.ts` regenerates.
+- **Cross-browser API.** Import `{ browser }` from `wxt/browser` — WXT ships its own promisified shim. Don't add `webextension-polyfill` (30 KB) or hand-roll a `chrome ?? browser` picker.
+- **Manifest origin permissions.** The backend URL isn't known at build time. Manifest declares `host_permissions: ["https://docs.google.com/*"]` (content script) + `optional_host_permissions: ["<all_urls>"]` (SW POSTs). The Options page's `Test connection` / `Save` handlers call `chrome.permissions.request({ origins: [...] })` from a click handler — Chrome rejects programmatic `permissions.request` outside a user gesture. One build serves both `localhost` dev and Fly prod.
+- **Selectors fail silently.** Two locations rot when Docs reships (~quarterly): `entrypoints/docs.content/sidebar-scraper.ts` (suggestion-thread replies) and `DOC_NAME_SELECTORS` in `entrypoints/docs.content/index.ts` (doc title input). Add new selectors at the head; keep older ones for back-compat. Replies are normalized up to their outermost `.docos-anchoredreplyview` wrapper so overlapping selectors don't double-count.
+- **Bootstrap diagnostics.** The content script logs one `[docket] content script ready (doc=…)` line on load and one `[docket] first scan: threads=N suggestions=N captures=N fresh=N` line on the first non-empty scan. Keep these — they're the only signal when the queue stays at 0.
+- **Capture idempotency.** End-to-end key is `(version_id, external_id)` on `canonical_comment`; the SW's `chrome.storage.local` seen-id cache is just a perf hint.
+- **Doc-title cache.** Every scan calls `setDocTitle(docId, name)` (`utils/storage.ts`). The popup reads this map instead of `tab.title` because the localized " - Google Docs" suffix breaks Picker's token-AND query matching. First popup-open after install may show "Google Doc" until the first scan (~750 ms).
+- **Reload behavior.** Hitting reload at `chrome://extensions` does *not* re-inject the content script into already-open doc tabs — hard-refresh the tab (Cmd-Shift-R). `bun run ext:dev` gives HMR for popup/options/sandbox but the SW + content script still need an extension reload.
+- **Preact only in the popup.** Options, SW, content script, and picker sandbox stay plain TS — no UI state worth a component framework.
+- **Backend calls go through the SW.** All popup → backend traffic uses the `Message` envelope in `utils/messages.ts` (`doc/state`, `doc/sync`, `doc/register`, `picker/config`). The popup never touches the API token directly; the picker sandbox can't (it's at `null` origin and not in CORS allow-list).
+- **E2E rig via `chrome-devtools-mcp`** (`.mcp.json` at repo root). Persistent Chrome profile at `.docket-test-chrome/` (gitignored), pre-warmed with the test Google account (`DOCKET_TEST_USER_EMAIL` in `.env`, OAuth-connected to local backend). Don't pass `--load-extension` — it's silently ignored under Puppeteer-launched Chrome; use `--categoryExtensions` + the `install_extension` MCP tool against `surfaces/extension/dist/chrome-mv3` instead. After install, pre-populate settings via `chrome.storage.local.set` in the SW context (`evaluate_script` with `serviceWorkerId`), then drive a real click on the Options page's *Test connection* button to grant `http://localhost:8787/*` (Chrome rejects programmatic `permissions.request` without a user gesture). Leave `--use-mock-keychain` on — stripping it wipes the test account's cookies. Keep the profile dir to a throwaway account.
 
 ## Schema migrations
 
