@@ -13,33 +13,22 @@ export function parseDocIdFromUrl(href: string): string | null {
 }
 
 /**
- * Stable, idempotent id for a captured reply. We avoid hashing the *position*
- * inside the thread because reply ordering can shift; instead we hash content
- * + author + timestamp + the thread id. Collisions across threads are
- * impossible because the thread id is part of the input.
+ * Strip the trailing locale-specific " - Google Docs" suffix from a tab
+ * title, leaving just the doc name. The browser sets `tab.title` from
+ * `document.title`, which Docs formats as `<DocName> - Google Docs` in
+ * English and `<DocName> - <Localized Google Docs>` in other locales. We
+ * split on the last " - " separator: if it leaves something non-empty
+ * behind, that's the doc name; otherwise return the original.
  *
- * Output is a printable hex digest that fits comfortably in JSON / URL.
+ * Pre-docx-ingest, this stripping was done by reading the title input
+ * directly off the Docs DOM via a content script and caching it per docId.
+ * The content script is gone; this helper covers the same locale-suffix
+ * concern with a single regex.
  */
-export async function stableReplyId(args: {
-  kixDiscussionId?: string;
-  authorBucket?: string;
-  createdAt?: string;
-  body: string;
-  parentQuotedText?: string;
-}): Promise<string> {
-  const parts = [
-    args.kixDiscussionId ?? "",
-    args.authorBucket ?? "",
-    args.createdAt ?? "",
-    args.parentQuotedText ?? "",
-    args.body,
-  ];
-  const data = new TextEncoder().encode(parts.join("␟"));
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  const bytes = new Uint8Array(hash);
-  let hex = "";
-  for (let i = 0; i < 16; i++) {
-    hex += bytes[i]!.toString(16).padStart(2, "0");
-  }
-  return hex; // 32-char prefix is plenty against collision in this scope
+export function cleanDocTitle(rawTitle: string | undefined | null): string {
+  if (!rawTitle) return "";
+  const idx = rawTitle.lastIndexOf(" - ");
+  if (idx <= 0) return rawTitle.trim();
+  const head = rawTitle.slice(0, idx).trim();
+  return head || rawTitle.trim();
 }

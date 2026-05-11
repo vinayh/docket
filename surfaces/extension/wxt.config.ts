@@ -30,19 +30,18 @@ export default defineConfig({
     short_name: "Margin",
     version: "0.1.0",
     description:
-      "Capture replies on Google Docs suggestion threads — the public Drive/Docs APIs do not expose them.",
+      "Margin — review and version Google Docs without leaving Docs.",
     // `sidePanel` is Chromium-only (browser.sidePanel.* APIs); Firefox
     // uses `sidebar_action` declared below and ignores unknown permission
     // entries gracefully, but we keep the request scoped to Chromium so
     // the store reviewers see a clean list.
     permissions:
-      browser === "firefox"
-        ? ["storage", "alarms"]
-        : ["storage", "alarms", "sidePanel"],
-    host_permissions: ["https://docs.google.com/*"],
+      browser === "firefox" ? ["storage"] : ["storage", "sidePanel"],
     // The user-configured backend URL isn't known at build time. We declare
     // `<all_urls>` as optional and request the specific origin from the
-    // options page on save. See entrypoints/options/main.ts.
+    // options page on save. See entrypoints/options/main.ts. There is no
+    // static `host_permissions` block — every other surface (popup, side
+    // panel, SW) talks to the backend over the optional origin.
     optional_host_permissions: ["<all_urls>"],
     action: {
       default_title: "Margin",

@@ -1,7 +1,5 @@
 import type {
-  CaptureInput,
   DocState,
-  IngestCapturesResult,
   PickerConfig,
   ProjectDetail,
   RegisterDocResult,
@@ -12,16 +10,16 @@ import type {
 
 /**
  * Typed message envelope for runtime.sendMessage / runtime.onMessage between
- * the content script (capture role) and the service worker (queue + flush).
- * Each variant has a `kind` discriminator so the SW can dispatch with
- * exhaustive switch coverage.
+ * the popup / side-panel and the service worker. Each variant has a `kind`
+ * discriminator so the SW dispatches with exhaustive switch coverage.
+ *
+ * Pre-docx-ingest this also carried `capture/submit`, `queue/flush`, and
+ * `queue/peek` for the content-script → SW → backend pipeline. The
+ * docx-export ingest (SPEC §9.8) runs server-side, so those kinds are gone.
  */
 export type Message =
-  | { kind: "capture/submit"; captures: CaptureInput[] }
   | { kind: "settings/get" }
   | { kind: "settings/set"; settings: Settings }
-  | { kind: "queue/flush" }
-  | { kind: "queue/peek" }
   | { kind: "doc/state"; docId: string }
   | { kind: "doc/sync"; docId: string }
   | { kind: "doc/register"; docUrlOrId: string }
@@ -36,15 +34,8 @@ export type Message =
  * the fields as undefined/unreliable.
  */
 export type MessageResponse =
-  | { kind: "capture/submit"; queuedCount: number; error?: string }
   | { kind: "settings/get"; settings: Settings | null; error?: string }
   | { kind: "settings/set"; ok: true; error?: string }
-  | {
-      kind: "queue/flush";
-      result: IngestCapturesResult | { error: string } | null;
-      error?: string;
-    }
-  | { kind: "queue/peek"; queueSize: number; lastError: string | null; error?: string }
   | { kind: "doc/state"; state: DocState | null; error?: string }
   | { kind: "doc/sync"; state: DocState | null; error?: string }
   | { kind: "doc/register"; result: RegisterDocResult; error?: string }

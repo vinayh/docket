@@ -15,7 +15,7 @@ export function Untracked({ tab, onAdd }: Props) {
       <p class="subtitle">Not tracked yet.</p>
       <p class="muted">
         Adds this doc as a Margin project so reviewer comments + suggestions
-        get captured.
+        get ingested.
       </p>
       <div class="actions">
         <button type="button" class="primary" onClick={onAdd}>

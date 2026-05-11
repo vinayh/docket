@@ -1,7 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { browser } from "wxt/browser";
-import { parseDocIdFromUrl } from "../../utils/ids.ts";
-import { getDocTitle } from "../../utils/storage.ts";
+import { cleanDocTitle, parseDocIdFromUrl } from "../../utils/ids.ts";
 import type {
   DocState,
   PickerConfig,
@@ -29,7 +28,11 @@ import { ErrorView } from "./views/ErrorView.tsx";
 
 export interface ActiveDocTab {
   docId: string;
-  /** Real doc name from chrome.storage.local; empty until the content script scrapes it. */
+  /**
+   * Doc name derived from `tab.title` with the " - Google Docs" locale
+   * suffix stripped (see `cleanDocTitle`). Empty when Chrome hasn't
+   * populated the tab title yet.
+   */
   title: string;
 }
 
@@ -280,6 +283,5 @@ async function getActiveDocTab(): Promise<ActiveDocTab | null> {
   if (!tab?.url) return null;
   const docId = parseDocIdFromUrl(tab.url);
   if (!docId) return null;
-  const title = (await getDocTitle(docId)) ?? "";
-  return { docId, title };
+  return { docId, title: cleanDocTitle(tab.title) };
 }

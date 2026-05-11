@@ -1,11 +1,10 @@
 import { useEffect, useState } from "preact/hooks";
-import { getSettings, sendMessage } from "../../ui/sendMessage.ts";
+import { getSettings } from "../../ui/sendMessage.ts";
 
 /**
- * The diagnostics panel folded into a <details> at the bottom of the popup.
- * Probes the backend's `/healthz` and asks the SW for queue size / last
- * error. Refreshes once on mount; the popup re-mounts on every open so
- * there's no need for a polling loop.
+ * Bottom-of-popup diagnostics. Pre-docx-ingest this also showed the SW
+ * capture queue size and a manual "flush queue now" button; the capture
+ * pipeline is gone, so this is just a `/healthz` reachability probe.
  */
 interface Props {
   initiallyOpen: boolean;
@@ -17,38 +16,18 @@ type Connection =
 
 export function Diagnostics({ initiallyOpen }: Props) {
   const [conn, setConn] = useState<Connection>({ tone: "", text: "checking…" });
-  const [queueSize, setQueueSize] = useState<string>("—");
-  const [lastError, setLastError] = useState<string>("—");
-  const [flushing, setFlushing] = useState(false);
-
-  async function refresh() {
-    const settings = await getSettings();
-    if (!settings) {
-      setConn({ tone: "error", text: "No backend configured." });
-    } else {
-      setConn({ tone: "", text: `Probing ${settings.backendUrl}…` });
-      void probeBackend(settings.backendUrl, setConn);
-    }
-    const peek = await sendMessage({ kind: "queue/peek" });
-    if (peek?.kind === "queue/peek") {
-      setQueueSize(String(peek.queueSize));
-      setLastError(peek.lastError ?? "—");
-    }
-  }
 
   useEffect(() => {
-    void refresh();
+    void (async () => {
+      const settings = await getSettings();
+      if (!settings) {
+        setConn({ tone: "error", text: "No backend configured." });
+        return;
+      }
+      setConn({ tone: "", text: `Probing ${settings.backendUrl}…` });
+      await probeBackend(settings.backendUrl, setConn);
+    })();
   }, []);
-
-  async function onFlush() {
-    setFlushing(true);
-    try {
-      await sendMessage({ kind: "queue/flush" });
-      await refresh();
-    } finally {
-      setFlushing(false);
-    }
-  }
 
   return (
     <details id="diagnostics" open={initiallyOpen}>
@@ -60,20 +39,6 @@ export function Diagnostics({ initiallyOpen }: Props) {
       >
         {conn.text}
       </p>
-      <dl>
-        <dt>Queued captures</dt>
-        <dd id="queue">{queueSize}</dd>
-        <dt>Last error</dt>
-        <dd id="last-error">{lastError}</dd>
-      </dl>
-      <button
-        id="flush"
-        type="button"
-        disabled={flushing}
-        onClick={() => void onFlush()}
-      >
-        Flush queue now
-      </button>
     </details>
   );
 }
