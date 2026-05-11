@@ -26,6 +26,32 @@ export async function getFile(
   return authedJson(tp, url);
 }
 
+/**
+ * Stream a Google Doc out as an OOXML (`.docx`) zip. This is the canonical
+ * ingest source — see SPEC §9.8 for the rationale and the matrix of which
+ * signals show up here that `comments.list` / `documents.get` drop.
+ *
+ * Returns the raw bytes; parsing lives in `src/google/docx.ts`. We don't
+ * stream-decompress here because the parser needs the whole zip in memory
+ * to read `word/comments.xml` alongside `word/document.xml` anyway.
+ */
+export async function exportDocx(
+  tp: TokenProvider,
+  fileId: string,
+): Promise<Uint8Array> {
+  const url = new URL(`${DRIVE_BASE}/files/${encodeURIComponent(fileId)}/export`);
+  url.searchParams.set(
+    "mimeType",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  );
+  const res = await authedFetch(tp, url);
+  if (!res.ok) {
+    throw new Error(`exportDocx failed: ${res.status} ${await res.text()}`);
+  }
+  const buf = await res.arrayBuffer();
+  return new Uint8Array(buf);
+}
+
 export async function copyFile(
   tp: TokenProvider,
   fileId: string,
