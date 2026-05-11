@@ -140,6 +140,22 @@ export const derivative = sqliteTable("derivative", {
 
 export type DocRegion = "body" | "header" | "footer" | "footnote";
 
+/**
+ * Range coordinates for one disjoint span of a multi-range comment. Populated
+ * when a `<w:comment>` exported as multiple OOXML rows sharing (author, date,
+ * body) collapses into one `canonical_comment` (SPEC §9.8). The primary span
+ * is the `structuralPosition` on the parent `CommentAnchor`; this type covers
+ * the *additional* ranges only.
+ */
+export type AnchorRange = {
+  region: DocRegion;
+  regionId?: string;
+  startParagraphIndex: number;
+  startOffset: number;
+  endParagraphIndex: number;
+  endOffset: number;
+};
+
 export type CommentAnchor = {
   quotedText: string;
   contextBefore?: string;
@@ -154,6 +170,13 @@ export type CommentAnchor = {
     paragraphIndex: number;
     offset: number;
   };
+  /**
+   * Extra disjoint ranges, populated when a comment was exported as multiple
+   * OOXML rows sharing (author, date, body). The primary range lives on
+   * `structuralPosition`; everything else lives here. Order is document
+   * order (region, regionId, paragraphIndex, startOffset).
+   */
+  additionalRanges?: AnchorRange[];
 };
 
 export type CanonicalCommentStatus = "open" | "addressed" | "wontfix" | "superseded";

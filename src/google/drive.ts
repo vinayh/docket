@@ -71,6 +71,13 @@ export interface DriveCommentAuthor {
   displayName?: string;
   emailAddress?: string;
   me?: boolean;
+  /**
+   * Per-user URL. Used as a disambiguator for two reviewers sharing a display
+   * name (OOXML doesn't surface this — SPEC §9.8). Hashed and stored as
+   * `canonical_comment.origin_user_photo_hash`-equivalent on the anchor; we
+   * never persist the raw URL.
+   */
+  photoLink?: string;
 }
 
 export interface DriveCommentReply {
@@ -99,7 +106,7 @@ export interface DriveComment {
 }
 
 const COMMENT_FIELDS =
-  "comments(id,author(displayName,emailAddress,me),createdTime,modifiedTime,content,htmlContent,quotedFileContent,resolved,deleted,anchor,replies(id,author(displayName,emailAddress,me),createdTime,modifiedTime,content,htmlContent,deleted,action)),nextPageToken";
+  "comments(id,author(displayName,emailAddress,me,photoLink),createdTime,modifiedTime,content,htmlContent,quotedFileContent,resolved,deleted,anchor,replies(id,author(displayName,emailAddress,me,photoLink),createdTime,modifiedTime,content,htmlContent,deleted,action)),nextPageToken";
 
 interface CommentListResponse {
   comments?: DriveComment[];

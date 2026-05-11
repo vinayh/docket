@@ -87,7 +87,7 @@ export const run = (args: string[]) =>
         }
         const r = o.result!;
         console.log(
-          `version=${id}  fetched=${r.fetched}  inserted=${r.inserted}  already=${r.alreadyPresent}  skipped_deleted=${r.skippedDeleted}`,
+          `version=${id}  fetched=${r.fetched}  inserted=${r.inserted}  already=${r.alreadyPresent}  skipped_orphan_metadata=${r.skippedOrphanMetadata}`,
         );
       }
     },
@@ -113,7 +113,7 @@ export const run = (args: string[]) =>
         return;
       }
       console.log(
-        `✓ event handled: fetched=${r.fetched} inserted=${r.inserted} already=${r.alreadyPresent} skipped_deleted=${r.skippedDeleted}`,
+        `✓ event handled: fetched=${r.fetched} inserted=${r.inserted} already=${r.alreadyPresent} skipped_orphan_metadata=${r.skippedOrphanMetadata}`,
       );
     },
   });

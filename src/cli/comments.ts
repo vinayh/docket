@@ -12,7 +12,7 @@ export const run = (args: string[]) =>
       if (!versionId) usage(USAGE);
       const r = await ingestVersionComments(versionId);
       console.log(
-        `✓ ingested version ${r.versionId}: fetched=${r.fetched} inserted=${r.inserted} (suggestions=${r.suggestionsInserted}) already_present=${r.alreadyPresent} skipped_deleted=${r.skippedDeleted}`,
+        `✓ ingested version ${r.versionId}: fetched=${r.fetched} inserted=${r.inserted} (suggestions=${r.suggestionsInserted}) already_present=${r.alreadyPresent} skipped_orphan_metadata=${r.skippedOrphanMetadata}`,
       );
     },
 
