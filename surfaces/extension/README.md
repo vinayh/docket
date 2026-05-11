@@ -1,23 +1,21 @@
 # Margin browser extension
 
-MV3 extension for Chrome / Edge / Firefox. **Phase-3 scope** — see
+MV3 extension for Chrome / Edge / Firefox. **Phase-4 scope** — see
 [`SPEC.md` §6.4](../../SPEC.md#64-browser-extension):
 
-- **Capture role.** Watches the Google Docs discussion sidebar for replies
-  typed into a *suggestion*'s sidebar entry (the public Drive/Docs APIs
-  don't expose those — verified empirically;
-  see [`SPEC.md` §11](../../SPEC.md#11-out-of-scope-for-v1)) and POSTs them
-  to the Margin backend.
 - **Project surface (popup).** Opens to a state machine driven by the
   active Docs tab: configure backend → open a Doc → "Add to Margin" (in-popup
   sandboxed Drive Picker on Chromium, fallback `/picker` tab on Firefox)
   → tracked view with role / version / comment count / last-synced /
   "Sync now". All backend calls flow through the service worker so the
   API token never touches the popup origin or the picker sandbox.
+- **Rich UI (side panel).** Preact app — project dashboard (versions,
+  derivatives, review history, reviewer participation), structured
+  side-by-side version diff, comment reconciliation view.
 
-The rich-UI role (side-panel dashboard, diff viewer, reconciliation,
-overlay editor) lands in Phase 4. The visualization role (in-canvas
-highlights, gutter markers, selection capture) lands in Phase 6.
+The visualization role (in-canvas highlights, gutter markers, selection
+capture) lands in Phase 6. Comment ingest is **not** an extension
+concern — it lives in the backend (`.docx` export, SPEC §9.8).
 
 ## Build
 
@@ -32,7 +30,7 @@ bun run ext:dev:firefox        # dev server with HMR (Firefox)
 bun run ext:zip                # bundle dist/<target>/ into a publishable .zip
 ```
 
-Outputs to `surfaces/extension/dist/{chrome-mv3,firefox-mv3}//`. Each
+Outputs to `surfaces/extension/dist/{chrome-mv3,firefox-mv3}/`. Each
 output directory is loadable directly:
 
 - **Chrome / Edge:** `chrome://extensions` → enable Developer Mode → Load
@@ -57,9 +55,9 @@ output directory is loadable directly:
 
 3. Click **Test connection** to confirm `/healthz` responds. Click **Save**.
 
-The popup is the primary project surface. Capture-queue diagnostics
-(size / last error / **Flush queue now**) live in a `<details>` panel at
-the bottom of every view.
+The popup is the primary project surface. A `<details>` diagnostics panel
+at the bottom of every view shows the current `/healthz` reachability
+status.
 
 ## How the popup project surface works
 
@@ -86,81 +84,18 @@ all — it postMessages the picked doc id back to the popup, and the popup
 (at the `chrome-extension://...` origin allow-listed in CORS) hits
 `/api/picker/register-doc` via the SW.
 
-No `tabs` permission is needed because the manifest's
-`host_permissions: ["https://docs.google.com/*"]` already covers Docs tabs.
+There is no static `host_permissions` for `docs.google.com` — the
+extension never injects into the Docs tab. The `tabs` API gives the popup
+read access to the active tab's URL + title without any extra permission.
 
-The doc title (used both for the popup heading and the Picker query) comes
-from the **title cache** populated by the content script. Each scan calls
-`setDocTitle(docId, name)` (`utils/storage.ts`) with the value read from
-the title input — see `DOC_NAME_SELECTORS` in
-`entrypoints/docs.content/index.ts`. We don't use `tab.title` because Chrome
-localizes it (e.g. "<name> - Google Docs", or its translation), and the
-suffix tokens break Picker's token-AND `setQuery` matching against file
-names. First popup-open after a fresh install may show "Google Doc" until
-the first scan completes (~750 ms after page load).
+## Doc title
 
-## How capture works
-
-`entrypoints/docs.content/index.ts` runs on `https://docs.google.com/document/*`. A
-`MutationObserver` (debounced at 750 ms) re-scans the discussion sidebar after
-DOM activity settles. `sidebar-scraper.ts` walks the sidebar with a tolerant
-selector list — Google Docs reships the comment UI roughly quarterly, and
-selectors **will** rot. The scraper's contract is "best-effort, fail
-silently, surface what we can"; broken selectors mean missing captures, not
-crashes.
-
-For each suggestion thread it finds, every visible reply (including the seed
-comment) is normalized into a `CaptureInput`:
-
-```ts
-{
-  externalId: "<sha256(kixId, author, ts, body)>",  // idempotency key
-  docId: "...",
-  kixDiscussionId: "kix.<n>",                       // when present in DOM
-  parentQuotedText: "...",                          // suggestion's quoted text
-  authorDisplayName: "...",
-  createdAt: "<ISO-8601 if parsed>",
-  body: "<reply text>"
-}
-```
-
-Captures are sent to the service worker, which:
-
-1. De-duplicates against the per-doc seen-id set in `chrome.storage.local`.
-2. Persists survivors to a queue (also in `chrome.storage.local`).
-3. POSTs batches of ≤25 to `POST /api/extension/captures` on the configured
-   backend.
-4. On 2xx, marks the externalIds as seen so they aren't retried.
-5. On network / 5xx, leaves the queue intact; a `chrome.alarms` tick every
-   60 s retries.
-6. On 401 / 403, surfaces the error in the popup and pauses retries until
-   settings change.
-
-Idempotency is end-to-end: the backend dedupes on `(version_id, external_id)`
-in the `canonical_comment` table, so even a corrupted seen-id cache won't
-duplicate rows.
-
-## DOM selector maintenance
-
-Two selector lists, both module-scope constants, both prone to rot when
-Docs reships (~quarterly):
-
-- `entrypoints/docs.content/sidebar-scraper.ts` — `THREAD_ROOT_SELECTORS`,
-  `REPLY_SELECTORS`, etc., for the discussion sidebar.
-- `entrypoints/docs.content/index.ts` — `DOC_NAME_SELECTORS`, for the title input
-  used by the "Track this doc" popup label and Picker query.
-
-When Docs reships:
-
-1. Open a doc with suggestion-thread replies and inspect the sidebar /
-   title input.
-2. Identify the new attributes / classes.
-3. Add new selectors to the head of the relevant array — older selectors
-   stay so older Docs builds still parse.
-4. Run `bun run ext:build` and reload the unpacked extension.
-
-Budget: ~4–8 hours / month per
-[`SPEC.md` §6.4](../../SPEC.md#64-browser-extension).
+The popup reads `tab.title` via `chrome.tabs.query({ active: true })` and
+passes it through `cleanDocTitle()` in `utils/ids.ts`, which strips the
+trailing locale `" - Google Docs"` suffix Chrome puts on
+`document.title`. The cleaned name powers both the popup heading and the
+Drive Picker's `setQuery` name pre-filter (which uses token-AND matching,
+so the suffix tokens would otherwise blow it up).
 
 ## Layout
 
@@ -169,10 +104,7 @@ surfaces/extension/
   wxt.config.ts             one config, per-browser manifest via (env) callback
   tsconfig.json             extends .wxt/tsconfig.json + DOM + WebWorker libs
   entrypoints/
-    background.ts           defineBackground — queue + flush + alarm tick
-    docs.content/
-      index.ts              defineContentScript — MutationObserver bootstrap
-      sidebar-scraper.ts    DOM heuristics (tolerant selector list)
+    background.ts           defineBackground — message router → backend POSTs
     options/
       index.html            includes meta name="manifest.open_in_tab" content="true"
       main.ts               backend URL + API token form
@@ -182,21 +114,22 @@ surfaces/extension/
       main.tsx              Preact bootstrap
       Popup.tsx             View discriminated union + async flows
       Header.tsx            shared title row
-      Diagnostics.tsx       capture-queue <details> panel
+      Diagnostics.tsx       /healthz probe <details> panel
       PickerOverlay.tsx     iframe lifecycle + postMessage handshake
       views/                NoSettings, NoDoc, Untracked, Tracked, ErrorView
       style.css
+    sidepanel/              Preact rich UI — dashboard, diff, reconciliation
     picker-sandbox.sandbox/  WXT recognizes the .sandbox.html suffix and emits
       index.html             into the manifest's sandbox.pages (chromium only)
       main.ts                gapi / gsi loader + Picker postMessage host
       style.css
   utils/
-    ids.ts                  docId parser + stable reply id hash (shared)
+    ids.ts                  docId parser + cleanDocTitle()
     messages.ts             typed runtime messages
-    storage.ts              typed chrome.storage wrappers
-    types.ts                CaptureInput wire format
+    storage.ts              typed chrome.storage wrappers (settings only)
+    types.ts                shared wire types (DocState, ProjectDetail, …)
   public/icons/             placeholder artwork — replace before publish
-  dist/                  build output, gitignored
+  dist/                     build output, gitignored
   .wxt/                     generated types (wxt prepare), gitignored
 ```
 
@@ -204,6 +137,4 @@ surfaces/extension/
 
 - In-canvas highlights / gutter markers — Phase 6, requires the
   accessibility-DOM mirror or selection-event hooks ([`SPEC.md` §9.6](../../SPEC.md#96-canvas-rendered-doc-body)).
-- Project dashboard, diff viewer, reconciliation UI, overlay editor —
-  Phase 4.
 - Mobile / iPad Docs — browser extensions don't run on those clients.

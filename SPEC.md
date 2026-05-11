@@ -24,7 +24,7 @@ Margin helps research teams run structured review of Google Docs across drafts, 
 Three layers:
 
 - **Backend** — single source of truth. Owns DB, reanchoring engine, Drive OAuth tokens, watch/poll loop, REST API.
-- **Surfaces** — read/write views: Slack bot, browser extension (rich UI + capture), Workspace add-on (in-doc Cards), web shell (OAuth + Picker + magic links + landing).
+- **Surfaces** — read/write views: Slack bot, browser extension (rich UI; in-canvas overlays planned in Phase 6), Workspace add-on (in-doc Cards), web shell (OAuth + Picker + magic links + landing).
 - **Google integration layer** — Drive/Docs REST wrappers, OAuth token manager, push-notification subscriptions; lives inside the backend.
 
 **Architectural rule:** *all state lives in the backend.* A comment, version, or overlay is real because the backend says so — not because Google or Slack says so.
@@ -40,7 +40,7 @@ Three layers:
 | `overlay` | name, ordered ops (JSON), project |
 | `overlay_operation` | type, anchor (quoted text + context), payload, confidence_threshold |
 | `derivative` | version_id, overlay_id, google_doc_id, audience_label |
-| `canonical_comment` | origin_version_id, origin_user, anchor (text + paragraph hash + structural offset), body, status, parent_comment_id |
+| `canonical_comment` | origin_version_id, origin_user (+ `origin_photo_hash` for display-name disambiguation, §9.8), anchor (text + paragraph hash + structural offset), body, status, parent_comment_id |
 | `comment_projection` | canonical_comment_id, version_id, google_comment_id, anchor_match_confidence, projection_status, last_synced_at |
 | `review_request` | project, version, status, deadline, slack_thread_ref |
 | `review_assignment` | review_request, user, status, responded_at |
@@ -52,7 +52,7 @@ The anchor schema is rich enough to resolve to on-screen coordinates without Goo
 
 ## 5. Backend services
 
-- **Doc-watcher.** `drive.files.watch` per project + active forks; channel-renewer cron + polling fallback (§9.3). On event → re-fetch comments, update canonical store.
+- **Doc-watcher.** `drive.files.watch` per project + active forks; channel-renewer cron + polling fallback (§9.3). On event → re-export the doc as `.docx` (Drive `files.export`) and parse OOXML for comments, suggestions, and suggestion-thread replies (§9.8). `comments.list` is queried alongside, used only to recover author identity (`me` + `photoLink`) that docx drops.
 - **Reanchoring engine.** Given an anchor + target version: exact text match (high) → fuzzy within paragraph (medium, edit distance + structural context) → orphan. Returns confidence; thresholds drive auto-project vs. surface-for-review. Margin owns anchoring end-to-end; Google's kix anchor is one input, never authoritative (§9.1).
 - **Comment projection.** Native comments authored by Margin are unanchored from Google's view (§9.1). Body is prefixed `Re: "<quoted snippet>" — <body>`. The add-on layers named ranges for "comments at this paragraph"; the extension layers on-canvas overlays.
 - **Overlay applier.** Translates ops to `documents.batchUpdate` (mapping in §9.7). Anchor → index resolution happens upstream. Below-threshold ops surface for review, not silent skip.
@@ -97,14 +97,14 @@ Project dashboards, diff viewer, reconciliation UI, overlay editor, settings liv
 
 ### 6.4 Browser extension
 
-Chrome / Firefox / Edge extension on `docs.google.com/*` + popup/options pages. Four roles across four phases:
+Chrome / Firefox / Edge extension — popup + options + side panel + Picker sandbox. The extension is a **pure UI surface**: ingestion happens server-side via docx export (§9.8), so the manifest has no content script and no `host_permissions` on `docs.google.com`. Roles across phases:
 
-- **Capture (Phase 2 — MVP).** `MutationObserver` on the discussion sidebar; scrapes suggestion-thread replies; matches by kix discussion ID (preferred) or quoted-text equality (fallback); POSTs to backend. Service-worker queue + `chrome.storage.local` dedupe.
-- **Project surface (Phase 3 — current).** The popup is the primary "is this doc tracked, what state is it in, sync it now, add it as a new project" surface. Reads tab URL → doc id, queries backend `/api/extension/doc-state`, branches into onboarding / tracked views. "Add to Margin" mounts a sandboxed Drive Picker iframe inline on Chromium (Firefox MV3: opens the backend `/picker` page in a tab as fallback). "Sync now" calls `/api/extension/doc-sync` to re-ingest comments. No Workspace add-on required.
-- **Rich UI (Phase 4).** Preact app in the side panel: project dashboard (versions, derivatives, review history, reviewer participation), structured side-by-side version diff (see §12 Phase 4), comment reconciliation UI for fuzzy/orphan projections, overlay editor with live preview, settings. Talks to backend with per-user API token.
-- **Visualization (Phase 6).** Highlights overlaid on the doc body, gutter markers, hover previews, right-click "comment on selection," native-comment-rail integration. Doc body is `<canvas>` (§9.6) — needs accessibility-DOM mirror or selection-event hooks.
+- **Project surface (Phase 3 — shipped).** The popup is the primary "is this doc tracked, what state is it in, sync it now, add it as a new project" surface. Reads `tab.title` (stripped of the locale `" - Google Docs"` suffix) → backend `/api/extension/doc-state`, branches into onboarding / tracked views. "Add to Margin" mounts a sandboxed Drive Picker iframe inline on Chromium (Firefox MV3: opens the backend `/picker` page in a tab as fallback). "Sync now" calls `/api/extension/doc-sync` to re-ingest comments. No Workspace add-on required.
+- **Rich UI (Phase 4 — shipped).** Preact app in the side panel: project dashboard (versions, derivatives, review history, reviewer participation), structured side-by-side version diff, comment reconciliation list. Talks to backend with per-user API token via the SW.
+- **Visualization (Phase 6).** Highlights overlaid on the doc body, gutter markers, hover previews, right-click "comment on selection," native-comment-rail integration. Doc body is `<canvas>` (§9.6) — needs accessibility-DOM mirror or selection-event hooks. **This is the only future role that touches the doc page**; if it ships, it will reintroduce `host_permissions` on `docs.google.com/*` and a content script, but only to read selection events / a11y-mirror coordinates — never comment data.
+- **Capture (Phase 2 — retired).** Originally scraped suggestion-thread replies from the discussion sidebar (the public Drive/Docs APIs didn't surface them). The docx-export ingest path (§9.8) recovers the same data server-side with exact anchors and ISO timestamps, so the `MutationObserver`, SW capture queue, `/api/extension/captures` endpoint, and the `host_permissions` on `docs.google.com/*` were all removed in Phase 4.
 
-Implementation detail (popup state machine, sandboxed-Picker handshake, doc-title cache, manifest origin permissions, selector-rot contract, cross-browser shim) lives in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Conventions for working on this surface: [`AGENTS.md`](./AGENTS.md#browser-extension-surfacesextension).
+Implementation detail (popup state machine, sandboxed-Picker handshake, manifest permissions, cross-browser shim) lives in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Conventions for working on this surface: [`AGENTS.md`](./AGENTS.md#browser-extension-surfacesextension).
 
 **Out of scope:** mobile / iPad Docs.
 
@@ -195,6 +195,26 @@ Docs renders body to `<canvas>`. DOM-overlaying extensions need the accessibilit
 
 Anchor → index resolution happens upstream.
 
+### 9.8 Docx export is the canonical ingest source
+
+Drive `files.export?mimeType=…wordprocessingml.document` returns the doc as OOXML zip. Empirically verified to surface every piece of annotation state we need, several of which the public Drive / Docs APIs do not:
+
+| Signal | `comments.list` | `documents.get` | docx export |
+|---|---|---|---|
+| Plain comment + body | ✅ | — | ✅ |
+| Exact anchor coords | ❌ (opaque `kix.*`) | — | ✅ via `<w:commentRangeStart/End>` at run boundaries |
+| Disjoint multi-range comment | ❌ (only first span) | — | ✅ as N `<w:comment>` rows sharing `(w:author, w:date, body)` |
+| Multi-paragraph contiguous range | ✅ (quoted spans `\n`) | — | ✅ range crosses paragraphs |
+| Suggested insert/delete content | — | ✅ | ✅ via `<w:ins>` / `<w:del>` |
+| Suggestion author + timestamp | — | ❌ (deferred to `revisions.list`) | ✅ on `<w:ins>` / `<w:del>` |
+| **Suggestion-thread replies** | ❌ | ❌ | ✅ as `<w:comment>` whose range overlaps the `<w:ins>`/`<w:del>` |
+| Author identity discriminator | ✅ via `me` + `photoLink` | — | ❌ display-name only |
+| Parent-reply linkage | ✅ nested `replies[]` | — | ❌ flat; reconstruct by same-anchor + `w:date` |
+
+**Implication.** Ingest is docx-driven; `comments.list` is queried alongside purely to recover `me` + `photoLink` for author disambiguation (two users with the same display name are indistinguishable in OOXML). The extension's Phase-2 capture role becomes redundant and is retired in Phase 4. §9.1 still holds — Margin authors unanchored comments outbound; the docx path is inbound only.
+
+**Reply-on-suggestion detection rule.** A `<w:comment>` whose `commentRangeStart`/`End` interval overlaps a `<w:del>` or `<w:ins>` element is a reply on that suggestion's thread. No `paraIdParent` or equivalent in Google's export — linkage is purely positional.
+
 ## 10. Privacy and security
 
 - Drive refresh tokens encrypted at rest (envelope encryption: KEK → per-row DEK → ciphertext).
@@ -208,7 +228,7 @@ Anchor → index resolution happens upstream.
 
 - Real-time merge of edits across versions (only comments + overlays reconcile).
 - Image- / table-anchored comment reanchoring (orphans, manual placement).
-- Deep suggesting-mode integration. v1 ingests insert/delete suggestions as `canonical_comment` rows tagged `kind=suggestion_*`, anchored on affected text. Walks all regions (body, headers, footers, footnotes). Author/timestamp via `revisions.list` + style-only suggestions (`suggestedTextStyleChanges`) deferred to Phase 6. **Suggestion-thread replies** are recovered only via the extension (Phase 2).
+- Deep suggesting-mode integration. v1 ingests insert/delete suggestions as `canonical_comment` rows tagged `kind=suggestion_*`, anchored on affected text. Walks all regions (body, headers, footers, footnotes). Style-only suggestions (`suggestedTextStyleChanges`) deferred to Phase 6. Suggestion **author/timestamp** and **suggestion-thread replies** ingest via the docx export path (§9.8); the `revisions.list` cross-reference originally planned for these is no longer needed.
 - Authoring **anchored** native Google Docs comments.
 - Native mobile UI / responsive web.
 - Public Workspace Marketplace listing (private/domain install only at v1).
@@ -223,9 +243,11 @@ Phases 1–4 = MVP. Phase 5 adds Slack. Phase 6 = cross-org polish + extension v
 Headless backend + CLI. Drizzle schema (12 tables) on `bun:sqlite` WAL; envelope-encrypted refresh tokens; Google OAuth + per-user `TokenProvider`; Drive/Docs REST wrappers; domain primitives (`createProject`, `createVersion`); canonical comment ingest; reanchoring engine with confidence scoring; overlay applier; doc-watcher with channel renewer + polling fallback; `bun margin <subcommand>` CLI dispatcher.
 
 ### Phase 2 — Backend HTTP API + browser extension (capture) + minimal web entry points
-**Status: shipped.** ✅
+**Status: shipped; capture role removed in Phase 4 (replaced by §9.8 docx ingest).** ✅
 
-Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun margin serve` HTTP host: `/healthz`, `/oauth/{start,callback}`, `/picker` (real Drive Picker iframe with GIS-backed tokens, gated on `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`), `/webhooks/drive`, `/api/extension/captures`, `/api/picker/register-doc`. Per-user opaque API tokens with bearer middleware. MV3 extension (Chrome / Edge / Firefox, single codebase) with the capture role (sidebar `MutationObserver`, SW queue + alarm-driven retry, end-to-end idempotency). Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops, gated on `MARGIN_PUBLIC_BASE_URL`.
+Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun margin serve` HTTP host: `/healthz`, `/oauth/{start,callback}`, `/picker` (real Drive Picker iframe with GIS-backed tokens, gated on `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`), `/webhooks/drive`, `/api/picker/register-doc`. Per-user opaque API tokens with bearer middleware. MV3 extension (Chrome / Edge / Firefox, single codebase). Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops, gated on `MARGIN_PUBLIC_BASE_URL`.
+
+The original capture-role components — `/api/extension/captures`, `domain/capture.ts`, sidebar scraper + `MutationObserver`, SW capture queue + flush alarm, the `canonical_comment.{kix_discussion_id, external_id}` columns, and the `host_permissions: ["https://docs.google.com/*"]` manifest entry — were all deleted in Phase 4 once the docx-export ingest path (§9.8) was running. The extension is now a pure UI surface; ingestion lives entirely in the backend.
 
 ### Phase 3 — Extension popup as project surface
 **Status: shipped.** ✅
@@ -243,20 +265,27 @@ Popup state machine + sandboxed-Picker mechanics live in [`surfaces/extension/RE
 
 **Delivers:** the popup owns the entire "track → check state → sync now" loop. New users never see a Margin-hosted page after OAuth.
 
-### Phase 4 — Extension rich UI + magic-link action handlers
-**Status: not started.**
+### Phase 4 — Extension rich UI + docx-export ingest + magic-link action handlers
+**Status: in progress.**
 
 Builds on the Phase-3 popup project surface. The popup retains the lightweight read-only view; the side-panel / options page hosts the rich React app.
 
-- Preact app from extension side-panel / options. Popup stays in Preact (already; see Phase 3) — opening it has to be fast and the surface is small. The side-panel is where the heavier dashboard / diff / overlay views live.
-- Project dashboard: versions, derivatives, review history, reviewer participation. Backed by `POST /api/extension/project` (Phase-4 slice A; bearer-auth, owner-scoped composed view).
-- Side-by-side version diff. **Structured**, not plaintext: client-side renders against `documents.get` structural content (paragraphs + runs + `textStyle` + `namedStyleType` + bullet/table) so formatting changes (bold/italic, headings, list reflow, style-only edits) are visible. Two-pass diff: (1) paragraph-level alignment keyed by `(hash(plaintext), namedStyleType)`, (2) intra-paragraph run diff preserving style boundaries; style-only changes (same text, different `textStyle`) render distinctly. Backend ships structured doc payloads via `POST /api/extension/version-diff`; the diff itself runs in the side panel.
-- Comment reconciliation UI for fuzzy / orphan projections.
-- Overlay editor with live preview against the current parent.
-- Settings: notification prefs, default reviewers, Slack workspace linking.
-- Magic-link `/r/<token>` handlers: mark reviewed, decline, request changes, accept reconciliation. Token issued in assignment emails.
+Shipped:
 
-**Delivers:** MVP. Cross-org workflows become possible via one-click email actions.
+- Preact side-panel scaffold + project dashboard (`POST /api/extension/project`).
+- Structured side-by-side version diff (`POST /api/extension/version-diff`): client renders against `documents.get` structural content (paragraphs + runs + `textStyle` + `namedStyleType` + bullet/table). Two-pass diff: (1) paragraph-level alignment keyed by `(hash(plaintext), namedStyleType)`, (2) intra-paragraph run diff preserving style boundaries; style-only changes render distinctly.
+- Read-only comment reconciliation list (`POST /api/extension/version-comments`).
+- **Docx-export ingest (§9.8).** `ingestVersionComments` exports the doc as `.docx`, parses OOXML via `src/google/docx.ts` (fflate + fast-xml-parser, `preserveOrder: true`), and writes canonical_comment / comment_projection rows directly from the parsed annotations. Recovers disjoint multi-range comments (collapsed by `(author, date, body)` onto `anchor.additionalRanges`), exact anchor coordinates, suggestion-thread replies (linked via `parent_comment_id` to the canonical suggestion row), and suggestion author + timestamp. `comments.list` retained alongside *only* to (a) reconstruct plain-comment reply trees that OOXML flattens and (b) recover `me` + `photoLink` for author-identity disambig (stored as `canonical_comment.origin_photo_hash`).
+- **Extension capture-role retirement.** The capture pipeline was deleted end-to-end: `/api/extension/captures`, `src/domain/capture.ts`, the sidebar `MutationObserver` + scraper, the SW capture queue + `chrome.alarms` flush loop, the `canonical_comment.{kix_discussion_id, external_id}` columns, the docs.google.com `host_permissions`, the `alarms` permission, the per-doc title cache, and `src/domain/suggestions.ts`. Migrations 0000–0005 collapsed to a single fresh schema. The doc-watcher's webhook handler re-runs `ingestVersionComments` on `files.watch` events. Since most comments now arrive with exact coordinates, the reanchoring engine's fuzzy / orphan paths matter only for cross-version projection — first-version ingest is clean by construction.
+
+Remaining:
+
+- **Comment reconciliation actions.** `POST /api/extension/comment-action` for accept-projection, reanchor, mark-resolved, mark-wontfix, reopen. Side-panel action menu on each row. Audit-logged.
+- **Overlay editor.** Live preview against the current parent — reuses the structured-diff renderer ("preview = overlay output diffed against parent").
+- **Settings.** Notification prefs, default reviewers, Slack workspace linking.
+- **Magic-link `/r/<token>` handlers.** Mark reviewed, decline, request changes, accept reconciliation. New `review_action_token` row (`token_hash`, `review_assignment_id`, `action`, `expires_at`, `used_at`); token issued in assignment emails. `/r/<token>` route on the secured (non-CORS) side of the API.
+
+**Delivers:** MVP. Cross-org workflows become possible via one-click email actions; the extension stops being a data pipe and is purely a UI surface.
 
 ### Phase 5 — Slack bot
 **Status: not started.**
@@ -275,13 +304,12 @@ Builds on the Phase-3 popup project surface. The popup retains the lightweight r
 - Slack Connect for shared review channels across orgs.
 - External-reviewer onboarding via magic-link auth + identity verification (OAuth `sub`/email vs. share list).
 - Friendly errors when org policy blocks third-party app access (§10).
-- Extension visualization: in-canvas highlights / gutter markers (accessibility-DOM mirror or selection-event hooks; §9.6); hover previews; right-click "comment on selection"; native-comment-rail integration.
-- Drive `revisions.list` cross-reference to populate author/timestamp on `kind=suggestion_*` rows.
+- Extension visualization: in-canvas highlights / gutter markers (accessibility-DOM mirror or selection-event hooks; §9.6); hover previews; right-click "comment on selection"; native-comment-rail integration. The content script returns here — but reading selection events / a11y coords, not comment data.
 
 ### Phase 7 — Workspace add-on, marketplace listings, advanced features
 **Status: not started.**
 
-- **Workspace add-on (deferred from earlier MVP plan).** Unified Workspace Add-on (CardService UI; §9.4) covering the same affordances as the Phase-3 popup, for users on managed devices or in environments that block extension installs. `onFileScopeGranted` integrates per-file `drive.file` with Margin's token store (§9.2). Apps Script identity-token verification on the backend. Banner UX nudging reviewers to leave a regular comment rather than a suggestion-thread reply. Named-range bookkeeping in the overlay applier — powers add-on "comments at this paragraph" affordances.
+- **Workspace add-on (deferred from earlier MVP plan).** Unified Workspace Add-on (CardService UI; §9.4) covering the same affordances as the Phase-3 popup, for users on managed devices or in environments that block extension installs. `onFileScopeGranted` integrates per-file `drive.file` with Margin's token store (§9.2). Apps Script identity-token verification on the backend. Named-range bookkeeping in the overlay applier — powers add-on "comments at this paragraph" affordances.
 - Workspace Marketplace listing (OAuth verification + security assessment).
 - Slack App Directory listing.
 - Browser-extension store listings (Chrome Web Store, Firefox Add-ons, Edge Add-ons).
