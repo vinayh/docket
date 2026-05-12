@@ -7,6 +7,21 @@ export interface AuthenticatedRequest {
 }
 
 /**
+ * Upper bound for any opaque id we accept on the wire (project, version,
+ * canonical-comment, etc.). 200 covers UUIDs, Google Doc ids, and slugs with
+ * room to spare; anything longer is almost certainly hostile. Routes that
+ * carry user-supplied URLs (e.g. `picker-register`'s `docUrlOrId`) override
+ * locally.
+ */
+export const MAX_ID_LEN = 200;
+
+/**
+ * Shared schema for opaque ids on incoming JSON bodies. Pairs with
+ * `MAX_ID_LEN` above.
+ */
+export const IdSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_ID_LEN));
+
+/**
  * Resolve the caller's user via Better Auth. Accepts either a session cookie
  * or `Authorization: Bearer <session_token>` (the bearer plugin converts the
  * header into the same session lookup). Returns null when no valid session
@@ -156,4 +171,20 @@ export function parseOr400<TSchema extends v.GenericSchema>(
   const issue = result.issues[0];
   const path = issue.path?.map((p) => String(p.key)).join(".") ?? "";
   return badRequest(path ? `${path}: ${issue.message}` : issue.message);
+}
+
+/**
+ * Read + size-check the request body, parse JSON, and validate against
+ * `schema` in one call. Returns the parsed value or a 400 `Response`.
+ * Callers use a single `if (x instanceof Response) return x` guard instead
+ * of two.
+ */
+export async function readAndParseJson<TSchema extends v.GenericSchema>(
+  req: Request,
+  maxBodyBytes: number,
+  schema: TSchema,
+): Promise<v.InferOutput<TSchema> | Response> {
+  const payload = await readJsonBody(req, maxBodyBytes);
+  if (payload instanceof Response) return payload;
+  return parseOr400(schema, payload);
 }

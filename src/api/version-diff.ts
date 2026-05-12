@@ -2,22 +2,19 @@ import * as v from "valibot";
 import {
   authenticateBearer,
   badRequest,
+  IdSchema,
   jsonOk,
   notFound,
-  parseOr400,
-  readJsonBody,
+  readAndParseJson,
   unauthorized,
 } from "./middleware.ts";
 import { getVersionDiffPayload } from "../domain/version-diff.ts";
 
 const MAX_BODY_BYTES = 4 * 1024;
-const MAX_ID_LEN = 200;
-
-const Id = v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_ID_LEN));
 
 const VersionDiffBodySchema = v.object({
-  fromVersionId: Id,
-  toVersionId: Id,
+  fromVersionId: IdSchema,
+  toVersionId: IdSchema,
 });
 
 /**
@@ -35,9 +32,7 @@ export async function handleVersionDiffPost(req: Request): Promise<Response> {
   const auth = await authenticateBearer(req);
   if (!auth) return unauthorized();
 
-  const payload = await readJsonBody(req, MAX_BODY_BYTES);
-  if (payload instanceof Response) return payload;
-  const parsed = parseOr400(VersionDiffBodySchema, payload);
+  const parsed = await readAndParseJson(req, MAX_BODY_BYTES, VersionDiffBodySchema);
   if (parsed instanceof Response) return parsed;
   if (parsed.fromVersionId === parsed.toVersionId) {
     return badRequest("fromVersionId and toVersionId must differ");

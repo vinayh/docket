@@ -2,13 +2,14 @@ import * as v from "valibot";
 import {
   authenticateBearer,
   jsonOk,
-  parseOr400,
-  readJsonBody,
+  readAndParseJson,
   unauthorized,
 } from "./middleware.ts";
 import { createProject, DuplicateProjectError } from "../domain/project.ts";
 
 const MAX_BODY_BYTES = 8 * 1024;
+// `docUrlOrId` accepts a full Google Docs URL, which is longer than an opaque
+// id — keep this limit local rather than borrowing `MAX_ID_LEN`.
 const MAX_FIELD_LEN = 4 * 1024;
 
 const RegisterBodySchema = v.object({
@@ -33,9 +34,7 @@ export async function handleRegisterDocPost(req: Request): Promise<Response> {
   const auth = await authenticateBearer(req);
   if (!auth) return unauthorized();
 
-  const payload = await readJsonBody(req, MAX_BODY_BYTES);
-  if (payload instanceof Response) return payload;
-  const parsed = parseOr400(RegisterBodySchema, payload);
+  const parsed = await readAndParseJson(req, MAX_BODY_BYTES, RegisterBodySchema);
   if (parsed instanceof Response) return parsed;
 
   // Catch only the domain exception that maps to a non-500 status. Other

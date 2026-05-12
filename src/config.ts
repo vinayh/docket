@@ -98,7 +98,31 @@ export const config = {
       envValue("BETTER_AUTH_SECRET"),
     );
   },
-  dbPath: Bun.env.MARGIN_DB_PATH ?? "./margin.db",
+  get dbPath() {
+    return envValue("MARGIN_DB_PATH") ?? "./margin.db";
+  },
+  /**
+   * HTTP port for `bun margin serve`. The CLI's `--port` flag overrides;
+   * tests pass `port: 0` to let the kernel choose. Default 8787 keeps the
+   * dev server discoverable from the extension's default Options page.
+   */
+  get port() {
+    const raw = envValue("PORT");
+    if (!raw) return 8787;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 65535) {
+      throw new Error(`invalid env var PORT: must be a port number, got ${raw}`);
+    }
+    return n;
+  },
+  /**
+   * When truthy (any non-empty value), include stack traces on CLI errors.
+   * Cheap toggle; we don't bother with `1`/`true` parsing — presence is the
+   * signal.
+   */
+  get debug() {
+    return envValue("DEBUG") !== null;
+  },
   /**
    * Public origin of the Margin backend, e.g. `https://api.margin.pub`.
    * Used to compute the Drive `files.watch` callback address and to decide

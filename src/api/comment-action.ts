@@ -2,10 +2,10 @@ import * as v from "valibot";
 import {
   authenticateBearer,
   badRequest,
+  IdSchema,
   jsonOk,
   notFound,
-  parseOr400,
-  readJsonBody,
+  readAndParseJson,
   unauthorized,
 } from "./middleware.ts";
 import {
@@ -15,12 +15,9 @@ import {
 } from "../domain/comment-action.ts";
 
 const MAX_BODY_BYTES = 4 * 1024;
-const MAX_ID_LEN = 200;
-
-const Id = v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_ID_LEN));
 
 const CommentActionBodySchema = v.object({
-  canonicalCommentId: Id,
+  canonicalCommentId: IdSchema,
   action: v.picklist([
     "accept_projection",
     "reanchor",
@@ -28,7 +25,7 @@ const CommentActionBodySchema = v.object({
     "mark_wontfix",
     "reopen",
   ]),
-  targetVersionId: v.optional(v.nullable(Id)),
+  targetVersionId: v.optional(v.nullable(IdSchema)),
 });
 
 /**
@@ -49,9 +46,7 @@ export async function handleCommentActionPost(req: Request): Promise<Response> {
   const auth = await authenticateBearer(req);
   if (!auth) return unauthorized();
 
-  const payload = await readJsonBody(req, MAX_BODY_BYTES);
-  if (payload instanceof Response) return payload;
-  const parsed = parseOr400(CommentActionBodySchema, payload);
+  const parsed = await readAndParseJson(req, MAX_BODY_BYTES, CommentActionBodySchema);
   if (parsed instanceof Response) return parsed;
 
   try {

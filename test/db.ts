@@ -195,7 +195,8 @@ export async function seedDriveWatchChannel(opts: {
   versionId: string;
   channelId?: string;
   resourceId?: string;
-  expiration?: Date;
+  token?: string | null;
+  expiration?: Date | null;
   lastSyncedAt?: Date;
 }): Promise<typeof driveWatchChannel.$inferSelect> {
   const inserted = await db
@@ -204,8 +205,9 @@ export async function seedDriveWatchChannel(opts: {
       versionId: opts.versionId,
       channelId: opts.channelId ?? `channel-${crypto.randomUUID()}`,
       resourceId: opts.resourceId ?? `resource-${crypto.randomUUID()}`,
+      token: opts.token === undefined ? `token-${crypto.randomUUID()}` : opts.token,
       address: "https://example.com/webhooks/drive",
-      expiration: opts.expiration ?? new Date(Date.now() + 86_400_000),
+      expiration: opts.expiration === undefined ? new Date(Date.now() + 86_400_000) : opts.expiration,
       lastSyncedAt: opts.lastSyncedAt ?? new Date(),
     })
     .returning();

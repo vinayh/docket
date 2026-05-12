@@ -1,10 +1,10 @@
 import * as v from "valibot";
 import {
   authenticateBearer,
+  IdSchema,
   jsonOk,
   notFound,
-  parseOr400,
-  readJsonBody,
+  readAndParseJson,
   unauthorized,
 } from "./middleware.ts";
 import {
@@ -15,10 +15,9 @@ import {
 } from "../domain/settings.ts";
 
 const MAX_BODY_BYTES = 8 * 1024;
-const MAX_ID_LEN = 200;
 
 const SettingsBodySchema = v.object({
-  projectId: v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_ID_LEN)),
+  projectId: IdSchema,
   patch: v.optional(ProjectSettingsPatchSchema),
 });
 
@@ -39,10 +38,7 @@ export async function handleSettingsPost(req: Request): Promise<Response> {
   const auth = await authenticateBearer(req);
   if (!auth) return unauthorized();
 
-  const payload = await readJsonBody(req, MAX_BODY_BYTES);
-  if (payload instanceof Response) return payload;
-
-  const parsed = parseOr400(SettingsBodySchema, payload);
+  const parsed = await readAndParseJson(req, MAX_BODY_BYTES, SettingsBodySchema);
   if (parsed instanceof Response) return parsed;
 
   try {

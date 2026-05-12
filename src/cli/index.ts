@@ -1,3 +1,4 @@
+import { config } from "../config.ts";
 import { run as runSmoke } from "./smoke.ts";
 import { run as runDoc } from "./doc.ts";
 import { run as runInspect } from "./inspect.ts";
@@ -39,7 +40,7 @@ try {
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
   console.error(`error: ${message}`);
-  if (Bun.env.DEBUG && err instanceof Error && err.stack) {
+  if (config.debug && err instanceof Error && err.stack) {
     console.error(err.stack);
   }
   process.exit(1);

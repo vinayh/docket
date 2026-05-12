@@ -1,18 +1,17 @@
 import * as v from "valibot";
 import {
   authenticateBearer,
+  IdSchema,
   jsonOk,
-  parseOr400,
-  readJsonBody,
+  readAndParseJson,
   unauthorized,
 } from "./middleware.ts";
 import { getDocState } from "../domain/doc-state.ts";
 
 const MAX_BODY_BYTES = 4 * 1024;
-const MAX_DOC_ID_LEN = 200;
 
 const DocIdBodySchema = v.object({
-  docId: v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_DOC_ID_LEN)),
+  docId: IdSchema,
 });
 
 /**
@@ -37,9 +36,7 @@ export async function handleDocStatePost(req: Request): Promise<Response> {
 }
 
 export async function readDocId(req: Request): Promise<string | Response> {
-  const payload = await readJsonBody(req, MAX_BODY_BYTES);
-  if (payload instanceof Response) return payload;
-  const parsed = parseOr400(DocIdBodySchema, payload);
+  const parsed = await readAndParseJson(req, MAX_BODY_BYTES, DocIdBodySchema);
   if (parsed instanceof Response) return parsed;
   return parsed.docId;
 }
