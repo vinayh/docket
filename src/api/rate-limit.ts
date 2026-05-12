@@ -63,22 +63,34 @@ export function checkRateLimit(key: string, limit: number = DEFAULT_LIMIT): Rate
 }
 
 /**
- * Extract a stable client identifier from the request. Prefers
- * `Fly-Client-IP` (set by the Fly edge), then the first hop of
- * `X-Forwarded-For`, then the raw socket address Bun.serve attaches via
- * `server.requestIP()` if the caller supplied one — but most of the time
- * we'll only have headers here. Returns the literal "unknown" so a
- * malformed request still gets bucketed (rather than bypassing the
- * limiter entirely).
+ * Extract a stable client identifier from the request.
+ *
+ * Header trust is gated on `MARGIN_TRUST_PROXY=1` — without an upstream
+ * proxy the `Fly-Client-IP` / `X-Forwarded-For` headers are
+ * attacker-controlled, so spoofing them would let a client pick any bucket
+ * key they liked. The Fly deployment sets that env; local dev doesn't.
+ *
+ * Trusted-proxy mode: `Fly-Client-IP`, then first hop of `X-Forwarded-For`.
+ * Untrusted mode (default): socket address from `server.requestIP(req)`.
+ *
+ * Returns the literal "unknown" so a malformed request still gets bucketed
+ * (rather than bypassing the limiter entirely).
  */
-export function clientIp(req: Request): string {
-  const fly = req.headers.get("fly-client-ip");
-  if (fly && fly.length <= 64) return fly;
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) {
-    const first = xff.split(",")[0]?.trim();
-    if (first && first.length <= 64) return first;
+export function clientIp(
+  req: Request,
+  opts: { server?: { requestIP(req: Request): { address: string } | null }; trustProxy: boolean },
+): string {
+  if (opts.trustProxy) {
+    const fly = req.headers.get("fly-client-ip");
+    if (fly && fly.length <= 64) return fly;
+    const xff = req.headers.get("x-forwarded-for");
+    if (xff) {
+      const first = xff.split(",")[0]?.trim();
+      if (first && first.length <= 64) return first;
+    }
   }
+  const socket = opts.server?.requestIP(req);
+  if (socket?.address && socket.address.length <= 64) return socket.address;
   return "unknown";
 }
 

@@ -123,25 +123,25 @@ describe("startServer route table", () => {
   });
 
   test("burning the full budget on a single IP yields 429 with Retry-After", async () => {
-    // Bypass the actual HTTP loop and exhaust the bucket through the same
-    // in-memory limiter the server consults. The wired-up path is already
-    // covered by the decrement test above; this one nails the 429 branch
-    // without firing 121 socket-level fetches (which would still be cheap,
-    // but the in-process path is deterministic and an order of magnitude
-    // faster).
-    const { checkRateLimit } = await import("./rate-limit.ts");
-    for (let i = 0; i < 120; i++) checkRateLimit("ip:unknown");
-
+    // Real fetches against the running server so the bucket key — keyed on
+    // the socket-level IP that Bun.serve hands rateLimitGate via
+    // `server.requestIP(req)` — matches what the test is exercising.
     const server = startServer({ port: 0, backgroundLoops: false });
     try {
-      const r = await fetch(
-        `http://${server.hostname}:${server.port}/api/picker/register-doc`,
-        {
+      const url = `http://${server.hostname}:${server.port}/api/picker/register-doc`;
+      const fire = () =>
+        fetch(url, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: "{}",
-        },
-      );
+        });
+      // Burn the full default budget (120 / minute). The 121st request must
+      // be rejected by the limiter, ahead of the handler's own 401.
+      for (let i = 0; i < 120; i++) {
+        const ok = await fire();
+        await ok.body?.cancel();
+      }
+      const r = await fire();
       expect(r.status).toBe(429);
       expect(await r.json()).toEqual({ error: "rate_limited" });
       const retryAfter = Number(r.headers.get("retry-after"));

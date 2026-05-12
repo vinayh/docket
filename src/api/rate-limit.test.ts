@@ -30,21 +30,31 @@ describe("checkRateLimit", () => {
 });
 
 describe("clientIp", () => {
-  test("prefers fly-client-ip", () => {
+  test("trusted-proxy mode prefers fly-client-ip", () => {
     const req = new Request("http://x/", {
       headers: { "fly-client-ip": "1.2.3.4", "x-forwarded-for": "5.6.7.8" },
     });
-    expect(clientIp(req)).toBe("1.2.3.4");
+    expect(clientIp(req, { trustProxy: true })).toBe("1.2.3.4");
   });
 
-  test("falls back to x-forwarded-for (first hop)", () => {
+  test("trusted-proxy mode falls back to x-forwarded-for (first hop)", () => {
     const req = new Request("http://x/", {
       headers: { "x-forwarded-for": "1.2.3.4, 5.6.7.8" },
     });
-    expect(clientIp(req)).toBe("1.2.3.4");
+    expect(clientIp(req, { trustProxy: true })).toBe("1.2.3.4");
   });
 
-  test("returns the literal 'unknown' when no proxy headers present", () => {
-    expect(clientIp(new Request("http://x/"))).toBe("unknown");
+  test("untrusted mode ignores proxy headers and uses the socket address", () => {
+    const req = new Request("http://x/", {
+      headers: { "fly-client-ip": "spoofed", "x-forwarded-for": "spoofed2" },
+    });
+    const server = {
+      requestIP: () => ({ address: "10.0.0.1" }),
+    };
+    expect(clientIp(req, { trustProxy: false, server })).toBe("10.0.0.1");
+  });
+
+  test("returns the literal 'unknown' when no source is available", () => {
+    expect(clientIp(new Request("http://x/"), { trustProxy: false })).toBe("unknown");
   });
 });

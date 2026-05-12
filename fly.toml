@@ -23,6 +23,9 @@ primary_region = "lhr"
   # Public origin used to compute the Drive files.watch callback URL and to
   # gate the in-process renew + polling loops. Update if the app is renamed.
   MARGIN_PUBLIC_BASE_URL = "https://api.margin.pub"
+  # Fly's edge sets `Fly-Client-IP` / `X-Forwarded-For` for every request;
+  # opt in so the rate limiter buckets per real client instead of per edge IP.
+  MARGIN_TRUST_PROXY = "1"
 
 [[mounts]]
   source = "margin_data"

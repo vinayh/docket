@@ -49,14 +49,26 @@ export function reanchor(doc: Document, source: CommentAnchor): ReanchorResult {
     return { anchor: orphanAnchor(""), confidence: 0, status: "orphaned" };
   }
 
-  const sourceRegion = source.structuralPosition?.region ?? "body";
   const all = extractAllParagraphs(doc);
-  const sameRegion = all.filter((p) => p.region === sourceRegion);
+  const sourceRegion = source.structuralPosition?.region;
 
-  // Try the source's region first (precise when known). Fall through to the
-  // rest of the doc only if no match in that region — this prevents a header
-  // anchor from silently re-anchoring to body text that happens to share the
-  // quoted phrase.
+  // When the source actually names a region (header / footer / footnote),
+  // try that region first and fall back to the rest of the doc — that
+  // prevents a header anchor from silently re-anchoring to body text that
+  // happens to share the phrase. When the region is unknown (the Drive API
+  // doesn't expose region for plain comments, so older anchors are blank),
+  // walk every region in one pass: defaulting to "body" first would skip
+  // header/footer-anchored comments whose region was never recorded.
+  if (!sourceRegion) {
+    return (
+      tryMatch(all, source, quoted) ?? {
+        anchor: orphanAnchor(quoted),
+        confidence: 0,
+        status: "orphaned",
+      }
+    );
+  }
+  const sameRegion = all.filter((p) => p.region === sourceRegion);
   return (
     tryMatch(sameRegion, source, quoted) ??
     tryMatch(

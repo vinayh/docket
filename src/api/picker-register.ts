@@ -1,7 +1,8 @@
 import {
   authenticateBearer,
-  badRequest,
   jsonOk,
+  readJsonBody,
+  readStringField,
   unauthorized,
 } from "./middleware.ts";
 import { createProject, DuplicateProjectError } from "../domain/project.ts";
@@ -27,25 +28,10 @@ export async function handleRegisterDocPost(req: Request): Promise<Response> {
   const auth = await authenticateBearer(req);
   if (!auth) return unauthorized();
 
-  const contentLength = Number(req.headers.get("content-length") ?? "0");
-  if (contentLength > MAX_BODY_BYTES) {
-    return badRequest(`request too large: ${contentLength} > ${MAX_BODY_BYTES}`);
-  }
-
-  let payload: unknown;
-  try {
-    payload = await req.json();
-  } catch {
-    return badRequest("invalid json");
-  }
-
-  if (!payload || typeof payload !== "object") {
-    return badRequest("expected { docUrlOrId: string }");
-  }
-  const raw = (payload as { docUrlOrId?: unknown }).docUrlOrId;
-  if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_FIELD_LEN) {
-    return badRequest("expected { docUrlOrId: string }");
-  }
+  const payload = await readJsonBody(req, MAX_BODY_BYTES);
+  if (payload instanceof Response) return payload;
+  const raw = readStringField(payload, "docUrlOrId", MAX_FIELD_LEN);
+  if (raw instanceof Response) return raw;
 
   // Catch only the domain exception that maps to a non-500 status. Other
   // errors (Drive 5xx, missing credentials, schema violations) propagate

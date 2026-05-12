@@ -60,6 +60,15 @@ export const config = {
     return Bun.env.MARGIN_ALLOW_E2E_SEED === "1";
   },
   /**
+   * When "1", trust the upstream proxy's `Fly-Client-IP` / `X-Forwarded-For`
+   * headers as the client IP (rate-limit bucket key). Off by default — without
+   * an upstream proxy, those headers are attacker-controlled and would let
+   * a client spoof an arbitrary bucket key. The Fly deployment sets this.
+   */
+  get trustProxy() {
+    return Bun.env.MARGIN_TRUST_PROXY === "1";
+  },
+  /**
    * Default user email for `bun margin e2e seed-project` when the operator
    * doesn't pass `--user`. The user must already exist (run `bun margin
    * connect` once with that account).

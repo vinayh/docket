@@ -2,8 +2,40 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { account } from "../db/schema.ts";
 import { decryptWithMaster } from "./encryption.ts";
-import { refreshAccessToken } from "../google/oauth.ts";
+import { config } from "../config.ts";
 import type { TokenProvider } from "../google/api.ts";
+
+/**
+ * Swap a long-lived Google refresh token for a fresh access token. Google's
+ * OAuth2 endpoint; the authorization URL + code exchange live inside Better
+ * Auth's Google social provider (`src/auth/server.ts`). This helper only
+ * exists for `TokenProvider`'s refresh path.
+ */
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+
+interface GoogleTokenResponse {
+  access_token: string;
+  expires_in: number;
+  scope: string;
+  token_type: "Bearer";
+}
+
+async function refreshAccessToken(refreshToken: string): Promise<GoogleTokenResponse> {
+  const res = await fetch(GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: config.google.clientId,
+      client_secret: config.google.clientSecret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`token request failed: ${res.status} ${await res.text()}`);
+  }
+  return res.json() as Promise<GoogleTokenResponse>;
+}
 
 interface CachedAccessToken {
   token: string;
@@ -81,13 +113,3 @@ function buildTokenProvider(userId: string): TokenProvider {
   };
 }
 
-/**
- * Drop a cached provider — call from tests that reset DB state with the same
- * userId. In normal operation the cache is fine to leave warm: when Better
- * Auth's account hook re-encrypts a fresh refresh token, the cached access
- * token still works until it expires, after which the next refresh reads
- * the new ciphertext from `account.refreshToken`.
- */
-export function evictTokenProvider(userId: string): void {
-  tpCache.delete(userId);
-}

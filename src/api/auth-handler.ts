@@ -3,6 +3,8 @@ import { db } from "../db/client.ts";
 import { session as sessionTable } from "../db/schema.ts";
 import { eq } from "drizzle-orm";
 import { badRequest } from "./middleware.ts";
+import { config } from "../config.ts";
+import { renderHashedScriptHtml, sha256Base64 } from "./html.ts";
 
 /**
  * Catch-all for `/api/auth/**`. Better Auth's `auth.handler` reads the basePath
@@ -51,7 +53,12 @@ export async function handleAuthExtLaunchTab(req: Request): Promise<Response> {
     return badRequest("missing or unrecognized ?ext extension id");
   }
 
-  const baseURL = new URL(req.url);
+  // Prefer the operator-configured public origin over `req.url`. The latter
+  // is Host-header dependent — a misrouted proxy or an attacker forging Host
+  // would steer `successURL` (and therefore the token-bearing bridge page)
+  // to a hostname they control. Better Auth's `trustedOrigins` already
+  // rejects mismatches, but this is the belt to that suspenders.
+  const baseURL = new URL(config.publicBaseUrl ?? req.url);
   baseURL.search = "";
   baseURL.pathname = "/api/auth/ext/success";
   const successURL = `${baseURL.toString()}?ext=${encodeURIComponent(ext)}`;
@@ -132,7 +139,11 @@ export async function handleAuthExtSuccess(req: Request): Promise<Response> {
 
   const script = buildBridgeScript(ext, token);
   const scriptHash = await sha256Base64(script);
-  const html = renderBridgeHtml(script);
+  const html = renderHashedScriptHtml({
+    title: "Margin — Signed in",
+    bodyMarkup: `<h1>Margin</h1>\n<p id="status">Finishing sign-in…</p>`,
+    inlineScript: script,
+  });
 
   return new Response(html, {
     status: 200,
@@ -204,35 +215,3 @@ function buildBridgeScript(extId: string, token: string): string {
   ].join("\n");
 }
 
-function renderBridgeHtml(script: string): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="no-referrer">
-<meta name="robots" content="noindex, nofollow">
-<base target="_self">
-<title>Margin — Signed in</title>
-<style>
-  body { font: 14px/1.4 system-ui, sans-serif; margin: 4rem auto; max-width: 28rem; color: #222; padding: 0 1rem; }
-  h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
-  p { margin: .25rem 0; color: #444; }
-</style>
-</head>
-<body>
-<h1>Margin</h1>
-<p id="status">Finishing sign-in…</p>
-<script>${script}</script>
-</body>
-</html>`;
-}
-
-async function sha256Base64(input: string): Promise<string> {
-  const bytes = new TextEncoder().encode(input);
-  const hash = await crypto.subtle.digest("SHA-256", bytes);
-  let bin = "";
-  const view = new Uint8Array(hash);
-  for (let i = 0; i < view.length; i++) bin += String.fromCharCode(view[i]!);
-  return btoa(bin);
-}

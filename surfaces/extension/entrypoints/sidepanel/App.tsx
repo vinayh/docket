@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { browser } from "wxt/browser";
 import { parseDocIdFromUrl } from "../../utils/ids.ts";
 import { Header } from "../../ui/Header.tsx";
@@ -37,22 +37,39 @@ type View =
 
 export function App() {
   const [view, setView] = useState<View>({ kind: "loading" });
+  const bootTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     void boot(setView);
 
     // Re-resolve when the user navigates the active tab so the panel
-    // follows the doc context. Chromium fires `tabs.onActivated` /
-    // `tabs.onUpdated`; Firefox sidebar same shape. We listen for both
-    // and debounce identical reruns inside boot().
-    const listener = (): void => {
-      void boot(setView);
+    // follows the doc context. `tabs.onUpdated` fires for every change a
+    // tab makes — title, favicon, loading state, URL — so we filter to
+    // url-changes and coalesce bursts behind a single short debounce.
+    // `tabs.onActivated` fires once per tab switch; coalescing handles
+    // the case where it lands alongside an onUpdated.
+    const schedule = () => {
+      if (bootTimer.current) clearTimeout(bootTimer.current);
+      bootTimer.current = setTimeout(() => {
+        bootTimer.current = null;
+        void boot(setView);
+      }, 100);
     };
-    browser.tabs.onActivated.addListener(listener);
-    browser.tabs.onUpdated.addListener(listener);
+    const onActivated = (): void => schedule();
+    const onUpdated = (
+      _tabId: number,
+      changeInfo: { url?: string; status?: string },
+    ): void => {
+      // Only re-boot on URL changes or when the tab finishes loading; skip
+      // title / favicon / audible / pinned churn.
+      if (changeInfo.url || changeInfo.status === "complete") schedule();
+    };
+    browser.tabs.onActivated.addListener(onActivated);
+    browser.tabs.onUpdated.addListener(onUpdated);
     return () => {
-      browser.tabs.onActivated.removeListener(listener);
-      browser.tabs.onUpdated.removeListener(listener);
+      browser.tabs.onActivated.removeListener(onActivated);
+      browser.tabs.onUpdated.removeListener(onUpdated);
+      if (bootTimer.current) clearTimeout(bootTimer.current);
     };
   }, []);
 

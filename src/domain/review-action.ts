@@ -113,17 +113,23 @@ export async function redeemReviewActionToken(
 
     const nextStatus = nextAssignmentStatus(row.action, assignment.status);
 
-    if (nextStatus !== assignment.status) {
-      tx.update(reviewAssignment)
-        .set({ status: nextStatus, respondedAt: new Date() })
-        .where(
-          and(
-            eq(reviewAssignment.reviewRequestId, assignment.reviewRequestId),
-            eq(reviewAssignment.userId, assignment.userId),
-          ),
-        )
-        .run();
-    }
+    // Record the response on every successful redemption, even when the
+    // action leaves `status` unchanged (`accept_reconciliation` is the
+    // pure-acknowledgement case — without this, UI joins keyed on
+    // `responded_at` never see the assignee actually responded).
+    tx.update(reviewAssignment)
+      .set(
+        nextStatus !== assignment.status
+          ? { status: nextStatus, respondedAt: new Date() }
+          : { respondedAt: new Date() },
+      )
+      .where(
+        and(
+          eq(reviewAssignment.reviewRequestId, assignment.reviewRequestId),
+          eq(reviewAssignment.userId, assignment.userId),
+        ),
+      )
+      .run();
 
     tx.insert(auditLog).values({
       actorUserId: row.assigneeUserId,

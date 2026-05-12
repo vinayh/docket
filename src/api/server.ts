@@ -17,6 +17,19 @@ import { handleDriveWebhook } from "./drive-webhook.ts";
 import { preflight, withCors, withSecurity } from "./cors.ts";
 import { authenticateBearer, internalError } from "./middleware.ts";
 import { checkRateLimit, clientIp } from "./rate-limit.ts";
+import { config } from "../config.ts";
+
+// Bun.serve routes handlers receive only `(req)` — the Server is the return
+// value of Bun.serve. We capture it here so rateLimitGate can fall back to
+// `server.requestIP(req)` when proxy headers aren't trusted. Module-scope is
+// fine because handlers never run before `startServer` returns.
+interface ServerWithIP {
+  requestIP(req: Request): { address: string } | null;
+  stop(): Promise<void> | void;
+  readonly port: number | undefined;
+  readonly hostname: string | undefined;
+}
+let serverRef: ServerWithIP | null = null;
 
 export interface ServeOptions {
   port?: number;
@@ -102,8 +115,18 @@ type RateLimitGate =
  * reqs / 10 s in production), so we don't need to wrap that route.
  */
 async function rateLimitGate(req: Request): Promise<RateLimitGate> {
-  const session = await authenticateBearer(req).catch(() => null);
-  const key = session ? `u:${session.userId}` : `ip:${clientIp(req)}`;
+  // Skip the session lookup entirely for callers that didn't send a
+  // credential — every unauthenticated request would otherwise trip Better
+  // Auth's DB-backed `getSession` before reaching the bucket check, which
+  // amplifies the DoS surface (the limiter is supposed to be cheap). When
+  // Authorization is present but the session is invalid we still fall
+  // through to IP-based bucketing, so attackers can't burst anonymously by
+  // omitting the header.
+  const hasBearer = req.headers.has("authorization");
+  const session = hasBearer ? await authenticateBearer(req).catch(() => null) : null;
+  const key = session
+    ? `u:${session.userId}`
+    : `ip:${clientIp(req, { server: serverRef ?? undefined, trustProxy: config.trustProxy })}`;
   const decision = checkRateLimit(key);
   if (!decision.allowed) {
     return {
@@ -186,6 +209,8 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
     },
   });
 
+  serverRef = server;
+
   const loops = opts.backgroundLoops === false ? null : startBackgroundLoops();
 
   return {
@@ -194,12 +219,12 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
     async stop() {
       loops?.stop();
       await server.stop();
+      if (serverRef === server) serverRef = null;
     },
   };
 }
 
 import { renewExpiringChannels, pollAllActiveVersions } from "../domain/watcher.ts";
-import { config } from "../config.ts";
 
 const RENEW_INTERVAL_MS = 30 * 60 * 1000;
 const POLL_INTERVAL_MS = 10 * 60 * 1000;
@@ -260,6 +285,9 @@ function startBackgroundLoops(): BackgroundLoops {
         const errs = outcomes.length - ok;
         if (outcomes.length > 0) {
           console.log(`poll: versions=${outcomes.length} ok=${ok} errors=${errs}`);
+        }
+        for (const o of outcomes) {
+          if (o.error) console.error(`poll: version ${o.versionId} failed: ${o.error}`);
         }
       } catch (err) {
         console.error("poll loop error:", err);

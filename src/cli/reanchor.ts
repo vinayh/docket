@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { projectCommentsOntoVersion } from "../domain/project_comments.ts";
+import { projectCommentsOntoVersion } from "../domain/project-comments.ts";
 import { usage } from "./util.ts";
 
 const USAGE = `\
