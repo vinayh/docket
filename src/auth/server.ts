@@ -52,28 +52,28 @@ export const auth = betterAuth({
   ].filter((u): u is string => Boolean(u)),
   databaseHooks: {
     account: {
-      create: {
-        before: async (data) => {
-          if (data.refreshToken) {
-            return {
-              data: { ...data, refreshToken: await encryptWithMaster(data.refreshToken) },
-            };
-          }
-          return { data };
-        },
-      },
-      update: {
-        before: async (data) => {
-          if (typeof data.refreshToken === "string" && data.refreshToken.length > 0) {
-            return {
-              data: { ...data, refreshToken: await encryptWithMaster(data.refreshToken) },
-            };
-          }
-          return { data };
-        },
-      },
+      create: { before: encryptAccountRefreshToken },
+      update: { before: encryptAccountRefreshToken },
     },
   },
 });
+
+/**
+ * Better Auth `account.{create,update}.before` hook. Envelope-encrypts the
+ * Google refresh token before it lands in `account.refresh_token`. Exported
+ * so a unit test can verify the plaintext-in / ciphertext-out round trip
+ * without standing up Better Auth's full social flow — this hook is the
+ * only thing standing between a plaintext refresh token and disk.
+ */
+export async function encryptAccountRefreshToken<T extends { refreshToken?: string | null | undefined }>(
+  data: T,
+): Promise<{ data: T }> {
+  if (typeof data.refreshToken === "string" && data.refreshToken.length > 0) {
+    return {
+      data: { ...data, refreshToken: await encryptWithMaster(data.refreshToken) },
+    };
+  }
+  return { data };
+}
 
 export type Auth = typeof auth;

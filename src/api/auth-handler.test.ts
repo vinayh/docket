@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { handleAuthExtFinalize } from "./auth-handler.ts";
+import { handleAuthExtFinalize, handleAuthExtLaunch } from "./auth-handler.ts";
 import { cleanDb, seedUser } from "../../test/db.ts";
 import { issueTestSession } from "../../test/session.ts";
 
@@ -53,5 +53,33 @@ describe("handleAuthExtFinalize", () => {
     const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
     const params = new URLSearchParams(hash);
     expect(params.get("token")).toBe(token);
+  });
+});
+
+describe("handleAuthExtLaunch", () => {
+  test("rejects callbacks that don't match the chromiumapp.org allow-list", async () => {
+    // Open-redirect guard — any host other than the allow-listed extension
+    // origins must 400 before we hand `signInSocial` a `callbackURL`.
+    const req = new Request(
+      `http://localhost/api/auth/ext/launch?cb=${encodeURIComponent("https://evil.com/x")}`,
+    );
+    const res = await handleAuthExtLaunch(req);
+    expect(res.status).toBe(400);
+  });
+
+  test("missing cb param → 400", async () => {
+    const req = new Request("http://localhost/api/auth/ext/launch");
+    const res = await handleAuthExtLaunch(req);
+    expect(res.status).toBe(400);
+  });
+
+  test("malformed chromiumapp.org host (wrong id length) → 400", async () => {
+    // The pattern requires exactly 32 lowercase chars before .chromiumapp.org.
+    const bad = `https://shortid.chromiumapp.org/`;
+    const req = new Request(
+      `http://localhost/api/auth/ext/launch?cb=${encodeURIComponent(bad)}`,
+    );
+    const res = await handleAuthExtLaunch(req);
+    expect(res.status).toBe(400);
   });
 });
