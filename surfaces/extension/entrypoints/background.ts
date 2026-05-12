@@ -2,6 +2,7 @@ import { defineBackground } from "wxt/utils/define-background";
 import { browser } from "wxt/browser";
 import * as v from "valibot";
 import { MessageSchema, type Message, type MessageResponse } from "../utils/messages.ts";
+import { parseDocIdFromUrl } from "../utils/ids.ts";
 import { getBackendUrl, getSettings, patchSettings, setSettings } from "../utils/storage.ts";
 import {
   fetchDocState,
@@ -84,7 +85,165 @@ export default defineBackground(() => {
     if (!url) return;
     void handleAuthFragment(tabId, url);
   });
+
+  // Toolbar-icon routing. For Doc tabs whose project we've already
+  // ingested, we want the click to open the side-panel dashboard
+  // directly instead of the popup. Per-tab `action.setPopup({ popup:""})`
+  // makes `chrome.action.onClicked` fire on click; the default popup
+  // stays in place for everything else (non-Doc tabs, untracked Docs,
+  // signed-out state).
+  browser.tabs.onActivated.addListener((info) => {
+    void browser.tabs
+      .get(info.tabId)
+      .then((tab) => evaluateAction(info.tabId, tab.url))
+      .catch(() => {
+        // Tab gone between activation and our get — nothing to do.
+      });
+  });
+  browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    // URL changed (navigation), or the page finished loading. Title
+    // and favicon changes are skipped — popup state doesn't depend
+    // on them.
+    if (changeInfo.url || changeInfo.status === "complete") {
+      void evaluateAction(tabId, tab.url);
+    }
+  });
+
+  // The click hits onClicked only on tabs where we've cleared the
+  // popup. Open the side-panel/sidebar synchronously while we still
+  // hold the user gesture — Chrome's `sidePanel.open` and Firefox's
+  // `sidebarAction.open` both reject if called after an awaited
+  // promise loses the gesture.
+  browser.action.onClicked.addListener((tab) => {
+    if (!tab || tab.id === undefined) return;
+    openSidePanelForTab(tab);
+  });
+
+  // Settings flips (sign-in lands `sessionToken`, sign-out clears it)
+  // can change every doc's tracked state. Clear the cache and re-
+  // evaluate every open Doc tab so the toolbar action follows.
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.settings) return;
+    trackedCache.clear();
+    void refreshAllDocTabs();
+  });
+
+  // SW cold-start: catch up any Doc tabs the user already had open
+  // before the SW first booted, so the first click on the toolbar
+  // routes correctly without waiting for a tab event.
+  void refreshAllDocTabs();
 });
+
+// ---- toolbar-icon routing ------------------------------------------------
+
+const DEFAULT_POPUP_PATH = "popup.html";
+const TRACKED_CACHE_TTL_MS = 60_000;
+const trackedCache = new Map<string, { tracked: boolean; ts: number }>();
+
+async function isDocTracked(docId: string): Promise<boolean> {
+  const hit = trackedCache.get(docId);
+  if (hit && Date.now() - hit.ts < TRACKED_CACHE_TTL_MS) return hit.tracked;
+  let tracked = false;
+  try {
+    const state = await fetchDocState(docId);
+    tracked = !!(state && state.tracked);
+  } catch (err) {
+    console.warn("[margin] doc-state lookup failed:", err);
+  }
+  trackedCache.set(docId, { tracked, ts: Date.now() });
+  return tracked;
+}
+
+/**
+ * Decide whether this tab's toolbar icon should open the popup or fire
+ * `onClicked` (which we route to the side panel). Tracked Doc tabs get
+ * `popup: ""`; everything else gets the default popup restored so the
+ * onboarding / sign-in / untracked flows still work.
+ */
+async function evaluateAction(tabId: number, url: string | undefined): Promise<void> {
+  const docId = url ? parseDocIdFromUrl(url) : null;
+  if (!docId) {
+    await safeSetPopup(tabId, DEFAULT_POPUP_PATH);
+    return;
+  }
+  // Without settings, the doc-state call would just fail; don't bother
+  // (and don't cache "untracked" — the answer flips as soon as the
+  // user signs in, and we'd be stuck with stale `false` entries until
+  // the TTL expires).
+  const settings = await getSettings();
+  if (!settings) {
+    await safeSetPopup(tabId, DEFAULT_POPUP_PATH);
+    return;
+  }
+  const tracked = await isDocTracked(docId);
+  await safeSetPopup(tabId, tracked ? "" : DEFAULT_POPUP_PATH);
+}
+
+async function safeSetPopup(tabId: number, popup: string): Promise<void> {
+  try {
+    await browser.action.setPopup({ tabId, popup });
+  } catch (err) {
+    // Tab may have been closed between the lookup and the set — that's
+    // expected and not actionable.
+    console.warn("[margin] action.setPopup failed:", err);
+  }
+}
+
+async function refreshAllDocTabs(): Promise<void> {
+  try {
+    const tabs = await browser.tabs.query({ url: "https://docs.google.com/*" });
+    await Promise.all(
+      tabs.map((tab) => {
+        if (tab.id === undefined) return Promise.resolve();
+        return evaluateAction(tab.id, tab.url);
+      }),
+    );
+  } catch (err) {
+    console.warn("[margin] refreshAllDocTabs failed:", err);
+  }
+}
+
+/**
+ * Re-evaluate just the tabs whose URL contains this docId. Used after a
+ * tracked-state flip (sync, register) so the toolbar action follows the
+ * new state without waiting for the next tab switch.
+ */
+async function refreshTabsForDoc(docId: string): Promise<void> {
+  try {
+    const tabs = await browser.tabs.query({ url: "https://docs.google.com/*" });
+    await Promise.all(
+      tabs.map((tab) => {
+        if (tab.id === undefined || !tab.url) return Promise.resolve();
+        if (parseDocIdFromUrl(tab.url) !== docId) return Promise.resolve();
+        return evaluateAction(tab.id, tab.url);
+      }),
+    );
+  } catch (err) {
+    console.warn("[margin] refreshTabsForDoc failed:", err);
+  }
+}
+
+function openSidePanelForTab(tab: chrome.tabs.Tab): void {
+  const api = browser as unknown as {
+    sidePanel?: {
+      open: (opts: { windowId?: number; tabId?: number }) => Promise<void>;
+    };
+    sidebarAction?: { open: () => Promise<void> };
+  };
+  if (api.sidePanel?.open) {
+    const opts: { windowId?: number; tabId?: number } =
+      tab.windowId !== undefined ? { windowId: tab.windowId } : { tabId: tab.id! };
+    api.sidePanel.open(opts).catch((err) => {
+      console.warn("[margin] sidePanel.open failed:", err);
+    });
+    return;
+  }
+  if (api.sidebarAction?.open) {
+    api.sidebarAction.open().catch((err) => {
+      console.warn("[margin] sidebarAction.open failed:", err);
+    });
+  }
+}
 
 interface ExternalAuthMessage {
   kind: "auth/token";
@@ -227,14 +386,37 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
     }
     case "doc/state": {
       const state = await fetchDocState(message.docId);
+      // Piggyback on the popup/side-panel's own state queries to keep
+      // the toolbar-routing cache fresh without an extra round-trip,
+      // and re-evaluate the matching tab(s) on a state flip — the
+      // picker page registers a doc out-of-band, so the first time the
+      // popup runs `doc/state` after that is when we learn it.
+      const tracked = !!(state && state.tracked);
+      const prev = trackedCache.get(message.docId);
+      trackedCache.set(message.docId, { tracked, ts: Date.now() });
+      if (!prev || prev.tracked !== tracked) {
+        void refreshTabsForDoc(message.docId);
+      }
       return { kind: "doc/state", state };
     }
     case "doc/sync": {
       const state = await runDocSync(message.docId);
+      trackedCache.set(message.docId, {
+        tracked: !!(state && state.tracked),
+        ts: Date.now(),
+      });
+      void refreshTabsForDoc(message.docId);
       return { kind: "doc/sync", state };
     }
     case "doc/register": {
       const result = await registerDoc(message.docUrlOrId);
+      // The popup path doesn't hit this anymore (the picker page POSTs
+      // /register-doc directly), but the message is still wired up for
+      // future surfaces. Refresh whatever tabs are open just in case.
+      if (result.kind === "registered") {
+        trackedCache.delete(result.parentDocId);
+        void refreshTabsForDoc(result.parentDocId);
+      }
       return { kind: "doc/register", result };
     }
     case "project/detail": {

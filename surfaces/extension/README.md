@@ -84,6 +84,19 @@ Picker page uses the session cookie set by Better Auth on sign-in —
 same-origin with `/api/picker/register-doc`, so no bearer token leaves
 the extension surface.
 
+## Toolbar-icon routing
+
+For Doc tabs that already belong to a project, clicking the toolbar
+icon opens the **side-panel dashboard** directly instead of the popup.
+The SW watches `tabs.onActivated` / `tabs.onUpdated`, calls
+`doc/state` (cached briefly per `docId`), and toggles the per-tab
+popup: `action.setPopup({ tabId, popup: "" })` for tracked Docs (so
+`action.onClicked` fires and opens the side panel),
+`popup: "popup.html"` for everything else (non-Doc tabs, untracked
+Docs, signed-out state — the popup's existing state machine handles
+those). The cache is invalidated on settings change (sign-in /
+sign-out) and on `doc/sync` / `doc/register` flips.
+
 There is no static `host_permissions` for `docs.google.com` — the
 extension never injects into the Docs tab. The `tabs` API gives the popup
 read access to the active tab's URL + title without any extra permission.
