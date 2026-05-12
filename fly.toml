@@ -8,7 +8,8 @@
 #   reachable without cold-start drops (SPEC §9.3). Auto-stop still
 #   trims any auto-scaled extras when idle.
 # - Health check hits /healthz (served by `bun margin serve`).
-# - Secrets (GOOGLE_*, MARGIN_MASTER_KEY) are set via `fly secrets set`.
+# - Secrets (GOOGLE_*, MARGIN_MASTER_KEY, BETTER_AUTH_SECRET) are set via
+#   `fly secrets set`.
 
 app = "margin-server"
 primary_region = "lhr"

@@ -7,12 +7,9 @@ import { extractPlainText, getDocument } from "../google/docs.ts";
 import { config } from "../config.ts";
 import { requireProject } from "./project.ts";
 import { subscribeVersionWatch } from "./watcher.ts";
+import { paragraphHash } from "./anchor.ts";
 
 export type Version = typeof version.$inferSelect;
-
-function sha256Hex(input: string): string {
-  return new Bun.CryptoHasher("sha256").update(input).digest("hex");
-}
 
 export async function createVersion(opts: {
   projectId: string;
@@ -45,7 +42,7 @@ export async function createVersion(opts: {
   });
 
   const doc = await getDocument(tp, copy.id);
-  const snapshotContentHash = sha256Hex(extractPlainText(doc));
+  const snapshotContentHash = paragraphHash(extractPlainText(doc));
 
   const inserted = await db
     .insert(version)

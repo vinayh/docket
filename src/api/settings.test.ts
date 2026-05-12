@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { cleanDb, seedProject, seedUser } from "../../test/db.ts";
-import { issueApiToken } from "../auth/api-token.ts";
+import { issueTestSession } from "../../test/session.ts";
 import { handleSettingsPost } from "./settings.ts";
 
 beforeEach(cleanDb);
@@ -35,7 +35,7 @@ describe("handleSettingsPost", () => {
     const owner = await seedUser();
     const proj = await seedProject({ ownerUserId: owner.id });
     const other = await seedUser({ email: "b@example.com" });
-    const { token } = await issueApiToken({ userId: other.id });
+    const { token } = await issueTestSession({ userId: other.id });
     const res = await handleSettingsPost(
       post({ projectId: proj.id }, { auth: `Bearer ${token}` }),
     );
@@ -45,7 +45,7 @@ describe("handleSettingsPost", () => {
   test("returns defaults for a fresh project", async () => {
     const u = await seedUser();
     const proj = await seedProject({ ownerUserId: u.id });
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleSettingsPost(
       post({ projectId: proj.id }, { auth: `Bearer ${token}` }),
     );
@@ -59,7 +59,7 @@ describe("handleSettingsPost", () => {
   test("patch updates the stored settings", async () => {
     const u = await seedUser();
     const proj = await seedProject({ ownerUserId: u.id });
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleSettingsPost(
       post(
         {
@@ -95,7 +95,7 @@ describe("handleSettingsPost", () => {
   test("400 on malformed email entries", async () => {
     const u = await seedUser();
     const proj = await seedProject({ ownerUserId: u.id });
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleSettingsPost(
       post(
         {

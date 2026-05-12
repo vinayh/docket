@@ -1,6 +1,11 @@
 export interface Settings {
   backendUrl: string;
-  apiToken: string;
+  /**
+   * Better Auth session token, populated by `chrome.identity.launchWebAuthFlow`
+   * during the in-extension Google sign-in (see `entrypoints/background.ts`).
+   * Sent as `Authorization: Bearer <sessionToken>` on every backend call.
+   */
+  sessionToken: string;
 }
 
 export const DEFAULT_BACKEND_URL = "http://localhost:8787";

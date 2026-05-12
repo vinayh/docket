@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   extractAllParagraphs,
-  extractParagraphs,
   extractPlainText,
   op,
   type Document,
@@ -95,64 +94,6 @@ describe("extractPlainText", () => {
       },
     };
     expect(extractPlainText(doc)).toBe("foo bar\n");
-  });
-});
-
-describe("extractParagraphs", () => {
-  test("strips the trailing newline and indexes paragraphs from zero", () => {
-    const doc = docFromParagraphs(["alpha", "bravo", "charlie"]);
-    const out = extractParagraphs(doc);
-    expect(out.map((p) => p.text)).toEqual(["alpha", "bravo", "charlie"]);
-    expect(out.map((p) => p.paragraphIndex)).toEqual([0, 1, 2]);
-  });
-
-  test("preserves doc-coordinate startIndex/endIndex", () => {
-    const doc = docFromParagraphs(["alpha"]);
-    expect(extractParagraphs(doc)[0]).toMatchObject({
-      paragraphIndex: 0,
-      text: "alpha",
-      startIndex: 1,
-      endIndex: 7, // "alpha\n" is 6 chars, end is exclusive
-    });
-  });
-
-  test("skips structural elements that aren't paragraphs", () => {
-    const doc: Document = {
-      documentId: "x",
-      title: "x",
-      body: {
-        content: [
-          {
-            startIndex: 1,
-            endIndex: 7,
-            paragraph: {
-              elements: [{ startIndex: 1, endIndex: 7, textRun: { content: "alpha\n" } }],
-            },
-          },
-          { startIndex: 7, endIndex: 50, table: {} },
-          { startIndex: 50, endIndex: 51, sectionBreak: {} },
-          {
-            startIndex: 51,
-            endIndex: 57,
-            paragraph: {
-              elements: [{ startIndex: 51, endIndex: 57, textRun: { content: "bravo\n" } }],
-            },
-          },
-        ],
-      },
-    };
-    const out = extractParagraphs(doc);
-    expect(out.map((p) => p.text)).toEqual(["alpha", "bravo"]);
-    expect(out.map((p) => p.paragraphIndex)).toEqual([0, 1]);
-  });
-
-  test("handles a paragraph without text runs", () => {
-    const doc: Document = {
-      documentId: "x",
-      title: "x",
-      body: { content: [{ startIndex: 1, endIndex: 2, paragraph: {} }] },
-    };
-    expect(extractParagraphs(doc)[0]?.text).toBe("");
   });
 });
 

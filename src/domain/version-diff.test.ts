@@ -7,7 +7,7 @@ import {
 } from "../../test/db.ts";
 import { setFetch } from "../../test/fetch.ts";
 import { db } from "../db/client.ts";
-import { driveCredential } from "../db/schema.ts";
+import { account } from "../db/schema.ts";
 import { encryptWithMaster } from "../auth/encryption.ts";
 import { getVersionDiffPayload, summarizeDocument } from "./version-diff.ts";
 import type { Document } from "../google/docs.ts";
@@ -54,10 +54,12 @@ afterEach(() => {
 });
 
 async function seedDriveCredential(userId: string): Promise<void> {
-  await db.insert(driveCredential).values({
+  await db.insert(account).values({
     userId,
+    providerId: "google",
+    accountId: `sub-${userId}`,
     scope: "https://www.googleapis.com/auth/drive.file",
-    refreshTokenEncrypted: await encryptWithMaster("1//rt-test"),
+    refreshToken: await encryptWithMaster("1//rt-test"),
   });
 }
 

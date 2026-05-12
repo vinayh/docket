@@ -7,7 +7,7 @@ import {
   seedUser,
   seedVersion,
 } from "../../test/db.ts";
-import { issueApiToken } from "../auth/api-token.ts";
+import { issueTestSession } from "../../test/session.ts";
 import { handleCommentActionPost } from "./comment-action.ts";
 import { db } from "../db/client.ts";
 import { canonicalComment, commentProjection } from "../db/schema.ts";
@@ -46,7 +46,7 @@ async function seedActionWorld() {
     projectionStatus: "fuzzy",
     anchorMatchConfidence: 60,
   });
-  const { token } = await issueApiToken({ userId: owner.id });
+  const { token } = await issueTestSession({ userId: owner.id });
   return { owner, proj, ver, cc, token };
 }
 
@@ -60,7 +60,7 @@ describe("handleCommentActionPost", () => {
 
   test("400 on bad action", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleCommentActionPost(
       post(
         { canonicalCommentId: "x", action: "nope" },
@@ -73,7 +73,7 @@ describe("handleCommentActionPost", () => {
   test("404 for a comment not owned by caller", async () => {
     const { cc } = await seedActionWorld();
     const stranger = await seedUser({ email: "b@example.com" });
-    const { token } = await issueApiToken({ userId: stranger.id });
+    const { token } = await issueTestSession({ userId: stranger.id });
     const res = await handleCommentActionPost(
       post(
         { canonicalCommentId: cc.id, action: "mark_resolved" },

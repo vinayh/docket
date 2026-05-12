@@ -1,4 +1,4 @@
-import { handleOauthCallback, handleOauthStart } from "./oauth.ts";
+import { handleAuthExtFinalize, handleAuthExtLaunch, handleAuthRequest } from "./auth-handler.ts";
 import { handleDocStatePost } from "./doc-state.ts";
 import { handleDocSyncPost } from "./doc-sync.ts";
 import { handleProjectDetailPost } from "./project-detail.ts";
@@ -7,12 +7,12 @@ import { handleVersionCommentsPost } from "./version-comments.ts";
 import { handleCommentActionPost } from "./comment-action.ts";
 import { handleSettingsPost } from "./settings.ts";
 import { handleReviewActionGet } from "./review-action.ts";
-import { handlePickerHost } from "./picker.ts";
 import { handlePickerConfig } from "./picker-config.ts";
 import { handleRegisterDocPost } from "./picker-register.ts";
 import { handleDriveWebhook } from "./drive-webhook.ts";
 import { preflight, withCors, withSecurity } from "./cors.ts";
-import { internalError } from "./middleware.ts";
+import { authenticateBearer, internalError } from "./middleware.ts";
+import { checkRateLimit, clientIp } from "./rate-limit.ts";
 
 export interface ServeOptions {
   port?: number;
@@ -25,22 +25,23 @@ type MethodHandlers = Partial<Record<"GET" | "POST" | "OPTIONS", Handler>>;
 /**
  * Stamp HSTS + nosniff + frame-deny + default-deny CSP on the response of a
  * non-CORS route. CORS routes flow through `withCors`, which applies the
- * same headers; this helper covers `/healthz`, `/oauth/*`, `/picker`, and
- * the Drive webhook so every public response is hardened.
+ * same headers; this helper covers `/healthz`, the magic-link review handler,
+ * and the Drive webhook so every public response is hardened.
  */
 function secured(handler: Handler): Handler {
   return async (req) => withSecurity(await handler(req));
 }
 
 /**
- * Wrap a method-keyed route table with CORS handling and a uniform error
- * response: every supplied handler's response gets `Access-Control-Allow-*`
- * headers stamped on, an `OPTIONS` preflight handler is auto-injected, and
- * any thrown error becomes a structured `internalError` JSON response with
- * CORS headers preserved. Routes registered with `corsRoute` therefore
- * never need their own catch-all try/catch; they catch only domain
- * exceptions that demand a non-500 mapping (e.g. `DuplicateProjectError`
- * → 409).
+ * Wrap a method-keyed route table with CORS handling, rate limiting, and a
+ * uniform error response: every supplied handler's response gets
+ * `Access-Control-Allow-*` headers stamped on, an `OPTIONS` preflight
+ * handler is auto-injected, every authenticated route counts against a
+ * per-user (or per-IP) fixed-window budget, and any thrown error becomes a
+ * structured `internalError` JSON response with CORS headers preserved.
+ * Routes registered with `corsRoute` therefore never need their own
+ * catch-all try/catch; they catch only domain exceptions that demand a
+ * non-500 mapping (e.g. `DuplicateProjectError` → 409).
  */
 function corsRoute(handlers: MethodHandlers): MethodHandlers {
   const out: MethodHandlers = { OPTIONS: preflight };
@@ -50,11 +51,29 @@ function corsRoute(handlers: MethodHandlers): MethodHandlers {
   ][]) {
     out[method] = async (req: Request) => {
       let res: Response;
+      let remaining: number | null = null;
       try {
-        res = await handler(req);
+        const gate = await rateLimitGate(req);
+        if (gate.kind === "block") {
+          res = gate.response;
+        } else {
+          remaining = gate.remaining;
+          res = await handler(req);
+        }
       } catch (err) {
         console.error(`[${method} ${new URL(req.url).pathname}] error:`, err);
         res = internalError();
+      }
+      if (remaining !== null && !res.headers.has("x-margin-rate-limit-remaining")) {
+        res = new Response(res.body, {
+          status: res.status,
+          statusText: res.statusText,
+          headers: (() => {
+            const h = new Headers(res.headers);
+            h.set("x-margin-rate-limit-remaining", String(remaining));
+            return h;
+          })(),
+        });
       }
       return withCors(req, res);
     };
@@ -62,15 +81,51 @@ function corsRoute(handlers: MethodHandlers): MethodHandlers {
   return out;
 }
 
+type RateLimitGate =
+  | { kind: "allow"; remaining: number }
+  | { kind: "block"; response: Response };
+
 /**
- * Phase-2 HTTP API host. Public routes: `/healthz`, `/oauth/{start,callback}`,
- * `/picker`. Webhooks: `/webhooks/drive` (Drive push notifications).
- * Bearer-authenticated API surface: `/api/extension/doc-state`,
- * `/api/extension/doc-sync`, `/api/extension/project`,
- * `/api/extension/version-diff`, `/api/extension/version-comments`,
- * `/api/picker/register-doc`. Method dispatch + 405-on-mismatch comes
- * from Bun.serve's `routes:` option; unknown paths fall through to
- * `fetch`'s 404.
+ * Pre-handler rate-limit check for `/api/extension/*` and `/api/picker/*`.
+ * Keys on the authenticated user id when possible (so a stolen-token
+ * abuser burns *their own* budget, not their victim's pool, and a
+ * NAT'd office shares per-user buckets), falling back to client IP for
+ * unauthenticated requests (e.g. `/api/picker/config`). On exhaustion the
+ * caller receives 429 + `Retry-After`; otherwise the handler runs and the
+ * remaining slot count is surfaced via `x-margin-rate-limit-remaining`.
+ *
+ * Better Auth has its own rate limiter on `/api/auth/*` (defaults to 100
+ * reqs / 10 s in production), so we don't need to wrap that route.
+ */
+async function rateLimitGate(req: Request): Promise<RateLimitGate> {
+  const session = await authenticateBearer(req).catch(() => null);
+  const key = session ? `u:${session.userId}` : `ip:${clientIp(req)}`;
+  const decision = checkRateLimit(key);
+  if (!decision.allowed) {
+    return {
+      kind: "block",
+      response: new Response(JSON.stringify({ error: "rate_limited" }), {
+        status: 429,
+        headers: {
+          "content-type": "application/json",
+          "retry-after": String(decision.resetSeconds),
+          "x-margin-rate-limit-remaining": "0",
+        },
+      }),
+    };
+  }
+  return { kind: "allow", remaining: decision.remaining };
+}
+
+/**
+ * Phase-2 HTTP API host. Public routes: `/healthz`, the magic-link review
+ * handler `/r/<token>`, and Better Auth's catch-all `/api/auth/**`
+ * (sign-in, social-provider callback, session lookup, sign-out). Webhooks:
+ * `/webhooks/drive` (Drive push notifications). Bearer-authenticated API
+ * surface: `/api/extension/{doc-state,doc-sync,project,version-diff,
+ * version-comments,comment-action,settings}`, `/api/picker/register-doc`.
+ * Method dispatch + 405-on-mismatch comes from Bun.serve's `routes:` option;
+ * unknown paths fall through to `fetch`'s 404.
  *
  * `backgroundLoops` (default true) controls the in-process renew + poll
  * timers (SPEC §9.3). Tests pass `false` to keep the server quiet; in
@@ -94,9 +149,12 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       // wrap GET-only routes in the method-keyed form to get automatic 405
       // on the wrong verb.
       "/healthz": { GET: secured(() => Response.json({ ok: true })) },
-      "/oauth/start": { GET: secured(handleOauthStart) },
-      "/oauth/callback": { GET: secured(handleOauthCallback) },
-      "/picker": { GET: secured(handlePickerHost) },
+      "/api/auth/ext/launch": { GET: secured(handleAuthExtLaunch) },
+      "/api/auth/ext/finalize": { GET: secured(handleAuthExtFinalize) },
+      "/api/auth/*": {
+        GET: secured(handleAuthRequest),
+        POST: secured(handleAuthRequest),
+      },
       "/webhooks/drive": { POST: secured(handleDriveWebhook) },
       "/api/extension/doc-state": corsRoute({ POST: handleDocStatePost }),
       "/api/extension/doc-sync": corsRoute({ POST: handleDocSyncPost }),

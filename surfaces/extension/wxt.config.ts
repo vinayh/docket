@@ -35,8 +35,13 @@ export default defineConfig({
     // uses `sidebar_action` declared below and ignores unknown permission
     // entries gracefully, but we keep the request scoped to Chromium so
     // the store reviewers see a clean list.
+    // `identity` powers `chrome.identity.launchWebAuthFlow` for Google
+    // sign-in (see `entrypoints/background.ts`). Both Chromium and Firefox
+    // expose this API under the same namespace.
     permissions:
-      browser === "firefox" ? ["storage"] : ["storage", "sidePanel"],
+      browser === "firefox"
+        ? ["storage", "identity"]
+        : ["storage", "sidePanel", "identity"],
     // The user-configured backend URL isn't known at build time. We declare
     // `<all_urls>` as optional and request the specific origin from the
     // options page on save. See entrypoints/options/main.ts. There is no

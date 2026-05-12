@@ -11,20 +11,20 @@
 import { sql } from "drizzle-orm";
 import { db } from "../src/db/client.ts";
 import {
-  apiToken,
+  account,
   canonicalComment,
   commentProjection,
   derivative,
-  driveCredential,
   driveWatchChannel,
   overlay,
   overlayOperation,
   project,
   reviewAssignment,
   reviewRequest,
+  session,
   user,
+  verification,
   version,
-  type AuthMethod,
   type CanonicalCommentKind,
   type CommentAnchor,
   type ProjectionStatus,
@@ -52,8 +52,9 @@ export async function cleanDb(): Promise<void> {
     driveWatchChannel,
     version,
     project,
-    driveCredential,
-    apiToken,
+    session,
+    account,
+    verification,
     user,
   ]) {
     await db.delete(t);
@@ -63,17 +64,13 @@ export async function cleanDb(): Promise<void> {
 
 export async function seedUser(opts?: {
   email?: string;
-  authMethod?: AuthMethod;
-  googleSubjectId?: string;
-  displayName?: string;
+  name?: string;
 }): Promise<typeof user.$inferSelect> {
   const inserted = await db
     .insert(user)
     .values({
       email: opts?.email ?? `user-${crypto.randomUUID()}@example.com`,
-      authMethod: opts?.authMethod ?? "google",
-      googleSubjectId: opts?.googleSubjectId ?? null,
-      displayName: opts?.displayName ?? null,
+      name: opts?.name ?? "Test User",
     })
     .returning();
   return inserted[0]!;

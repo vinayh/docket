@@ -3,41 +3,24 @@ import {
   authenticateBearer,
   badRequest,
   jsonOk,
-  methodNotAllowed,
   unauthorized,
 } from "./middleware.ts";
 
 describe("authenticateBearer", () => {
-  // These test the format-level short-circuits in `authenticateBearer` —
-  // the DB hash lookup is only invoked when the header matches the Bearer
-  // grammar AND the token starts with the `mgn_` prefix. None of the cases
-  // below should reach the DB.
+  // The middleware is now a thin wrapper around Better Auth's
+  // `auth.api.getSession`; it returns null whenever the session lookup
+  // doesn't resolve a user. Exhaustive header parsing lives inside Better
+  // Auth's bearer plugin and isn't re-tested here.
 
   test("returns null when Authorization header is absent", async () => {
     const req = new Request("http://localhost/", { method: "POST" });
     expect(await authenticateBearer(req)).toBeNull();
   });
 
-  test("returns null when scheme is not Bearer", async () => {
+  test("returns null when bearer token is unknown", async () => {
     const req = new Request("http://localhost/", {
       method: "POST",
-      headers: { authorization: "Basic dXNlcjpwYXNz" },
-    });
-    expect(await authenticateBearer(req)).toBeNull();
-  });
-
-  test("returns null when token has the wrong prefix", async () => {
-    const req = new Request("http://localhost/", {
-      method: "POST",
-      headers: { authorization: "Bearer not-a-margin-token" },
-    });
-    expect(await authenticateBearer(req)).toBeNull();
-  });
-
-  test("returns null when bearer header is empty", async () => {
-    const req = new Request("http://localhost/", {
-      method: "POST",
-      headers: { authorization: "Bearer " },
+      headers: { authorization: "Bearer not-a-real-session" },
     });
     expect(await authenticateBearer(req)).toBeNull();
   });
@@ -48,12 +31,6 @@ describe("response helpers", () => {
     const r = unauthorized();
     expect(r.status).toBe(401);
     expect(r.headers.get("www-authenticate")).toContain("Bearer");
-  });
-
-  test("methodNotAllowed() advertises allowed methods", () => {
-    const r = methodNotAllowed(["GET", "POST"]);
-    expect(r.status).toBe(405);
-    expect(r.headers.get("allow")).toBe("GET, POST");
   });
 
   test("badRequest() emits json with a message", async () => {

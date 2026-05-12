@@ -1,23 +1,20 @@
-import { verifyApiToken } from "../auth/api-token.ts";
+import { auth } from "../auth/server.ts";
 
 export interface AuthenticatedRequest {
   userId: string;
-  tokenId: string;
+  sessionId: string;
 }
 
 /**
- * Extracts a bearer token from `Authorization: Bearer <token>` and resolves it
- * to a user. Returns null when the header is missing, malformed, or the token
- * is unknown / revoked. Routes decide whether to 401 or to fall through.
+ * Resolve the caller's user via Better Auth. Accepts either a session cookie
+ * or `Authorization: Bearer <session_token>` (the bearer plugin converts the
+ * header into the same session lookup). Returns null when no valid session
+ * is present; routes decide whether to 401 or fall through.
  */
 export async function authenticateBearer(req: Request): Promise<AuthenticatedRequest | null> {
-  const header = req.headers.get("authorization");
-  if (!header) return null;
-  const match = /^Bearer\s+(\S+)\s*$/i.exec(header);
-  if (!match) return null;
-  const verified = await verifyApiToken(match[1]!);
-  if (!verified) return null;
-  return verified;
+  const result = await auth.api.getSession({ headers: req.headers });
+  if (!result) return null;
+  return { userId: result.user.id, sessionId: result.session.id };
 }
 
 export function unauthorized(): Response {
@@ -26,16 +23,6 @@ export function unauthorized(): Response {
     headers: {
       "content-type": "application/json",
       "www-authenticate": `Bearer realm="margin"`,
-    },
-  });
-}
-
-export function methodNotAllowed(allowed: readonly string[]): Response {
-  return new Response(JSON.stringify({ error: "method_not_allowed" }), {
-    status: 405,
-    headers: {
-      "content-type": "application/json",
-      allow: allowed.join(", "),
     },
   });
 }

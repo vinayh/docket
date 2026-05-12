@@ -220,19 +220,17 @@ async function startAddFlow(
   setView: (v: View) => void,
 ): Promise<void> {
   if (navigator.userAgent.includes("Firefox")) {
-    const settings = await getSettings();
-    if (!settings) {
-      setView({ kind: "error", tab, message: "no backend configured" });
-      return;
-    }
-    const params = new URLSearchParams({
-      token: settings.apiToken,
-      suggestedDocId: tab.docId,
+    // The hosted `/picker` page used to be the Firefox fallback for the
+    // sandboxed in-popup picker, but it was deleted along with the
+    // bring-your-own-API-token model. Until Firefox's MV3 supports
+    // `sandbox.pages` (or we ship a sidebar-hosted picker), Firefox users
+    // can't add docs from the popup.
+    setView({
+      kind: "error",
+      tab,
+      message:
+        "Adding docs from Firefox isn't supported yet — please use Chrome or Edge.",
     });
-    if (tab.title) params.set("suggestedTitle", tab.title);
-    const base = settings.backendUrl.replace(/\/+$/, "");
-    await browser.tabs.create({ url: `${base}/picker#${params.toString()}` });
-    window.close();
     return;
   }
 

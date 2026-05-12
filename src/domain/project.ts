@@ -6,7 +6,7 @@ import type { TokenProvider } from "../google/api.ts";
 import { getFile } from "../google/drive.ts";
 import { parseGoogleDocId } from "./google-doc-url.ts";
 
-export const GOOGLE_DOC_MIME = "application/vnd.google-apps.document";
+const GOOGLE_DOC_MIME = "application/vnd.google-apps.document";
 
 export type Project = typeof project.$inferSelect;
 

@@ -146,9 +146,10 @@ const nav = [
       >
         <p>
           Refresh tokens are envelope-encrypted with a per-row data key wrapped
-          by a master key on the backend. API tokens are <code>mgn_</code>
-          opaque strings stored as sha256 hashes. The extension only ever talks
-          to the Margin backend. No analytics SDKs, no third-party trackers.
+          by a master key on the backend. The extension authenticates with a
+          Better Auth session token acquired through Google sign-in. The
+          extension only ever talks to the Margin backend. No analytics SDKs,
+          no third-party trackers.
         </p>
       </SectionItem>
 

@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { driveCredential } from "../db/schema.ts";
-import { decryptWithMaster, encryptWithMaster } from "./encryption.ts";
+import { account } from "../db/schema.ts";
+import { decryptWithMaster } from "./encryption.ts";
 import { refreshAccessToken } from "../google/oauth.ts";
 import type { TokenProvider } from "../google/api.ts";
 
@@ -11,16 +11,19 @@ interface CachedAccessToken {
 }
 
 const SAFETY_MARGIN_MS = 60_000;
+const GOOGLE_PROVIDER_ID = "google";
 
 async function loadRefreshToken(userId: string): Promise<string> {
   const rows = await db
-    .select({ encrypted: driveCredential.refreshTokenEncrypted })
-    .from(driveCredential)
-    .where(eq(driveCredential.userId, userId))
+    .select({ refreshToken: account.refreshToken })
+    .from(account)
+    .where(and(eq(account.userId, userId), eq(account.providerId, GOOGLE_PROVIDER_ID)))
     .limit(1);
   const row = rows[0];
-  if (!row) throw new Error(`no drive credential for user ${userId}`);
-  return decryptWithMaster(row.encrypted);
+  if (!row || !row.refreshToken) {
+    throw new Error(`no google account credential for user ${userId}`);
+  }
+  return decryptWithMaster(row.refreshToken);
 }
 
 /**
@@ -80,45 +83,11 @@ function buildTokenProvider(userId: string): TokenProvider {
 
 /**
  * Drop a cached provider — call from tests that reset DB state with the same
- * userId, or from `storeRefreshToken` when a fresh refresh token arrives. In
- * normal operation the cache is fine to leave warm; access tokens that
- * outlive their refresh token still work until they expire.
+ * userId. In normal operation the cache is fine to leave warm: when Better
+ * Auth's account hook re-encrypts a fresh refresh token, the cached access
+ * token still works until it expires, after which the next refresh reads
+ * the new ciphertext from `account.refreshToken`.
  */
 export function evictTokenProvider(userId: string): void {
   tpCache.delete(userId);
-}
-
-export async function storeRefreshToken(opts: {
-  userId: string;
-  refreshToken: string;
-  scope: string;
-}): Promise<void> {
-  const refreshTokenEncrypted = await encryptWithMaster(opts.refreshToken);
-  const existing = await db
-    .select({ id: driveCredential.id })
-    .from(driveCredential)
-    .where(eq(driveCredential.userId, opts.userId))
-    .limit(1);
-
-  if (existing[0]) {
-    await db
-      .update(driveCredential)
-      .set({
-        refreshTokenEncrypted,
-        scope: opts.scope,
-        updatedAt: new Date(),
-      })
-      .where(eq(driveCredential.id, existing[0].id));
-  } else {
-    await db.insert(driveCredential).values({
-      userId: opts.userId,
-      scope: opts.scope,
-      refreshTokenEncrypted,
-    });
-  }
-
-  // A cached provider for this user is now bound to a stale refresh token.
-  // The cached access token might still be valid, but discarding the closure
-  // forces the next caller to load the new refresh token from the DB.
-  evictTokenProvider(opts.userId);
 }

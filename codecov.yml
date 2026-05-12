@@ -7,6 +7,15 @@ coverage:
         target: auto
         threshold: 1%
 
+# CLI subcommands are thin `parseArgs` shells over `src/domain/` (see
+# AGENTS.md); the dispatcher (`src/cli/index.ts`) is the only branching
+# part and is tested directly. The migrator runs at startup, not in the
+# request path. Excluding both from coverage so the project total
+# reflects production code only.
+ignore:
+  - "src/cli/**/*"
+  - "src/db/migrate.ts"
+
 # Two parallel uploads merge into the project total:
 #   - `unit`: ci.yml on every push/PR (mocked transports + temp-DB)
 #   - `integration`: integration.yml on workflow_dispatch + nightly cron

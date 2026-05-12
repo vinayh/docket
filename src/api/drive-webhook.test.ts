@@ -82,7 +82,7 @@ describe("/webhooks/drive", () => {
     });
 
     // resource_state="update" routes into ingestVersionComments → tokenProvider
-    // refresh, which has no driveCredential row → throws. Webhook still 200s.
+    // refresh, which has no `account` row → throws. Webhook still 200s.
     const res = await handleDriveWebhook(
       webhookRequest({
         "x-goog-channel-id": channelId,

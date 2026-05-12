@@ -10,10 +10,8 @@
     <main>
       <h1>Margin extension</h1>
       <p>
-        Connect this browser to your Margin backend. The extension's only
-        job today is to capture replies on Google Docs suggestion threads
-        — the public Drive/Docs APIs don't expose them, and they're lost
-        when the doc moves on without an extension-equipped viewer.
+        Connect this browser to your Margin backend, then sign in with Google
+        to authorize Drive access for the docs you choose to track.
       </p>
 
       <form id="form">
@@ -32,27 +30,27 @@
           </small>
         </label>
 
-        <label>
-          API token
-          <input
-            type="password"
-            id="apiToken"
-            name="apiToken"
-            required
-            autocomplete="off"
-            placeholder="mgn_..."
-          />
-          <small>
-            Issue one with <code>bun margin token issue --user &lt;email&gt;</code>.
-            The token authenticates POSTs to
-            <code>/api/extension/captures</code>.
-          </small>
-        </label>
-
-        <button type="submit">Save</button>
+        <button type="submit">Save backend URL</button>
         <button type="button" id="test">Test connection</button>
-        <p id="status" role="status"></p>
       </form>
+
+      <hr />
+
+      <section id="auth">
+        <h2>Account</h2>
+        <p id="authState">Loading…</p>
+        <button type="button" id="signIn">Sign in with Google</button>
+        <button type="button" id="signOut" hidden>Sign out</button>
+        <p>
+          <small>
+            Signing in opens a Google consent screen. Margin requests
+            <code>drive.file</code> — per-file access only for docs you
+            register through the extension's Picker.
+          </small>
+        </p>
+      </section>
+
+      <p id="status" role="status"></p>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

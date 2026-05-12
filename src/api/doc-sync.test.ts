@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { cleanDb, seedProject, seedUser } from "../../test/db.ts";
-import { issueApiToken } from "../auth/api-token.ts";
+import { issueTestSession } from "../../test/session.ts";
 import { handleDocSyncPost } from "./doc-sync.ts";
 
 /**
@@ -41,7 +41,7 @@ describe("handleDocSyncPost", () => {
     // (otherwise it'd try to hit Drive without a token and fail).
     const u = await seedUser();
     await seedProject({ ownerUserId: u.id, parentDocId: "doc-no-version" });
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
 
     const res = await handleDocSyncPost(
       postSync({ docId: "doc-no-version" }, { auth: `Bearer ${token}` }),
@@ -59,7 +59,7 @@ describe("handleDocSyncPost", () => {
 
   test("returns tracked:false for an unknown doc without invoking ingest", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleDocSyncPost(
       postSync({ docId: "doc-not-tracked" }, { auth: `Bearer ${token}` }),
     );

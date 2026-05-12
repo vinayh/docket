@@ -1,4 +1,3 @@
-import { run as runConnect } from "./connect.ts";
 import { run as runSmoke } from "./smoke.ts";
 import { run as runDoc } from "./doc.ts";
 import { run as runInspect } from "./inspect.ts";
@@ -9,11 +8,9 @@ import { run as runReanchor } from "./reanchor.ts";
 import { run as runOverlay, runDerivative } from "./overlay.ts";
 import { run as runWatcher } from "./watcher.ts";
 import { run as runServe } from "./serve.ts";
-import { run as runToken } from "./token.ts";
 import { run as runE2E } from "./e2e.ts";
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
-  connect: runConnect,
   smoke: runSmoke,
   doc: runDoc,
   inspect: runInspect,
@@ -25,7 +22,6 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   derivative: runDerivative,
   watcher: runWatcher,
   serve: runServe,
-  token: runToken,
   e2e: runE2E,
 };
 

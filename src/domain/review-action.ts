@@ -7,6 +7,7 @@ import {
   type ReviewActionKind,
   type ReviewAssignmentStatus,
 } from "../db/schema.ts";
+import { paragraphHash } from "./anchor.ts";
 
 /**
  * Magic-link review actions (SPEC §6.3 + §12 Phase 4). One row in
@@ -45,7 +46,7 @@ export async function issueReviewActionToken(opts: {
   const inserted = await db
     .insert(reviewActionToken)
     .values({
-      tokenHash: hashToken(token),
+      tokenHash: paragraphHash(token),
       reviewRequestId: opts.reviewRequestId,
       assigneeUserId: opts.assigneeUserId,
       action: opts.action,
@@ -72,7 +73,7 @@ export async function redeemReviewActionToken(
     const rows = tx
       .select()
       .from(reviewActionToken)
-      .where(eq(reviewActionToken.tokenHash, hashToken(plaintext)))
+      .where(eq(reviewActionToken.tokenHash, paragraphHash(plaintext)))
       .limit(1)
       .all();
     const row = rows[0];
@@ -167,6 +168,3 @@ function toBase64Url(bytes: Uint8Array): string {
     .replace(/=+$/g, "");
 }
 
-function hashToken(plaintext: string): string {
-  return new Bun.CryptoHasher("sha256").update(plaintext).digest("hex");
-}

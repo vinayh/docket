@@ -23,10 +23,23 @@ async function set<T>(key: string, value: T): Promise<void> {
 
 export async function getSettings(): Promise<Settings | null> {
   const s = await get<Settings>(KEY_SETTINGS);
-  if (!s || !s.backendUrl || !s.apiToken) return null;
+  if (!s || !s.backendUrl || !s.sessionToken) return null;
   return s;
 }
 
 export async function setSettings(s: Settings): Promise<void> {
   await set(KEY_SETTINGS, s);
+}
+
+/**
+ * Partial-update of the persisted settings. Used by the SW's sign-in /
+ * sign-out flow to flip `sessionToken` without disturbing `backendUrl`,
+ * and by the Options page to update the URL without losing the session.
+ */
+export async function patchSettings(patch: Partial<Settings>): Promise<void> {
+  const current = (await get<Settings>(KEY_SETTINGS)) ?? {
+    backendUrl: "",
+    sessionToken: "",
+  };
+  await set(KEY_SETTINGS, { ...current, ...patch });
 }

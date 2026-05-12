@@ -18,11 +18,11 @@ Bun runtime, `bun:sqlite` + Drizzle (Postgres later when we need multi-process),
    bun install
    ```
 
-2. **Create a Google Cloud OAuth client.** In [console.cloud.google.com](https://console.cloud.google.com), create a project, enable the **Google Drive API**, **Google Docs API**, and **Google Picker API**, then create an OAuth 2.0 client (type: web application). Add `http://localhost:8787/oauth/callback` as an authorized redirect URI **and** `http://localhost:8787` as an authorized JavaScript origin (the Picker page mints access tokens via Google Identity Services from that origin).
+2. **Create a Google Cloud OAuth client.** In [console.cloud.google.com](https://console.cloud.google.com), create a project, enable the **Google Drive API**, **Google Docs API**, and **Google Picker API**, then create an OAuth 2.0 client (type: web application). Add `http://localhost:8787/api/auth/callback/google` as an authorized redirect URI (Better Auth's default callback path).
 
 3. **Create a Picker API key.** In the same GCP project: APIs & Services → Credentials → "Create credentials" → API key. Restrict it to the Picker API. Note the GCP project number (Cloud Console → "Project info" → "Project number" — *not* the project ID).
 
-4. **Generate a master key** for envelope encryption (32 bytes, base64-encoded):
+4. **Generate two independent 32-byte base64 secrets** — one for envelope encryption of Google refresh tokens at rest, one for Better Auth (cookie HMAC + OAuth-state encryption). Run the one-liner twice:
 
    ```sh
    bun -e 'console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"))'
@@ -33,14 +33,14 @@ Bun runtime, `bun:sqlite` + Drizzle (Postgres later when we need multi-process),
    ```
    GOOGLE_CLIENT_ID=...
    GOOGLE_CLIENT_SECRET=...
-   GOOGLE_REDIRECT_URI=http://localhost:8787/oauth/callback
    GOOGLE_API_KEY=...                    # picker developer key (step 3)
    GOOGLE_PROJECT_NUMBER=...             # numeric project number (step 3)
-   MARGIN_MASTER_KEY=<base64 from step 4>
+   MARGIN_MASTER_KEY=<first base64 from step 4>
+   BETTER_AUTH_SECRET=<second base64 from step 4>
    MARGIN_DB_PATH=./margin.db
    ```
 
-   Bun loads `.env` automatically. The Picker vars are only required by the `/picker` route — the rest of the server works without them.
+   Bun loads `.env` automatically. The Picker vars are only required for the extension's "add doc" flow — the rest of the server works without them.
 
 6. **Apply migrations:**
 
@@ -52,14 +52,15 @@ Bun runtime, `bun:sqlite` + Drizzle (Postgres later when we need multi-process),
 
 Run any subcommand with `bun margin <subcommand>`. The `--user <email>` flag selects which connected account acts as the doc owner; if omitted, the first user in the DB is used.
 
-**Auth & docs**
+**Docs**
 
 ```
-bun margin connect                                        connect a Google account
 bun margin doc create [--title <t>] [--seed]              create a fresh Docs API doc
 bun margin smoke <doc-url>                                getFile + copyFile + listComments
 bun margin inspect <doc-url>                              dump raw Drive/Docs API responses
 ```
+
+Sign-in happens in the browser extension (Options → "Sign in with Google"), not on the CLI — Better Auth handles the OAuth dance and stores the envelope-encrypted refresh token in `account.refresh_token`.
 
 **Projects, versions, comments**
 
@@ -95,13 +96,10 @@ bun margin watcher poll                                   polling fallback: re-i
 bun margin watcher simulate <channel-id> [--state ...]    exercise the push handler locally
 ```
 
-**Server & API tokens**
+**Server**
 
 ```
 bun margin serve [--port <n>]                             start the HTTP API (Bun.serve)
-bun margin token issue [--user <email>] [--label <l>]     issue an API token (shown once)
-bun margin token list  [--user <email>]                   list active tokens
-bun margin token revoke <token-id>                        revoke an active token
 ```
 
 ## Validate the backend
@@ -109,10 +107,10 @@ bun margin token revoke <token-id>                        revoke an active token
 After [Setup](#setup), connect a real Google account and exercise the full backend stack:
 
 ```sh
-# 1. Connect a Google account.
-#    Opens a consent URL; the local callback server captures the code,
-#    upserts a user row, and stores an encrypted refresh token.
-bun margin connect
+# 1. Build and load the browser extension (see "Test the browser extension"
+#    below), then click "Sign in with Google" on its Options page. Better
+#    Auth handles the OAuth dance and stores the envelope-encrypted refresh
+#    token in `account.refresh_token`.
 
 # 2. Create a fresh doc to test against.
 #    drive.file access is granted automatically because the OAuth client created the file.
@@ -141,37 +139,21 @@ bun margin comments list <project-id>
 
 ## Track an existing doc via the Drive Picker
 
-The Picker is the only mechanism that grants `drive.file` access to a doc the OAuth client didn't create (SPEC §9.2). Two equivalent entry points:
+The Picker is the only mechanism that grants `drive.file` access to a doc the OAuth client didn't create (SPEC §9.2). Open any Google Doc, click the Margin toolbar icon, click **Add to Margin** — on Chromium the Picker mounts inline in the popup. Firefox MV3 lacks `sandbox.pages`, so the "add doc" flow is Chromium-only for now.
 
-- **Extension popup (priority).** Open any Google Doc, click the Margin toolbar icon, click **Add to Margin**. On Chromium the Picker mounts inline in the popup; on Firefox MV3 it falls back to opening `<backend>/picker` in a new tab. Pick the same doc and Margin registers it as a project. Requires the extension to be configured — see "Test the browser extension" below.
-- **Web entry point.** Open `http://localhost:8787/picker` directly, paste your API token, click **Open Drive Picker**, pick a doc. Same end result.
-
-Both paths POST to `/api/picker/register-doc`; the response includes the new project id (or `409 already_exists` with the existing id).
+The Picker handshake POSTs to `/api/picker/register-doc`; the response includes the new project id (or `409 already_exists` with the existing id).
 
 ## Test the browser extension
 
-The MV3 extension (Chrome / Edge / Firefox) lives in [`surfaces/extension/`](./surfaces/extension/) — its [README](./surfaces/extension/README.md) covers build, layout, popup state machine, and the DOM-selector maintenance contract. End-to-end smoke test:
+The MV3 extension lives in [`surfaces/extension/`](./surfaces/extension/) — its [README](./surfaces/extension/README.md) covers build, layout, popup state machine, and the Picker mechanics. End-to-end smoke test:
 
 1. Start the backend: `bun margin serve` (defaults to `http://localhost:8787`).
-2. Connect a Google account: `bun margin connect` (skip if already done).
-3. Issue an API token for the extension: `bun margin token issue --user <your-email> --label "local-dev"` (the `mgn_...` value is shown once).
-4. Build and load the extension:
+2. Build and load the extension:
    - **Chrome / Edge:** `bun run ext:build` → `chrome://extensions` → Developer Mode → **Load unpacked** → `surfaces/extension/dist/chrome-mv3`.
-   - **Firefox:** `bun run ext:build:firefox` → `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on** → any file inside `surfaces/extension/dist/firefox-mv3` (e.g. `manifest.json`).
-5. Open the extension's **Options** page, enter the backend URL + API token, click **Test connection** (Chrome will prompt for the backend origin — approve), then **Save**.
-6. Create a test doc and register it as a project + version (the extension only ingests captures for docs Margin already knows about):
-
-   ```sh
-   bun margin doc create --seed
-   # -> open the printed URL in Chrome
-   bun margin project create '<doc-url>'
-   bun margin version create <project-id>
-   ```
-
-7. In the doc, switch to **Suggesting** mode, edit text to create a suggestion, then open the discussion sidebar and type a reply on the suggestion's card.
-8. Click the toolbar icon → **Flush queue now**, then `bun margin comments list <project-id>` — the scraped reply should appear alongside any native Drive comments.
-
-Only replies on *suggestion* threads come through the extension; regular comments arrive via Drive's API ([`SPEC.md` §11](./SPEC.md#11-out-of-scope-for-v1)). Selectors rot when Docs reships (~quarterly) and fail silently — see the extension [README](./surfaces/extension/README.md#dom-selector-maintenance).
+   - **Firefox:** `bun run ext:build:firefox` → `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on** → any file inside `surfaces/extension/dist/firefox-mv3` (e.g. `manifest.json`). Firefox can read tracked-doc state but the "add doc" flow is currently Chromium-only.
+3. Open the extension's **Options** page, enter the backend URL, click **Test connection** (Chrome will prompt for the backend origin — approve), then **Save backend URL**.
+4. Click **Sign in with Google**. `chrome.identity.launchWebAuthFlow` walks the consent screen; Better Auth lands the user back at the extension's `chromiumapp.org` callback URL with a session token, which the SW persists in `chrome.storage.local`.
+5. Open a Google Doc, click the toolbar icon → **Add to Margin**. The sandboxed Picker mounts in the popup; pick the same doc and Margin registers it as a project. `bun margin comments list <project-id>` will show ingested comments after the first webhook fires (or `bun margin watcher poll` to force-pull).
 
 ## Deployment (Fly.io)
 
@@ -182,7 +164,7 @@ The repo deploys as a single-region Fly.io app — see `Dockerfile` + `fly.toml`
 1. `flyctl apps create <your-app-name>` — names are global on Fly.
 2. `flyctl volumes create margin_data --app <your-app-name> --region <region> --size 1` (e.g. `--region lhr`).
 3. Edit `fly.toml`: set `app` and `primary_region` to match.
-4. In Google Cloud Console, create a *separate* OAuth client for production (don't reuse the local one) and add `https://<your-app-name>.fly.dev/oauth/callback` to its authorized redirect URIs **and** `https://<your-app-name>.fly.dev` to its authorized JavaScript origins. Create a Picker API key in the same project (restrict to Picker API) and note the project number.
+4. In Google Cloud Console, create a *separate* OAuth client for production (don't reuse the local one) and add `https://<your-public-host>/api/auth/callback/google` to its authorized redirect URIs (Margin's own deployment runs at `https://api.margin.pub`). Create a Picker API key in the same project (restrict to Picker API) and note the project number.
 5. Update `fly.toml`'s `MARGIN_PUBLIC_BASE_URL` to match your app hostname.
 6. Set the Fly secrets — the master-key generator is piped inline so the value never appears in your terminal:
 
@@ -190,13 +172,13 @@ The repo deploys as a single-region Fly.io app — see `Dockerfile` + `fly.toml`
    flyctl secrets set --app <your-app-name> \
      GOOGLE_CLIENT_ID='<prod-client-id>' \
      GOOGLE_CLIENT_SECRET='<prod-client-secret>' \
-     GOOGLE_REDIRECT_URI='https://<your-app-name>.fly.dev/oauth/callback' \
      GOOGLE_API_KEY='<picker-api-key>' \
      GOOGLE_PROJECT_NUMBER='<gcp-project-number>' \
-     MARGIN_MASTER_KEY="$(bun -e 'console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"))')"
+     MARGIN_MASTER_KEY="$(bun -e 'console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"))')" \
+     BETTER_AUTH_SECRET="$(bun -e 'console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"))')"
    ```
 
-   Stash the master key in a password manager too — losing it makes existing encrypted refresh tokens unrecoverable.
+   Stash the master key in a password manager too — losing it makes existing encrypted refresh tokens unrecoverable. `BETTER_AUTH_SECRET` is rotatable (rotating it invalidates active sessions but doesn't lose data) and MUST be different from `MARGIN_MASTER_KEY` so that compromise of one doesn't cascade into the other.
 
 7. `flyctl deploy --remote-only` for the first deploy.
 
@@ -210,10 +192,10 @@ flyctl tokens create deploy --app <your-app-name> --expiry 8760h \
 **Verify a deploy:**
 
 ```sh
-curl https://<your-app-name>.fly.dev/healthz   # → {"ok":true}
+curl https://<your-public-host>/healthz   # → {"ok":true}  (Margin: https://api.margin.pub/healthz)
 ```
 
-For an end-to-end OAuth round-trip, open `https://<your-app-name>.fly.dev/oauth/start` in a browser, approve consent, and you should land on the callback page with `Connected <email> as new user. You can close this tab.`
+For an end-to-end OAuth round-trip, point the extension's Backend URL at `https://<your-public-host>` (Margin: `https://api.margin.pub`), click **Test connection** (grant the origin), then **Sign in with Google** — Better Auth runs the consent flow and the extension surface should flip to "Signed in".
 
 ## CI & test tiers
 
@@ -249,15 +231,16 @@ Set these under **Settings → Secrets and variables → Actions → New reposit
 
    ```sh
    bun margin serve
-   # then visit http://localhost:8787/oauth/start in a browser logged in as the CI account
+   # then load the extension, set Backend URL = http://localhost:8787,
+   # click "Sign in with Google" with the CI account.
    ```
 
-   On approval the local server upserts a `user` row and stores an encrypted refresh token in `drive_credential`.
+   On approval Better Auth upserts a `user` row, a `session` row, and an `account` row whose `refresh_token` is envelope-encrypted.
 
 4. Decrypt the stored refresh token (uses the same `MARGIN_MASTER_KEY` that wrote it):
 
    ```sh
-   bun -e 'import("./src/auth/encryption.ts").then(async ({decryptWithMaster}) => { const {db} = await import("./src/db/client.ts"); const {driveCredential} = await import("./src/db/schema.ts"); const r = (await db.select().from(driveCredential))[0]; console.log(await decryptWithMaster(r.refreshTokenEncrypted)); })'
+   bun -e 'import("./src/auth/encryption.ts").then(async ({decryptWithMaster}) => { const {db} = await import("./src/db/client.ts"); const {account} = await import("./src/db/schema.ts"); const {eq} = await import("drizzle-orm"); const r = (await db.select().from(account).where(eq(account.providerId, "google")))[0]; console.log(await decryptWithMaster(r.refreshToken)); })'
    ```
 
    Paste the printed string into `GOOGLE_CI_REFRESH_TOKEN`.

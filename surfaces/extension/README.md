@@ -1,14 +1,15 @@
 # Margin browser extension
 
-MV3 extension for Chrome / Edge / Firefox. **Phase-4 scope** — see
+MV3 extension for Chrome / Edge (Firefox is read-only for the moment — see
+"Configure" below). **Phase-4 scope** — see
 [`SPEC.md` §6.4](../../SPEC.md#64-browser-extension):
 
 - **Project surface (popup).** Opens to a state machine driven by the
-  active Docs tab: configure backend → open a Doc → "Add to Margin" (in-popup
-  sandboxed Drive Picker on Chromium, fallback `/picker` tab on Firefox)
-  → tracked view with role / version / comment count / last-synced /
-  "Sync now". All backend calls flow through the service worker so the
-  API token never touches the popup origin or the picker sandbox.
+  active Docs tab: configure backend → sign in → open a Doc → "Add to
+  Margin" (in-popup sandboxed Drive Picker on Chromium) → tracked view
+  with role / version / comment count / last-synced / "Sync now". All
+  backend calls flow through the service worker so the Better Auth
+  session token never touches the popup origin or the picker sandbox.
 - **Rich UI (side panel).** Preact app — project dashboard (versions,
   derivatives, review history, reviewer participation), structured
   side-by-side version diff, comment reconciliation view.
@@ -40,24 +41,28 @@ output directory is loadable directly:
 
 ## Configure
 
-1. Issue an API token from the backend:
+1. Open the extension's Options page. Enter the **Backend URL**
+   (`http://localhost:8787` for local dev, or your Fly.io app URL in
+   production), click **Test connection** to confirm `/healthz` responds
+   (Chrome will prompt for the backend origin — approve it), then
+   **Save backend URL**.
 
-   ```sh
-   bun margin token issue --user <email> --label "my laptop"
-   ```
-
-   The token is shown once; copy it.
-
-2. Open the extension's options page. Enter:
-   - Backend URL — typically `http://localhost:8787` for local dev or your
-     Fly.io app URL in production.
-   - API token — the value from step 1.
-
-3. Click **Test connection** to confirm `/healthz` responds. Click **Save**.
+2. Click **Sign in with Google**. The SW invokes
+   `chrome.identity.launchWebAuthFlow` against the backend's
+   `/api/auth/ext/launch` endpoint. Better Auth runs the Google consent
+   flow and bounces back to the extension's `chromiumapp.org` callback URL
+   with `?token=<sessionToken>`; the SW persists the token in
+   `chrome.storage.local`.
 
 The popup is the primary project surface. A `<details>` diagnostics panel
 at the bottom of every view shows the current `/healthz` reachability
 status.
+
+**Firefox note.** Firefox can sign in (its `browser.identity` API mirrors
+Chrome's), but the in-popup sandboxed Drive Picker requires
+`sandbox.pages`, which Firefox MV3 doesn't support yet — so the "add doc"
+flow is Chromium-only until either Firefox ships sandbox pages or we host
+the Picker in a sidebar panel.
 
 ## How the popup project surface works
 
@@ -68,17 +73,16 @@ single `View` discriminated union. `boot()` drives the transitions:
 2. **No Doc tab** → muted "open a Google Doc."
 3. Active Docs tab → SW `doc/state` (`POST /api/extension/doc-state`).
 4. **Untracked** → "Add to Margin" → on Chromium, `<PickerOverlay/>`
-   mounts the sandboxed Picker iframe inside the popup. On Firefox MV3
-   (no `sandbox.pages` support), the popup detects the UA and opens
-   `<backendUrl>/picker#token=…&suggestedDocId=…&suggestedTitle=…` in a
-   new tab as fallback.
+   mounts the sandboxed Picker iframe inside the popup. Firefox renders
+   a "use Chromium for now" error state instead.
 5. After pick → SW `doc/register` (`POST /api/picker/register-doc`) → re-fetch
    state → **Tracked** view (role, version label, comment count, last-synced,
    "Sync now"). "Sync now" calls SW `doc/sync` (`POST /api/extension/doc-sync`),
    which re-runs `ingestVersionComments` and returns refreshed state.
 
-The popup never holds the API token: every backend call routes through the
-service worker, which decorates requests with the configured bearer. The
+The popup never holds the session token: every backend call routes
+through the service worker, which decorates requests with
+`Authorization: Bearer <sessionToken>` from `chrome.storage.local`. The
 sandboxed Picker runs at `null` origin and can't reach the backend at
 all — it postMessages the picked doc id back to the popup, and the popup
 (at the `chrome-extension://...` origin allow-listed in CORS) hits
@@ -105,9 +109,10 @@ surfaces/extension/
   tsconfig.json             extends .wxt/tsconfig.json + DOM + WebWorker libs
   entrypoints/
     background.ts           defineBackground — message router → backend POSTs
+                            (also owns the sign-in launchWebAuthFlow dance)
     options/
       index.html            includes meta name="manifest.open_in_tab" content="true"
-      main.ts               backend URL + API token form
+      main.ts               backend URL form + Sign-in / Sign-out controls
       style.css
     popup/
       index.html            mounts <Popup/> via main.tsx

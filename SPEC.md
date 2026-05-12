@@ -44,10 +44,11 @@ Three layers:
 | `comment_projection` | canonical_comment_id, version_id, google_comment_id, anchor_match_confidence, projection_status, last_synced_at |
 | `review_request` | project, version, status, deadline, slack_thread_ref |
 | `review_assignment` | review_request, user, status, responded_at |
-| `user` | email, google_subject_id, display_name, home_org, auth_method |
-| `drive_credential` | user, scope, encrypted refresh_token — only doc owners |
+| `user` | email, name, email_verified, image — Better Auth-shaped |
+| `account` | Better Auth's provider-credential row. `provider_id="google"` holds the per-doc-owner Drive refresh token, envelope-encrypted in `refresh_token` |
+| `session` | Better Auth session: token (sent as `Authorization: Bearer …` from the extension), userId, expiry |
+| `verification` | Better Auth's identifier/value table (unused today; required by the adapter) |
 | `drive_watch_channel` | per-version Drive `files.watch` channel + token (renew + dedup state) |
-| `api_token` | per-user `mgn_…` bearer tokens (sha256 hash + preview + revoked_at) |
 | `review_action_token` | single-use magic-link tokens issued for review-assignment emails |
 | `audit_log` | actor, action, target, before/after for sensitive ops |
 
@@ -61,7 +62,7 @@ The anchor schema is rich enough to resolve to on-screen coordinates without Goo
 - **Overlay applier.** Translates ops to `documents.batchUpdate` (mapping in §9.7). Anchor → index resolution happens upstream. Below-threshold ops surface for review, not silent skip.
 - **Review orchestrator.** Lifecycle: create fork, share with reviewers, post Slack thread, notify, aggregate status, close + pull comments back.
 - **Notification dispatcher.** Routes events to Slack / add-on / web / email.
-- **Auth service.** Google OAuth + token storage/refresh; scope verification (doc owner vs. participant); cross-org identity.
+- **Auth service.** Better Auth (Google provider + bearer plugin); refresh tokens envelope-encrypted in `account.refresh_token` via a Better Auth `databaseHooks.account` write hook; per-user `TokenProvider` refreshes Drive access tokens directly against Google.
 
 ## 6. Surfaces
 
@@ -89,9 +90,8 @@ Primary chat surface for review coordination.
 
 Deliberately minimal — the rich UI is in the extension.
 
-- **OAuth callback handlers** for Google sign-in + Drive scope grants.
-- **Drive Picker host page** (`/picker`) — small HTML loading Google's Picker iframe. Acts as the Firefox-MV3 fallback for the in-popup sandboxed Picker (§6.4); on Chromium the popup hosts the same Picker inline and this page is unused.
-- **Magic-link handlers** — `/r/<token>` style, one-click state changes for external reviewers; rendered confirmation page.
+- **`/api/auth/**`** — Better Auth's catch-all (sign-in, Google OAuth callback, get-session, sign-out). Extensions hit `/api/auth/ext/launch` from `chrome.identity.launchWebAuthFlow`; that endpoint kicks off Google OAuth, and `/api/auth/ext/finalize` redirects back to the `chromiumapp.org` callback with `?token=<sessionToken>`.
+- **Magic-link handlers** — `/r/<token>` style, one-click state changes for external reviewers; rendered confirmation page. Distinct from Better Auth sessions: review-action tokens authorize a specific state transition (single-use, scoped to one assignment), not an authenticated session.
 - **Public landing page** — marketing/explainer with install CTAs.
 
 Project dashboards, diff viewer, reconciliation UI, overlay editor, settings live in the extension (§6.4), not on the web.
@@ -102,8 +102,8 @@ Project dashboards, diff viewer, reconciliation UI, overlay editor, settings liv
 
 Chrome / Firefox / Edge extension — popup + options + side panel + Picker sandbox. The extension is a **pure UI surface**: ingestion happens server-side via docx export (§9.8), so the manifest has no content script and no `host_permissions` on `docs.google.com`. Roles across phases:
 
-- **Project surface (Phase 3 — shipped).** The popup is the primary "is this doc tracked, what state is it in, sync it now, add it as a new project" surface. Reads `tab.title` (stripped of the locale `" - Google Docs"` suffix) → backend `/api/extension/doc-state`, branches into onboarding / tracked views. "Add to Margin" mounts a sandboxed Drive Picker iframe inline on Chromium (Firefox MV3: opens the backend `/picker` page in a tab as fallback). "Sync now" calls `/api/extension/doc-sync` to re-ingest comments. No Workspace add-on required.
-- **Rich UI (Phase 4 — shipped).** Preact app in the side panel: project dashboard (versions, derivatives, review history, reviewer participation), structured side-by-side version diff, comment reconciliation list. Talks to backend with per-user API token via the SW.
+- **Project surface (Phase 3 — shipped).** The popup is the primary "is this doc tracked, what state is it in, sync it now, add it as a new project" surface. Reads `tab.title` (stripped of the locale `" - Google Docs"` suffix) → backend `/api/extension/doc-state`, branches into onboarding / tracked views. "Add to Margin" mounts a sandboxed Drive Picker iframe inline on Chromium; Firefox MV3 lacks `sandbox.pages` so its "add doc" path is deferred. "Sync now" calls `/api/extension/doc-sync` to re-ingest comments. No Workspace add-on required.
+- **Rich UI (Phase 4 — shipped).** Preact app in the side panel: project dashboard (versions, derivatives, review history, reviewer participation), structured side-by-side version diff, comment reconciliation list. Talks to backend with the user's Better Auth session token (acquired via `chrome.identity.launchWebAuthFlow`) sent as `Authorization: Bearer …` from the SW.
 - **Visualization (Phase 6).** Highlights overlaid on the doc body, gutter markers, hover previews, right-click "comment on selection," native-comment-rail integration. Doc body is `<canvas>` (§9.6) — needs accessibility-DOM mirror or selection-event hooks. **This is the only future role that touches the doc page**; if it ships, it will reintroduce `host_permissions` on `docs.google.com/*` and a content script, but only to read selection events / a11y-mirror coordinates — never comment data.
 - **Capture (Phase 2 — retired).** Originally scraped suggestion-thread replies from the discussion sidebar (the public Drive/Docs APIs didn't surface them). The docx-export ingest path (§9.8) recovers the same data server-side with exact anchors and ISO timestamps, so the `MutationObserver`, SW capture queue, `/api/extension/captures` endpoint, and the `host_permissions` on `docs.google.com/*` were all removed in Phase 4.
 
@@ -149,9 +149,9 @@ Same as 7.1, with:
 
 | Role | Mechanism |
 |---|---|
-| Doc owner | Google OAuth, scope `drive.file` (per-file, §9.2); refresh token encrypted at rest |
-| Participant | Google OAuth identity-only / SSO (SAML, OIDC) / magic-link email |
-| Slack identity | Slack OAuth + email match against `user.email` |
+| Doc owner | Better Auth Google provider, scope `drive.file` (per-file, §9.2); refresh token envelope-encrypted in `account.refresh_token` |
+| Participant | Better Auth Google provider (identity-only) / SSO (SAML, OIDC, future) / single-use `review_action_token` for email-only reviewers |
+| Slack identity | Slack OAuth (future Better Auth `genericOAuth` provider) + email match against `user.email` |
 
 **Authorization model.** Project-scoped roles: owner / collaborator / reviewer / observer. External reviewers added per-review-request, scoped to that version.
 
@@ -220,7 +220,7 @@ Drive `files.export?mimeType=…wordprocessingml.document` returns the doc as OO
 
 ## 10. Privacy and security
 
-- Drive refresh tokens encrypted at rest (envelope encryption: KEK → per-row DEK → ciphertext).
+- Drive refresh tokens encrypted at rest in `account.refresh_token` (envelope encryption: KEK → per-row DEK → ciphertext) via a Better Auth `databaseHooks.account` write hook.
 - Audit log on sensitive ops (sharing, version delete, overlay apply, comment projection).
 - Doc content fetched on demand; canonical store holds quoted snippets, not full bodies.
 - Per-tenant data residency (EU-only deploy option).
@@ -243,12 +243,12 @@ Phases 1–4 = MVP. Phase 5 adds Slack. Phase 6 = cross-org polish + extension v
 ### Phase 1 — Core engine
 **Status: shipped.** ✅
 
-Headless backend + CLI. Drizzle schema (15 tables) on `bun:sqlite` WAL; envelope-encrypted refresh tokens; Google OAuth + per-user `TokenProvider`; Drive/Docs REST wrappers; domain primitives (`createProject`, `createVersion`); canonical comment ingest; reanchoring engine with confidence scoring; overlay applier; doc-watcher with channel renewer + polling fallback; `bun margin <subcommand>` CLI dispatcher.
+Headless backend + CLI. Drizzle schema (16 tables, Better Auth-shaped) on `bun:sqlite` WAL; envelope-encrypted refresh tokens stored in `account.refresh_token`; Better Auth Google provider + per-user `TokenProvider`; Drive/Docs REST wrappers; domain primitives (`createProject`, `createVersion`); canonical comment ingest; reanchoring engine with confidence scoring; overlay applier; doc-watcher with channel renewer + polling fallback; `bun margin <subcommand>` CLI dispatcher.
 
 ### Phase 2 — Backend HTTP API + browser extension (capture) + minimal web entry points
 **Status: shipped; capture role removed in Phase 4 (replaced by §9.8 docx ingest).** ✅
 
-Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun margin serve` HTTP host: `/healthz`, `/oauth/{start,callback}`, `/picker` (real Drive Picker iframe with GIS-backed tokens, gated on `GOOGLE_API_KEY` + `GOOGLE_PROJECT_NUMBER`), `/webhooks/drive`, `/api/picker/register-doc`. Per-user opaque API tokens with bearer middleware. MV3 extension (Chrome / Edge / Firefox, single codebase). Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops, gated on `MARGIN_PUBLIC_BASE_URL`.
+Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun margin serve` HTTP host: `/healthz`, `/api/auth/**` (Better Auth), `/webhooks/drive`, `/api/picker/register-doc`. Better Auth sessions over the bearer plugin (`Authorization: Bearer <sessionToken>`) — the extension acquires its token through `chrome.identity.launchWebAuthFlow` against `/api/auth/ext/launch`. MV3 extension (Chrome / Edge — Firefox dock for the "add doc" flow deferred until `sandbox.pages` lands there). Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops, gated on `MARGIN_PUBLIC_BASE_URL`.
 
 The original capture-role components — `/api/extension/captures`, `domain/capture.ts`, sidebar scraper + `MutationObserver`, SW capture queue + flush alarm, the `canonical_comment.{kix_discussion_id, external_id}` columns, and the `host_permissions: ["https://docs.google.com/*"]` manifest entry — were all deleted in Phase 4 once the docx-export ingest path (§9.8) was running. The extension is now a pure UI surface; ingestion lives entirely in the backend.
 
@@ -261,10 +261,10 @@ New backend routes:
 
 - `POST /api/extension/doc-state` — tracked? state for the open doc. Owner-scoped (cross-user reads return `tracked: false`).
 - `POST /api/extension/doc-sync` — "Sync now" — re-runs `ingestVersionComments` on the relevant version and returns refreshed state.
-- `GET /api/picker/config` — public, exposes the same Picker config the inline `/picker` page already inlines. Lets the in-popup sandboxed Picker boot without an API-token round-trip. Not a secret.
+- `GET /api/picker/config` — public; emits the Picker client-id + API key + GCP project number the sandboxed iframe needs to boot. Not a secret (the Picker SDK accepts these on the public web too).
 - CORS allow-list extended to chromium / firefox extension origins on `/api/extension/*` and `/api/picker/*`.
 
-Popup state machine + sandboxed-Picker mechanics live in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Notable design choices: popup never holds the API token (everything routes through the SW); sandboxed Picker on Chromium runs at `null` origin and postMessages back to the popup; Firefox MV3 falls back to opening the backend `/picker` tab because `sandbox.pages` isn't supported yet.
+Popup state machine + sandboxed-Picker mechanics live in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Notable design choices: popup never holds the session token (everything routes through the SW); sandboxed Picker on Chromium runs at `null` origin and postMessages back to the popup; Firefox MV3 doesn't support `sandbox.pages` so the "add doc" flow is Chromium-only for now.
 
 **Delivers:** the popup owns the entire "track → check state → sync now" loop. New users never see a Margin-hosted page after OAuth.
 
@@ -326,7 +326,7 @@ The overlay applier + domain helpers stay shipped (§5, `src/domain/overlay.ts`)
 Not scheduled. Listed so they inform schema/API decisions today.
 
 ### 13.1 External read API + webhooks
-Scoped, versioned, read-mostly HTTPS API over canonical comments + projections + review state. Distinct from internal `/api/extension/*`. Same `mgn_` token auth.
+Scoped, versioned, read-mostly HTTPS API over canonical comments + projections + review state. Distinct from internal `/api/extension/*`. Same Better Auth session bearer token (or a dedicated Better Auth `apiKey` plugin scope, if/when we want long-lived integration tokens distinct from user sessions).
 
 - `GET /api/v1/projects`
 - `GET /api/v1/projects/:id/comments?version=&status=&since=`
@@ -339,7 +339,7 @@ Thin shell over `src/domain/*` exposing canonical state as MCP resources + tools
 
 - **Resources:** project summary, version diffs, comment threads (one URI per thread, paginated indexes per project).
 - **Tools:** `search_comments`, `summarize_review_request`, `mark_comment_addressed`, `create_version_checkpoint`, `request_review`. Side-effects scoped to caller; same authorization model as §8.
-- **Auth:** same `mgn_` per-user tokens, exchanged on first MCP handshake.
+- **Auth:** same Better Auth session bearer, exchanged on first MCP handshake.
 
 ### 13.3 Overlay editor + derivative UX
 Side-panel editor for the existing overlay primitives (`redact` / `replace` / `insert` / `append`, §9.7), with live preview against the current parent rendered through the structured-diff component. The overlay applier + `applyOverlayAsDerivative` already exist in `src/domain/overlay.ts`; this is purely the UI + thin HTTP wrappers.

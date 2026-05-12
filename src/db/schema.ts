@@ -11,31 +11,84 @@ import {
 const newId = () => crypto.randomUUID();
 const now = () => new Date();
 
-export type AuthMethod = "google" | "sso" | "magic_link";
-
+/**
+ * Better Auth owns the `user`, `session`, `account`, and `verification`
+ * tables (column names follow its expectations: snake_case in SQL, camelCase
+ * on the Drizzle object). Google refresh tokens live in `account.refreshToken`
+ * envelope-encrypted via a `databaseHooks.account` write hook — see
+ * `src/auth/server.ts`. `TokenProvider` reads them back through
+ * `src/auth/credentials.ts`.
+ */
 export const user = sqliteTable("user", {
   id: text("id").primaryKey().$defaultFn(newId),
+  name: text("name").notNull(),
   email: text("email").notNull().unique(),
-  googleSubjectId: text("google_subject_id").unique(),
-  displayName: text("display_name"),
-  homeOrg: text("home_org"),
-  authMethod: text("auth_method").$type<AuthMethod>().notNull(),
+  emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
+  image: text("image"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
 });
 
-export const driveCredential = sqliteTable(
-  "drive_credential",
+export const session = sqliteTable(
+  "session",
   {
     id: text("id").primaryKey().$defaultFn(newId),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    scope: text("scope").notNull(),
-    refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
+    token: text("token").notNull().unique(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
   },
-  (t) => [index("drive_credential_user_idx").on(t.userId)],
+  (t) => [index("session_user_idx").on(t.userId)],
+);
+
+export const account = sqliteTable(
+  "account",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    providerId: text("provider_id").notNull(),
+    accountId: text("account_id").notNull(),
+    accessToken: text("access_token"),
+    /**
+     * Long-lived OAuth refresh token. Envelope-encrypted on write by the
+     * `databaseHooks.account` hook (see `src/auth/server.ts`) and decrypted
+     * on read by `tokenProviderForUser` (`src/auth/credentials.ts`).
+     * Better Auth's own refresh path is not used — `TokenProvider` calls
+     * Google's `oauth2/token` directly with the decrypted plaintext.
+     */
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: integer("access_token_expires_at", { mode: "timestamp_ms" }),
+    refreshTokenExpiresAt: integer("refresh_token_expires_at", { mode: "timestamp_ms" }),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+  },
+  (t) => [
+    index("account_user_idx").on(t.userId),
+    uniqueIndex("account_provider_account_unique").on(t.providerId, t.accountId),
+  ],
+);
+
+export const verification = sqliteTable(
+  "verification",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+  },
+  (t) => [index("verification_identifier_idx").on(t.identifier)],
 );
 
 /**
@@ -353,30 +406,6 @@ export const driveWatchChannel = sqliteTable(
     lastSyncedAt: integer("last_synced_at", { mode: "timestamp_ms" }),
   },
   (t) => [index("drive_watch_version_idx").on(t.versionId)],
-);
-
-/**
- * Per-user opaque API tokens. The plaintext is `mgn_<base64url(32 bytes)>`
- * and is shown to the user exactly once at issue time; the DB stores only a
- * SHA-256 hash. 32 bytes of randomness gives ~256 bits of entropy, so a
- * single-pass hash is sufficient — no key-stretch needed (these aren't
- * passwords). Use `tokenPreview` for display in management UI ("mgn_xxxx…").
- */
-export const apiToken = sqliteTable(
-  "api_token",
-  {
-    id: text("id").primaryKey().$defaultFn(newId),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    tokenHash: text("token_hash").notNull().unique(),
-    tokenPreview: text("token_preview").notNull(),
-    label: text("label"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
-    lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
-    revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
-  },
-  (t) => [index("api_token_user_idx").on(t.userId)],
 );
 
 /**

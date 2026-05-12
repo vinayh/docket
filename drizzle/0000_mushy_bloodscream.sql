@@ -1,17 +1,22 @@
-CREATE TABLE `api_token` (
+CREATE TABLE `account` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
-	`token_hash` text NOT NULL,
-	`token_preview` text NOT NULL,
-	`label` text,
+	`provider_id` text NOT NULL,
+	`account_id` text NOT NULL,
+	`access_token` text,
+	`refresh_token` text,
+	`id_token` text,
+	`access_token_expires_at` integer,
+	`refresh_token_expires_at` integer,
+	`scope` text,
+	`password` text,
 	`created_at` integer NOT NULL,
-	`last_used_at` integer,
-	`revoked_at` integer,
+	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `api_token_token_hash_unique` ON `api_token` (`token_hash`);--> statement-breakpoint
-CREATE INDEX `api_token_user_idx` ON `api_token` (`user_id`);--> statement-breakpoint
+CREATE INDEX `account_user_idx` ON `account` (`user_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `account_provider_account_unique` ON `account` (`provider_id`,`account_id`);--> statement-breakpoint
 CREATE TABLE `audit_log` (
 	`id` text PRIMARY KEY NOT NULL,
 	`actor_user_id` text,
@@ -73,17 +78,6 @@ CREATE TABLE `derivative` (
 	FOREIGN KEY (`overlay_id`) REFERENCES `overlay`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `drive_credential` (
-	`id` text PRIMARY KEY NOT NULL,
-	`user_id` text NOT NULL,
-	`scope` text NOT NULL,
-	`refresh_token_encrypted` text NOT NULL,
-	`created_at` integer NOT NULL,
-	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `drive_credential_user_idx` ON `drive_credential` (`user_id`);--> statement-breakpoint
 CREATE TABLE `drive_watch_channel` (
 	`id` text PRIMARY KEY NOT NULL,
 	`version_id` text NOT NULL,
@@ -169,18 +163,41 @@ CREATE TABLE `review_request` (
 	FOREIGN KEY (`created_by_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
+CREATE TABLE `session` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`token` text NOT NULL,
+	`expires_at` integer NOT NULL,
+	`ip_address` text,
+	`user_agent` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `session_token_unique` ON `session` (`token`);--> statement-breakpoint
+CREATE INDEX `session_user_idx` ON `session` (`user_id`);--> statement-breakpoint
 CREATE TABLE `user` (
 	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
 	`email` text NOT NULL,
-	`google_subject_id` text,
-	`display_name` text,
-	`home_org` text,
-	`auth_method` text NOT NULL,
-	`created_at` integer NOT NULL
+	`email_verified` integer DEFAULT false NOT NULL,
+	`image` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `user_email_unique` ON `user` (`email`);--> statement-breakpoint
-CREATE UNIQUE INDEX `user_google_subject_id_unique` ON `user` (`google_subject_id`);--> statement-breakpoint
+CREATE TABLE `verification` (
+	`id` text PRIMARY KEY NOT NULL,
+	`identifier` text NOT NULL,
+	`value` text NOT NULL,
+	`expires_at` integer NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);--> statement-breakpoint
 CREATE TABLE `version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,

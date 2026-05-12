@@ -138,15 +138,6 @@ export interface RegionParagraphText extends ParagraphText {
 }
 
 /**
- * Walk the document body and return one entry per paragraph with its plain text and
- * doc-coordinate range. Skips tables, section breaks, and TOC entries — anchoring v1
- * targets prose paragraphs only (per SPEC §11: image/table anchoring is out of scope).
- */
-export function extractParagraphs(doc: Document): ParagraphText[] {
-  return paragraphsOf(doc.body?.content);
-}
-
-/**
  * Walk every region of the document — body, headers, footers, footnotes — and return
  * one entry per paragraph tagged with its region. Use this when looking for an anchor
  * that may live outside the body (Drive comments and tracked-change suggestions can

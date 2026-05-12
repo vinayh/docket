@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { cleanDb, seedProject, seedUser, seedVersion } from "../../test/db.ts";
-import { issueApiToken } from "../auth/api-token.ts";
+import { issueTestSession } from "../../test/session.ts";
 import { handleDocStatePost } from "./doc-state.ts";
 
 beforeEach(cleanDb);
@@ -30,7 +30,7 @@ describe("handleDocStatePost validation", () => {
 
   test("400 on invalid JSON", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleDocStatePost(
       postState("not-json", { auth: `Bearer ${token}` }),
     );
@@ -39,7 +39,7 @@ describe("handleDocStatePost validation", () => {
 
   test("400 when docId is missing or wrong type", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     expect((await handleDocStatePost(postState({}, { auth: `Bearer ${token}` }))).status).toBe(
       400,
     );
@@ -63,7 +63,7 @@ describe("handleDocStatePost validation", () => {
 describe("handleDocStatePost lookup", () => {
   test("returns tracked:false for an unknown doc", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleDocStatePost(
       postState({ docId: "doc-nobody-owns" }, { auth: `Bearer ${token}` }),
     );
@@ -82,7 +82,7 @@ describe("handleDocStatePost lookup", () => {
       googleDocId: "doc-version",
       label: "v1",
     });
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
 
     const res = await handleDocStatePost(
       postState({ docId: "doc-parent" }, { auth: `Bearer ${token}` }),
@@ -113,7 +113,7 @@ describe("handleDocStatePost lookup", () => {
       createdByUserId: u.id,
       googleDocId: "doc-version",
     });
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
 
     const res = await handleDocStatePost(
       postState({ docId: "doc-version" }, { auth: `Bearer ${token}` }),
@@ -135,7 +135,7 @@ describe("handleDocStatePost lookup", () => {
     await seedProject({ ownerUserId: owner.id, parentDocId: "doc-x" });
 
     const other = await seedUser({ email: "b@example.com" });
-    const { token } = await issueApiToken({ userId: other.id });
+    const { token } = await issueTestSession({ userId: other.id });
 
     const res = await handleDocStatePost(
       postState({ docId: "doc-x" }, { auth: `Bearer ${token}` }),

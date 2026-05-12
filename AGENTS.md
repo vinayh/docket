@@ -7,9 +7,12 @@ Phased build plan in [`SPEC.md` §12](./SPEC.md#12-build-sequence) — each phas
 ```
 src/
   config.ts          lazy env-var getters; importing it doesn't require any env var
-  db/                drizzle schema (15 tables, SPEC §4) + bun:sqlite client + migrator
-  auth/              envelope encryption, OAuth credentials/TokenProvider, opaque API tokens
-  google/            endpoint-shaped REST wrappers (oauth/api/drive/docs) — no domain logic
+  db/                drizzle schema (16 tables, SPEC §4) + bun:sqlite client + migrator
+  auth/              Better Auth server config (Google provider + bearer plugin),
+                     envelope encryption, TokenProvider, test-only session helper
+  google/            endpoint-shaped REST wrappers (drive/docs + the Google token-
+                     refresh helper) — no domain logic; the OAuth URL builder lives
+                     inside Better Auth's Google provider, not here
   domain/            business logic composing db/google/auth — no HTTP, no CLI. project,
                      version, anchor, reanchor, comments, project_comments, overlay,
                      watcher, doc-state, doc, inspect, project-detail, version-diff,
@@ -17,8 +20,9 @@ src/
                      stats, user, smoke, dev-seed
   cli/               thin parse-and-call shells dispatched by index.ts (`bun margin <cmd>`)
   api/               Bun.serve HTTP host. server.ts owns the route table + in-process
-                     renew/poll loops; one module per route (oauth, doc-state, doc-sync,
-                     drive-webhook, picker, picker-config, picker-register,
+                     renew/poll loops; one module per route (auth-handler for the
+                     Better Auth catch-all + extension launch/finalize helpers,
+                     doc-state, doc-sync, drive-webhook, picker-config, picker-register,
                      project-detail, version-diff, version-comments, comment-action,
                      settings, review-action). middleware.ts + cors.ts hold the
                      bearer-auth + CORS helpers
@@ -34,7 +38,7 @@ fly.toml             Fly.io app config (see README §"Deployment")
 
 - **Surface** = user-facing UX. **Client** = any other API caller. Per SPEC §3, all state lives in the backend; surfaces are views.
 - Don't put logic in `src/cli/` — it's a parse-and-call shell over `src/domain/`.
-- Don't put logic in `src/api/` — same rule. Routes call into `src/domain/` (e.g. `doc-sync.ts` → `ingestVersionComments`, `picker-register.ts` → `createProject`, `oauth.ts` → `completeOAuth`).
+- Don't put logic in `src/api/` — same rule. Routes call into `src/domain/` (e.g. `doc-sync.ts` → `ingestVersionComments`, `picker-register.ts` → `createProject`). Auth lives in Better Auth (`src/auth/server.ts`), not in route modules.
 
 ## CLI
 
@@ -52,10 +56,10 @@ fly.toml             Fly.io app config (see README §"Deployment")
 ## HTTP API
 
 - `bun margin serve [--port <n>]` runs the API host (`Bun.serve`, in `src/api/server.ts`). The Fly container runs the same command; deployment lives in [`README.md` §"Deployment"](./README.md#deployment-flyio).
-- **Route table.** Register new routes in `server.ts`'s table — never branch `pathname` inline. Each route is its own module under `src/api/` and is a thin shell that delegates into `src/domain/` (e.g. `doc-sync.ts` → `ingestVersionComments`, `picker-register.ts` → `createProject`, `oauth.ts` → `completeOAuth`).
-- **Auth.** `authenticateBearer` from `src/api/middleware.ts` gates everything under `/api/*` *except* `GET /api/picker/config`, which is intentionally public (returns the same Picker key + project number the inline `/picker` HTML already exposes). API tokens are opaque `mgn_<base64url>` strings stored as sha256 hashes; verification short-circuits before the DB lookup if the prefix doesn't match.
+- **Route table.** Register new routes in `server.ts`'s table — never branch `pathname` inline. Each route is its own module under `src/api/` and is a thin shell that delegates into `src/domain/` (e.g. `doc-sync.ts` → `ingestVersionComments`, `picker-register.ts` → `createProject`).
+- **Auth.** Better Auth (`src/auth/server.ts`) owns the `/api/auth/**` route tree (sign-in, Google OAuth callback, get-session, sign-out) plus the `user`, `session`, `account`, and `verification` tables. `authenticateBearer` in `src/api/middleware.ts` is a thin wrapper over `auth.api.getSession({ headers })` and returns `{ userId, sessionId }`; the bearer plugin accepts the raw `session.token` as `Authorization: Bearer …`. Google refresh tokens are envelope-encrypted in `account.refreshToken` via a `databaseHooks.account` write hook; `TokenProvider` in `src/auth/credentials.ts` decrypts them and refreshes Drive access tokens against Google directly. The only intentionally public route under `/api/*` is `GET /api/picker/config`.
+- **Extension sign-in.** `GET /api/auth/ext/launch?cb=<chromiumapp.org URL>` kicks off Google OAuth via Better Auth's `signInSocial`; `GET /api/auth/ext/finalize` reads the resulting session cookie and 302s to the extension callback with `?token=<sessionToken>` appended. The SW persists the token in `chrome.storage.local`. The `cb` parameter is allow-listed against `*.chromiumapp.org` / `*.extensions.allizom.org` to prevent open-redirect abuse.
 - **CORS.** Permissive allow-list (extension + localhost origins) on cross-origin routes — see `src/api/cors.ts`.
-- **OAuth state.** Self-signed HMAC token (`<payload>.<sig>`, HMAC-SHA256 with the master key) — no server-side store, so the flow scales horizontally and resists `/oauth/start` flood DoS. State carries a 10-minute expiry; single-use is delegated to Google (the OAuth `code` is one-shot on Google's side).
 - **Background loops.** `startServer` launches `renewExpiringChannels` (~30 min) and `pollAllActiveVersions` (~10 min) timers in-process when `MARGIN_PUBLIC_BASE_URL` is set. `createVersion` also auto-subscribes a Drive `files.watch` channel best-effort using that base URL. Pass `{ backgroundLoops: false }` to `startServer` in tests.
 - **Webhooks.** `POST /webhooks/drive` always responds 200 OK so Google stops retrying — channel-level errors get logged.
 
@@ -90,17 +94,18 @@ Build pipeline, file layout, popup state machine, Picker mechanics, and DOM-sele
 - Only `drive.file` for active doc operations. It's per-file (SPEC §9.2): the backend only sees docs Margin created, the user opened with the Workspace Add-on, or the user picked via Drive Picker. Every entry surface needs a "first time you reference a doc, here's how to authorize it" affordance.
 - Never pass raw access tokens around. Build `tokenProviderForUser(userId)` and pass it to `authedFetch` / `authedJson<T>` — refresh-on-401 is automatic.
 - New Drive/Docs endpoints go in `src/google/{drive,docs}.ts` as endpoint-shaped wrappers (not domain-shaped).
+- The Google OAuth URL builder + code-exchange path lives inside Better Auth's Google provider (`src/auth/server.ts`). `src/google/oauth.ts` is now just the token-refresh helper that `TokenProvider` calls to swap the encrypted `account.refresh_token` for a fresh access token.
 - Before re-litigating a Workspace API limitation, read SPEC §9. The constraints there (no anchored-comment authoring, canvas-rendered body, Card-only add-on UI, push-watch infra) are settled.
 
 ## Secrets
 
-- Long-lived secrets (refresh tokens, etc.) round-trip through `encryptWithMaster` / `decryptWithMaster` — never store plaintext.
+- Long-lived secrets (refresh tokens, etc.) round-trip through `encryptWithMaster` / `decryptWithMaster` — never store plaintext. The Google `account.refresh_token` is handled by the `databaseHooks.account.{create,update}.before` hook in `src/auth/server.ts`; new fields that need at-rest encryption should attach a similar hook rather than encrypting inside domain code.
 
 ## Tests
 
 - `bun test` runs the suite; `bun run typecheck` runs `tsc --noEmit`.
 - Co-locate `*.test.ts` next to the module under test. Unit-test pure logic; exercise live Google APIs through CLI smoke commands rather than mocking `fetch`.
-- Currently unit-tested: envelope encryption (round-trip, tampering, wrong-key, version byte), OAuth URL builder (scopes, state, prompt, redirect URI), Google Doc URL/ID parsing, anchor computation (paragraph-hash stability, snippet location, context capture, first-occurrence resolution, orphan handling), OOXML docx parse (plain comments, multi-paragraph + disjoint multi-range, suggestion insert/delete with author + timestamp, reply-on-suggestion overlap, footer/footnote regions, malformed zip handling), CORS allow-list + preflight, bearer-auth middleware shape, picker-register auth gating, doc-state lookup (parent/version role, cross-user isolation), doc-sync auth gating, `startServer` route table + background-loop opt-out (binds port 0), comment-action auth/owner-scope + state transitions, settings load + patch round-trip + email validation, magic-link review-action redeem (single-use, expiry, decline transition).
+- Currently unit-tested: envelope encryption (round-trip, tampering, wrong-key, version byte), Google Doc URL/ID parsing, anchor computation (paragraph-hash stability, snippet location, context capture, first-occurrence resolution, orphan handling), OOXML docx parse (plain comments, multi-paragraph + disjoint multi-range, suggestion insert/delete with author + timestamp, reply-on-suggestion overlap, footer/footnote regions, malformed zip handling), CORS allow-list + preflight, picker-register auth gating, doc-state lookup (parent/version role, cross-user isolation), doc-sync auth gating, `startServer` route table + background-loop opt-out (binds port 0), comment-action auth/owner-scope + state transitions, settings load + patch round-trip + email validation, magic-link review-action redeem (single-use, expiry, decline transition). Better Auth's sign-in / session / OAuth flows are covered by the upstream package's own tests — Margin tests don't re-litigate them and instead use `issueTestSession` (in `src/auth/test-session.ts`) to bypass the OAuth dance for route tests.
 
 ---
 

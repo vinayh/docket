@@ -1,5 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { startServer } from "./server.ts";
+import { _resetRateLimitForTests } from "./rate-limit.ts";
+
+beforeEach(_resetRateLimitForTests);
 
 /**
  * Smoke-tests for the route table and background-loop wiring. We bind to
@@ -79,6 +82,41 @@ describe("startServer route table", () => {
     try {
       const res = await fetch(`http://${server.hostname}:${server.port}/no-such-route`);
       expect(res.status).toBe(404);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("extension routes set x-margin-rate-limit-remaining and 429 when exhausted", async () => {
+    // 401-on-no-auth requests still pass through the rate-limit gate; the
+    // first call sees ~119 remaining, and a tight burst of >120 starts
+    // returning 429 with a Retry-After header. We don't burn the full
+    // 120 here — just verify the header is present and decrementing.
+    const server = startServer({ port: 0, backgroundLoops: false });
+    try {
+      const a = await fetch(
+        `http://${server.hostname}:${server.port}/api/picker/register-doc`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        },
+      );
+      expect(a.status).toBe(401);
+      const remA = a.headers.get("x-margin-rate-limit-remaining");
+      expect(remA).not.toBeNull();
+      expect(Number(remA)).toBe(119);
+
+      const b = await fetch(
+        `http://${server.hostname}:${server.port}/api/picker/register-doc`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        },
+      );
+      expect(b.status).toBe(401);
+      expect(Number(b.headers.get("x-margin-rate-limit-remaining"))).toBe(118);
     } finally {
       await server.stop();
     }

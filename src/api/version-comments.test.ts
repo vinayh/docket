@@ -7,7 +7,7 @@ import {
   seedUser,
   seedVersion,
 } from "../../test/db.ts";
-import { issueApiToken } from "../auth/api-token.ts";
+import { issueTestSession } from "../../test/session.ts";
 import { handleVersionCommentsPost } from "./version-comments.ts";
 
 beforeEach(cleanDb);
@@ -39,7 +39,7 @@ describe("handleVersionCommentsPost validation", () => {
 
   test("400 on invalid JSON", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleVersionCommentsPost(
       postVersionComments("not-json", { auth: `Bearer ${token}` }),
     );
@@ -48,7 +48,7 @@ describe("handleVersionCommentsPost validation", () => {
 
   test("400 when versionId is missing, wrong type, or empty", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const cases: unknown[] = [{}, { versionId: 1 }, { versionId: "" }];
     for (const body of cases) {
       const res = await handleVersionCommentsPost(
@@ -62,7 +62,7 @@ describe("handleVersionCommentsPost validation", () => {
 describe("handleVersionCommentsPost lookup", () => {
   test("404 when the version doesn't exist", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleVersionCommentsPost(
       postVersionComments({ versionId: "nope" }, { auth: `Bearer ${token}` }),
     );
@@ -74,7 +74,7 @@ describe("handleVersionCommentsPost lookup", () => {
     const proj = await seedProject({ ownerUserId: owner.id });
     const v = await seedVersion({ projectId: proj.id, createdByUserId: owner.id });
     const other = await seedUser();
-    const { token } = await issueApiToken({ userId: other.id });
+    const { token } = await issueTestSession({ userId: other.id });
     const res = await handleVersionCommentsPost(
       postVersionComments({ versionId: v.id }, { auth: `Bearer ${token}` }),
     );
@@ -106,7 +106,7 @@ describe("handleVersionCommentsPost lookup", () => {
       projectionStatus: "fuzzy",
       anchorMatchConfidence: 65,
     });
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
 
     const res = await handleVersionCommentsPost(
       postVersionComments({ versionId: v2.id }, { auth: `Bearer ${token}` }),
@@ -142,7 +142,7 @@ describe("handleVersionCommentsPost lookup", () => {
       createdByUserId: u.id,
       label: "v1",
     });
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
 
     const res = await handleVersionCommentsPost(
       postVersionComments({ versionId: v.id }, { auth: `Bearer ${token}` }),

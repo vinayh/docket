@@ -5,7 +5,6 @@ import {
   seedUser,
   seedVersion,
 } from "../../test/db.ts";
-import { issueApiToken } from "../auth/api-token.ts";
 
 beforeEach(cleanDb);
 
@@ -17,9 +16,9 @@ interface CliResult {
 
 /**
  * Run `bun src/cli/index.ts <args…>` as a subprocess. The child inherits
- * `MARGIN_DB_PATH` + `MARGIN_MASTER_KEY` from the parent test process, so
- * both processes operate on the same temp SQLite (WAL mode handles the
- * cross-process concurrency).
+ * `MARGIN_DB_PATH` + `MARGIN_MASTER_KEY` + `BETTER_AUTH_SECRET` from the
+ * parent test process, so both processes operate on the same temp SQLite
+ * (WAL mode handles the cross-process concurrency).
  */
 async function runCli(args: string[]): Promise<CliResult> {
   const proc = Bun.spawn(["bun", "src/cli/index.ts", ...args], {
@@ -61,9 +60,9 @@ describe("dispatcher", () => {
   });
 
   test("a runtime failure inside a handler exits 1 with `error:` prefix", async () => {
-    // `token list` with no users in the DB throws via requireFirstUser → the
-    // index.ts try/catch maps it to exit 1.
-    const r = await runCli(["token", "list"]);
+    // `inspect <url>` with no users in the DB throws via requireFirstUser →
+    // the index.ts try/catch maps it to exit 1.
+    const r = await runCli(["inspect", "https://docs.google.com/document/d/missing/edit"]);
     expect(r.exitCode).toBe(1);
     expect(r.stderr.toLowerCase()).toContain("error:");
   });
@@ -114,58 +113,3 @@ describe("version list", () => {
   });
 });
 
-describe("token", () => {
-  test("issue + list round-trip", async () => {
-    const u = await seedUser({ email: "tester@example.com" });
-
-    const issued = await runCli(["token", "issue", "--user", u.email, "--label", "ci"]);
-    expect(issued.exitCode).toBe(0);
-    expect(issued.stdout).toContain("issued token for tester@example.com");
-    // The plaintext is printed once — extract it from the output.
-    const plaintext = issued.stdout.match(/\b(mgn_[A-Za-z0-9_-]+)\b/)?.[1];
-    expect(plaintext).toBeDefined();
-    expect(plaintext!.startsWith("mgn_")).toBe(true);
-
-    const listed = await runCli(["token", "list", "--user", u.email]);
-    expect(listed.exitCode).toBe(0);
-    expect(listed.stdout).toContain("tokens for tester@example.com");
-    expect(listed.stdout).toContain("label=ci");
-  });
-
-  test("revoke unknown id is a soft no-op (exit 0, friendly message)", async () => {
-    const r = await runCli(["token", "revoke", crypto.randomUUID()]);
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain("not found or already revoked");
-  });
-
-  test("revoke with no token-id is a usage error (exit 2)", async () => {
-    const r = await runCli(["token", "revoke"]);
-    expect(r.exitCode).toBe(2);
-    expect(r.stderr).toContain("usage:");
-  });
-
-  test("list with --user that doesn't exist exits 1", async () => {
-    const r = await runCli(["token", "list", "--user", "nobody@example.com"]);
-    expect(r.exitCode).toBe(1);
-    expect(r.stderr).toContain("nobody@example.com");
-  });
-
-  test("list with seeded but no-token user prints `no tokens for …`", async () => {
-    const u = await seedUser({ email: "fresh@example.com" });
-    const r = await runCli(["token", "list", "--user", u.email]);
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain("no tokens for fresh@example.com");
-  });
-
-  test("revoke a real token id flips it to revoked (verify via list)", async () => {
-    const u = await seedUser({ email: "revoker@example.com" });
-    const { row } = await issueApiToken({ userId: u.id, label: "to-revoke" });
-
-    const r = await runCli(["token", "revoke", row.id]);
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain(`revoked ${row.id}`);
-
-    const listed = await runCli(["token", "list", "--user", u.email]);
-    expect(listed.stdout).toContain("no tokens for revoker@example.com");
-  });
-});

@@ -29,6 +29,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "better-auth": "^1.6.10",
     "diff": "^9.0.0",
     "drizzle-orm": "^0.45.2",
     "fast-xml-parser": "^5.7.3",

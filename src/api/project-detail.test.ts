@@ -5,7 +5,7 @@ import {
   seedUser,
   seedVersion,
 } from "../../test/db.ts";
-import { issueApiToken } from "../auth/api-token.ts";
+import { issueTestSession } from "../../test/session.ts";
 import { handleProjectDetailPost } from "./project-detail.ts";
 
 beforeEach(cleanDb);
@@ -35,7 +35,7 @@ describe("handleProjectDetailPost validation", () => {
 
   test("400 on invalid JSON", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleProjectDetailPost(
       postDetail("not-json", { auth: `Bearer ${token}` }),
     );
@@ -44,7 +44,7 @@ describe("handleProjectDetailPost validation", () => {
 
   test("400 when projectId is missing or wrong type", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     expect(
       (await handleProjectDetailPost(postDetail({}, { auth: `Bearer ${token}` }))).status,
     ).toBe(400);
@@ -68,7 +68,7 @@ describe("handleProjectDetailPost validation", () => {
 describe("handleProjectDetailPost lookup", () => {
   test("404 when the project doesn't exist", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleProjectDetailPost(
       postDetail({ projectId: "nope" }, { auth: `Bearer ${token}` }),
     );
@@ -79,7 +79,7 @@ describe("handleProjectDetailPost lookup", () => {
     const owner = await seedUser();
     const proj = await seedProject({ ownerUserId: owner.id });
     const other = await seedUser();
-    const { token } = await issueApiToken({ userId: other.id });
+    const { token } = await issueTestSession({ userId: other.id });
     const res = await handleProjectDetailPost(
       postDetail({ projectId: proj.id }, { auth: `Bearer ${token}` }),
     );
@@ -95,7 +95,7 @@ describe("handleProjectDetailPost lookup", () => {
       label: "v1",
       googleDocId: "doc-v1",
     });
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
 
     const res = await handleProjectDetailPost(
       postDetail({ projectId: proj.id }, { auth: `Bearer ${token}` }),

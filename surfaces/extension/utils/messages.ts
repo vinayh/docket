@@ -23,6 +23,8 @@ import type {
 export type Message =
   | { kind: "settings/get" }
   | { kind: "settings/set"; settings: Settings }
+  | { kind: "auth/sign-in"; backendUrl: string }
+  | { kind: "auth/sign-out" }
   | { kind: "doc/state"; docId: string }
   | { kind: "doc/sync"; docId: string }
   | { kind: "doc/register"; docUrlOrId: string }
@@ -51,6 +53,8 @@ export type Message =
 export type MessageResponse =
   | { kind: "settings/get"; settings: Settings | null; error?: string }
   | { kind: "settings/set"; ok: true; error?: string }
+  | { kind: "auth/sign-in"; ok: boolean; error?: string }
+  | { kind: "auth/sign-out"; ok: true; error?: string }
   | { kind: "doc/state"; state: DocState | null; error?: string }
   | { kind: "doc/sync"; state: DocState | null; error?: string }
   | { kind: "doc/register"; result: RegisterDocResult; error?: string }

@@ -7,9 +7,9 @@ import {
 } from "../../test/db.ts";
 import { setFetch } from "../../test/fetch.ts";
 import { db } from "../db/client.ts";
-import { driveCredential } from "../db/schema.ts";
+import { account } from "../db/schema.ts";
 import { encryptWithMaster } from "../auth/encryption.ts";
-import { issueApiToken } from "../auth/api-token.ts";
+import { issueTestSession } from "../../test/session.ts";
 import { handleVersionDiffPost } from "./version-diff.ts";
 import type { Document } from "../google/docs.ts";
 
@@ -21,10 +21,12 @@ afterEach(() => {
 });
 
 async function seedDriveCredential(userId: string): Promise<void> {
-  await db.insert(driveCredential).values({
+  await db.insert(account).values({
     userId,
+    providerId: "google",
+    accountId: `sub-${userId}`,
     scope: "https://www.googleapis.com/auth/drive.file",
-    refreshTokenEncrypted: await encryptWithMaster("1//rt-test"),
+    refreshToken: await encryptWithMaster("1//rt-test"),
   });
 }
 
@@ -86,7 +88,7 @@ describe("handleVersionDiffPost validation", () => {
 
   test("400 on invalid JSON", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleVersionDiffPost(
       postDiff("not-json", { auth: `Bearer ${token}` }),
     );
@@ -95,7 +97,7 @@ describe("handleVersionDiffPost validation", () => {
 
   test("400 when ids are missing, wrong type, or equal", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const cases: unknown[] = [
       {},
       { fromVersionId: "a" },
@@ -115,7 +117,7 @@ describe("handleVersionDiffPost validation", () => {
 
   test("404 when versions don't exist (not-owner / unknown)", async () => {
     const u = await seedUser();
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleVersionDiffPost(
       postDiff(
         { fromVersionId: "nope-a", toVersionId: "nope-b" },
@@ -131,7 +133,7 @@ describe("handleVersionDiffPost validation", () => {
     const a = await seedVersion({ projectId: p.id, createdByUserId: owner.id });
     const b = await seedVersion({ projectId: p.id, createdByUserId: owner.id });
     const other = await seedUser();
-    const { token } = await issueApiToken({ userId: other.id });
+    const { token } = await issueTestSession({ userId: other.id });
     const res = await handleVersionDiffPost(
       postDiff(
         { fromVersionId: a.id, toVersionId: b.id },
@@ -147,7 +149,7 @@ describe("handleVersionDiffPost validation", () => {
     const pB = await seedProject({ ownerUserId: u.id });
     const va = await seedVersion({ projectId: pA.id, createdByUserId: u.id });
     const vb = await seedVersion({ projectId: pB.id, createdByUserId: u.id });
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleVersionDiffPost(
       postDiff(
         { fromVersionId: va.id, toVersionId: vb.id },
@@ -203,7 +205,7 @@ describe("handleVersionDiffPost validation", () => {
         },
       },
     });
-    const { token } = await issueApiToken({ userId: u.id });
+    const { token } = await issueTestSession({ userId: u.id });
     const res = await handleVersionDiffPost(
       postDiff(
         { fromVersionId: from.id, toVersionId: to.id },

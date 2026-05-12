@@ -1,7 +1,7 @@
 import { defineBackground } from "wxt/utils/define-background";
 import { browser } from "wxt/browser";
 import type { Message, MessageResponse } from "../utils/messages.ts";
-import { getSettings, setSettings } from "../utils/storage.ts";
+import { getSettings, patchSettings, setSettings } from "../utils/storage.ts";
 import type {
   CommentActionKind,
   CommentActionResult,
@@ -50,6 +50,10 @@ function errorResponseFor(message: Message, error: string): MessageResponse {
       return { kind: "settings/get", settings: null, error };
     case "settings/set":
       return { kind: "settings/set", ok: true, error };
+    case "auth/sign-in":
+      return { kind: "auth/sign-in", ok: false, error };
+    case "auth/sign-out":
+      return { kind: "auth/sign-out", ok: true, error };
     case "doc/state":
       return { kind: "doc/state", state: null, error };
     case "doc/sync":
@@ -82,6 +86,14 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
     case "settings/set": {
       await setSettings(message.settings);
       return { kind: "settings/set", ok: true };
+    }
+    case "auth/sign-in": {
+      await signInWithGoogle(message.backendUrl);
+      return { kind: "auth/sign-in", ok: true };
+    }
+    case "auth/sign-out": {
+      await signOutFromBackend();
+      return { kind: "auth/sign-out", ok: true };
     }
     case "doc/state": {
       const state = await fetchDocState(message.docId);
@@ -183,14 +195,68 @@ async function postJsonRaw(
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${settings.apiToken}`,
+      authorization: `Bearer ${settings.sessionToken}`,
     },
     body: JSON.stringify(body),
   });
   if (res.status === 401 || res.status === 403) {
-    throw new Error("API token rejected — issue a new one");
+    throw new Error("session rejected — sign in again from Options");
   }
   return res;
+}
+
+/**
+ * Drive `chrome.identity.launchWebAuthFlow` through Better Auth's social
+ * sign-in flow. The backend's `/api/auth/ext/launch` endpoint kicks off
+ * Google OAuth and ultimately 302s to the extension's `chromiumapp.org`
+ * callback URL with `#token=<sessionToken>` as a URL fragment; we extract
+ * that and persist it as the Authorization header source for every
+ * subsequent backend call. The fragment (vs. query param) keeps the token
+ * out of any server log that might otherwise record the redirect target.
+ */
+async function signInWithGoogle(backendUrl: string): Promise<void> {
+  const trimmed = backendUrl.trim().replace(/\/+$/, "");
+  if (!trimmed) throw new Error("backend URL required to sign in");
+  const cb = browser.identity.getRedirectURL();
+  const launchUrl =
+    `${trimmed}/api/auth/ext/launch?cb=${encodeURIComponent(cb)}`;
+
+  const completed = await browser.identity.launchWebAuthFlow({
+    url: launchUrl,
+    interactive: true,
+  });
+  if (!completed) throw new Error("sign-in was cancelled");
+
+  const url = new URL(completed);
+  const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+  const params = new URLSearchParams(hash);
+  const token = params.get("token");
+  if (!token) throw new Error("sign-in did not return a session token");
+
+  await patchSettings({ backendUrl: trimmed, sessionToken: token });
+}
+
+/**
+ * Drop the local session token. We also POST to Better Auth's `/sign-out`
+ * endpoint so the corresponding `session` row in the DB is invalidated —
+ * a stolen token left active in the DB after a "sign out" would defeat the
+ * purpose. Failures here don't block local clear: the backend session will
+ * expire on its own.
+ */
+async function signOutFromBackend(): Promise<void> {
+  const settings = await getSettings();
+  if (settings) {
+    try {
+      const url = new URL("/api/auth/sign-out", settings.backendUrl).toString();
+      await fetch(url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${settings.sessionToken}` },
+      });
+    } catch (err) {
+      console.warn("[margin] sign-out backend call failed:", err);
+    }
+  }
+  await patchSettings({ sessionToken: "" });
 }
 
 /**

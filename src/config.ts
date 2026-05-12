@@ -17,9 +17,6 @@ export const config = {
     get clientSecret() {
       return required("GOOGLE_CLIENT_SECRET");
     },
-    get redirectUri() {
-      return required("GOOGLE_REDIRECT_URI");
-    },
     /**
      * Drive Picker requires a public API key (developer key) and the GCP
      * project number (`appId`), separate from the OAuth client credentials.
@@ -36,9 +33,17 @@ export const config = {
   get masterKeyB64() {
     return required("MARGIN_MASTER_KEY");
   },
+  /**
+   * Better Auth signing/encryption secret. Distinct from `MARGIN_MASTER_KEY`
+   * so a compromise of one layer (cookie signing vs. refresh-token-at-rest
+   * encryption) doesn't cascade into the other.
+   */
+  get betterAuthSecret() {
+    return required("BETTER_AUTH_SECRET");
+  },
   dbPath: Bun.env.MARGIN_DB_PATH ?? "./margin.db",
   /**
-   * Public origin of the Margin backend, e.g. `https://margin-server.fly.dev`.
+   * Public origin of the Margin backend, e.g. `https://api.margin.pub`.
    * Used to compute the Drive `files.watch` callback address and to decide
    * whether the auto-subscribe / renew loop should run. Null in dev unless
    * the operator opts in.
