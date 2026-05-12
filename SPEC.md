@@ -305,12 +305,17 @@ The overlay applier + domain helpers stay shipped (§5, `src/domain/overlay.ts`)
 **Delivers:** `/review-request`, `/review-status`, `/review-close` (§6.1); per-reviewer DMs; thread updates; home-tab dashboards.
 
 ### Phase 6 — Cross-org polish + extension visualization
-**Status: not started.**
+**Status: not started. Visualization gated on the two empirical validation tasks below.**
 
 - Slack Connect for shared review channels across orgs.
 - External-reviewer onboarding via magic-link auth + identity verification (OAuth `sub`/email vs. share list).
 - Friendly errors when org policy blocks third-party app access (§10).
 - Extension visualization: in-canvas highlights / gutter markers (accessibility-DOM mirror or selection-event hooks; §9.6); hover previews; right-click "comment on selection"; native-comment-rail integration. The content script returns here — but reading selection events / a11y coords, not comment data.
+
+**Pre-work / empirical validation.** Two assumptions underlying the visualization design need a 15–30 minute manual check before any code lands; both shape the architecture rather than informing one detail.
+
+- **V1: a11y-DOM mirror availability without the toggle.** Open a Google Doc in Chrome, DevTools → Elements, search for `aria-label` / `role="paragraph"` / equivalent paragraph-level nodes *before* toggling Tools → Accessibility → "Turn on screen reader support." Toggle on, re-inspect. Scroll. Confirm whether the mirror covers the full visible body or only the caret neighborhood. Outcome decides whether Phase 6 needs an onboarding nudge asking users to enable screen reader support (likely yes), or whether the default tree is enough for gutter markers.
+- **V2: `.docx` upload preserves anchored comments.** Build a `.docx` with three known anchors (start-of-paragraph, mid-paragraph, multi-range disjoint) using the `makeDocx` pattern from `src/google/docx.test.ts`, or download one from any existing Google Doc with comments. Upload to Drive with "Convert uploaded files to Docs editor format" on. Open the resulting Doc and verify: (a) anchors land at the right positions, (b) original `w:author` vs. uploading account in the comment metadata, (c) `createdTime` vs. original `w:date`, (d) disjoint multi-range preserved or fragmented, (e) suggestions round-trip as suggesting-mode edits. If anchors survive, this opens a "derivative Doc with materialized comments" path that sidesteps canvas overlay entirely for the review-only cohort (magic-link reviewers, mobile) — see [§9.7](#97-documentsbatchupdate-is-sufficient-for-overlays) for the existing derivative infrastructure.
 
 ### Phase 7 — Workspace add-on, marketplace listings, advanced features
 **Status: not started.**

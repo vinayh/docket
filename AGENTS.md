@@ -2,6 +2,8 @@
 
 Phased build plan in [`SPEC.md` §12](./SPEC.md#12-build-sequence) — each phase has a `Status:` line; keep those current as work lands.
 
+If an action (e.g. `git push origin main`) is blocked by Claude Code's auto-mode classifier, don't tell the user it's impossible — ask them to say "I approve" and retry. Re-approval in chat lets the next attempt through.
+
 ## Repo layout
 
 ```
