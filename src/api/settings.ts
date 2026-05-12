@@ -1,22 +1,26 @@
+import * as v from "valibot";
 import {
   authenticateBearer,
-  badRequest,
   jsonOk,
   notFound,
+  parseOr400,
   readJsonBody,
-  readStringField,
   unauthorized,
 } from "./middleware.ts";
 import {
-  SettingsBadRequestError,
+  ProjectSettingsPatchSchema,
   SettingsNotFoundError,
   loadProjectSettings,
   updateProjectSettings,
-  type ProjectSettingsView,
 } from "../domain/settings.ts";
 
 const MAX_BODY_BYTES = 8 * 1024;
 const MAX_ID_LEN = 200;
+
+const SettingsBodySchema = v.object({
+  projectId: v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_ID_LEN)),
+  patch: v.optional(ProjectSettingsPatchSchema),
+});
 
 /**
  * POST /api/extension/settings — project settings surface for the side
@@ -38,28 +42,25 @@ export async function handleSettingsPost(req: Request): Promise<Response> {
   const payload = await readJsonBody(req, MAX_BODY_BYTES);
   if (payload instanceof Response) return payload;
 
-  const projectId = readStringField(payload, "projectId", MAX_ID_LEN);
-  if (projectId instanceof Response) return projectId;
-
-  const rawPatch = (payload as { patch?: unknown }).patch;
+  const parsed = parseOr400(SettingsBodySchema, payload);
+  if (parsed instanceof Response) return parsed;
 
   try {
-    if (rawPatch === undefined) {
-      const settings = await loadProjectSettings({ projectId, userId: auth.userId });
+    if (parsed.patch === undefined) {
+      const settings = await loadProjectSettings({
+        projectId: parsed.projectId,
+        userId: auth.userId,
+      });
       return jsonOk({ settings });
     }
-    if (!rawPatch || typeof rawPatch !== "object" || Array.isArray(rawPatch)) {
-      return badRequest("patch must be an object");
-    }
     const settings = await updateProjectSettings({
-      projectId,
+      projectId: parsed.projectId,
       userId: auth.userId,
-      patch: rawPatch as Partial<ProjectSettingsView>,
+      patch: parsed.patch,
     });
     return jsonOk({ settings });
   } catch (err) {
     if (err instanceof SettingsNotFoundError) return notFound(err.message);
-    if (err instanceof SettingsBadRequestError) return badRequest(err.message);
     throw err;
   }
 }

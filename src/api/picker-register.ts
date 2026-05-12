@@ -1,14 +1,19 @@
+import * as v from "valibot";
 import {
   authenticateBearer,
   jsonOk,
+  parseOr400,
   readJsonBody,
-  readStringField,
   unauthorized,
 } from "./middleware.ts";
 import { createProject, DuplicateProjectError } from "../domain/project.ts";
 
 const MAX_BODY_BYTES = 8 * 1024;
 const MAX_FIELD_LEN = 4 * 1024;
+
+const RegisterBodySchema = v.object({
+  docUrlOrId: v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_FIELD_LEN)),
+});
 
 /**
  * POST /api/picker/register-doc — completes the Drive Picker entry flow
@@ -30,8 +35,8 @@ export async function handleRegisterDocPost(req: Request): Promise<Response> {
 
   const payload = await readJsonBody(req, MAX_BODY_BYTES);
   if (payload instanceof Response) return payload;
-  const raw = readStringField(payload, "docUrlOrId", MAX_FIELD_LEN);
-  if (raw instanceof Response) return raw;
+  const parsed = parseOr400(RegisterBodySchema, payload);
+  if (parsed instanceof Response) return parsed;
 
   // Catch only the domain exception that maps to a non-500 status. Other
   // errors (Drive 5xx, missing credentials, schema violations) propagate
@@ -39,7 +44,7 @@ export async function handleRegisterDocPost(req: Request): Promise<Response> {
   try {
     const project = await createProject({
       ownerUserId: auth.userId,
-      parentDocUrlOrId: raw,
+      parentDocUrlOrId: parsed.docUrlOrId,
     });
     return jsonOk({
       projectId: project.id,

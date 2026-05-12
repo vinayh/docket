@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import {
   requireFirstUser,
   resolveUserByEmailOrFirst,
@@ -42,6 +43,26 @@ export type SubcommandHandler = (args: string[]) => Promise<void>;
  * was reimplementing. If `sub` is missing or unknown, prints `text` to
  * stderr and exits 2 (usage error).
  */
+/**
+ * Coerce a string CLI flag into a number, running it through a valibot schema
+ * for range/integer/etc. checks. Returns `undefined` when the flag is unset.
+ * Calls `usage(...)` (which exits 2) on validation failure, with the flag
+ * name + valibot's issue message.
+ */
+export function parseNumberArg(
+  raw: string | undefined,
+  schema: v.GenericSchema<number, number>,
+  flag: string,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  const result = v.safeParse(schema, n);
+  if (!result.success) {
+    usage(`${flag}: ${result.issues[0].message} (got ${JSON.stringify(raw)})`);
+  }
+  return result.output;
+}
+
 export async function dispatchSubcommands(
   args: string[],
   text: string,

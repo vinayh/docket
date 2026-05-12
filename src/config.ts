@@ -1,21 +1,70 @@
-function required(name: string): string {
-  const value = Bun.env[name];
-  if (!value) throw new Error(`missing required env var: ${name}`);
-  return value;
-}
+import * as v from "valibot";
 
-function optional(name: string): string | null {
+function envValue(name: string): string | null {
   const value = Bun.env[name];
   return value && value.length > 0 ? value : null;
 }
 
+/**
+ * Parse an env var through a valibot schema, throwing a descriptive error on
+ * failure. Use this from a lazy getter so config errors surface at first
+ * access (boot for required keys, on-demand for optional ones) rather than
+ * at the first crypto operation or Drive call.
+ */
+function parseEnv<TSchema extends v.GenericSchema>(
+  name: string,
+  schema: TSchema,
+  raw: string | null,
+): v.InferOutput<TSchema> {
+  const result = v.safeParse(schema, raw);
+  if (result.success) return result.output;
+  const issue = result.issues[0];
+  throw new Error(`invalid env var ${name}: ${issue.message}`);
+}
+
+// Master encryption key — base64 of exactly 32 bytes (AES-256-GCM).
+const MasterKeySchema = v.pipe(
+  v.string("MARGIN_MASTER_KEY is required"),
+  v.minLength(1, "MARGIN_MASTER_KEY is required"),
+  v.check((s) => {
+    try {
+      return Buffer.from(s, "base64").length === 32;
+    } catch {
+      return false;
+    }
+  }, "must be base64 of 32 bytes"),
+);
+
+const BetterAuthSecretSchema = v.pipe(
+  v.string("BETTER_AUTH_SECRET is required"),
+  v.minLength(32, "must be at least 32 chars"),
+);
+
+const RequiredStringSchema = v.pipe(v.string(), v.minLength(1));
+
+const OptionalUrlSchema = v.union([
+  v.null(),
+  v.pipe(v.string(), v.url("must be an absolute URL")),
+]);
+
+const OptionalEmailSchema = v.union([
+  v.null(),
+  v.pipe(v.string(), v.email("must be a valid email")),
+]);
+
+const OptionalStringSchema = v.union([v.null(), v.pipe(v.string(), v.minLength(1))]);
+
 export const config = {
   google: {
     get clientId() {
-      return required("GOOGLE_CLIENT_ID");
+      return parseEnv("GOOGLE_CLIENT_ID", RequiredStringSchema, envValue("GOOGLE_CLIENT_ID"));
     },
     get clientSecret() {
-      return required("GOOGLE_CLIENT_SECRET");
+      return parseEnv(
+        "GOOGLE_CLIENT_SECRET",
+        RequiredStringSchema,
+        envValue("GOOGLE_CLIENT_SECRET"),
+      );
     },
     /**
      * Drive Picker requires a public API key (developer key) and the GCP
@@ -24,14 +73,18 @@ export const config = {
      * page renders an explanatory error when either is missing.
      */
     get apiKey() {
-      return optional("GOOGLE_API_KEY");
+      return parseEnv("GOOGLE_API_KEY", OptionalStringSchema, envValue("GOOGLE_API_KEY"));
     },
     get projectNumber() {
-      return optional("GOOGLE_PROJECT_NUMBER");
+      return parseEnv(
+        "GOOGLE_PROJECT_NUMBER",
+        OptionalStringSchema,
+        envValue("GOOGLE_PROJECT_NUMBER"),
+      );
     },
   },
   get masterKeyB64() {
-    return required("MARGIN_MASTER_KEY");
+    return parseEnv("MARGIN_MASTER_KEY", MasterKeySchema, envValue("MARGIN_MASTER_KEY"));
   },
   /**
    * Better Auth signing/encryption secret. Distinct from `MARGIN_MASTER_KEY`
@@ -39,7 +92,11 @@ export const config = {
    * encryption) doesn't cascade into the other.
    */
   get betterAuthSecret() {
-    return required("BETTER_AUTH_SECRET");
+    return parseEnv(
+      "BETTER_AUTH_SECRET",
+      BetterAuthSecretSchema,
+      envValue("BETTER_AUTH_SECRET"),
+    );
   },
   dbPath: Bun.env.MARGIN_DB_PATH ?? "./margin.db",
   /**
@@ -49,7 +106,11 @@ export const config = {
    * the operator opts in.
    */
   get publicBaseUrl() {
-    return optional("MARGIN_PUBLIC_BASE_URL");
+    return parseEnv(
+      "MARGIN_PUBLIC_BASE_URL",
+      OptionalUrlSchema,
+      envValue("MARGIN_PUBLIC_BASE_URL"),
+    );
   },
   /**
    * Gate for the `bun margin e2e seed-project` CLI. Must equal "1" for the
@@ -74,6 +135,10 @@ export const config = {
    * connect` once with that account).
    */
   get testUserEmail() {
-    return optional("MARGIN_TEST_USER_EMAIL");
+    return parseEnv(
+      "MARGIN_TEST_USER_EMAIL",
+      OptionalEmailSchema,
+      envValue("MARGIN_TEST_USER_EMAIL"),
+    );
   },
 };

@@ -1,6 +1,7 @@
 import { defineBackground } from "wxt/utils/define-background";
 import { browser } from "wxt/browser";
-import type { Message, MessageResponse } from "../utils/messages.ts";
+import * as v from "valibot";
+import { MessageSchema, type Message, type MessageResponse } from "../utils/messages.ts";
 import { getBackendUrl, getSettings, patchSettings, setSettings } from "../utils/storage.ts";
 import {
   fetchDocState,
@@ -29,7 +30,17 @@ import {
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
-    (message: Message, _sender, sendResponse: (r: MessageResponse) => void) => {
+    (raw: unknown, _sender, sendResponse: (r: MessageResponse) => void) => {
+      const parsed = v.safeParse(MessageSchema, raw);
+      if (!parsed.success) {
+        const issue = parsed.issues[0];
+        const path = issue.path?.map((p) => String(p.key)).join(".") ?? "";
+        const detail = path ? `${path}: ${issue.message}` : issue.message;
+        console.warn("[margin] rejected malformed runtime message:", detail);
+        sendResponse(errorResponseFor(raw, `invalid message: ${detail}`));
+        return false;
+      }
+      const message = parsed.output;
       void handleMessage(message)
         .then(sendResponse)
         .catch((err) => {
@@ -160,8 +171,12 @@ async function handleAuthFragment(tabId: number, url: string): Promise<void> {
   }
 }
 
-function errorResponseFor(message: Message, error: string): MessageResponse {
-  switch (message.kind) {
+function errorResponseFor(message: Message | unknown, error: string): MessageResponse {
+  const kind =
+    typeof message === "object" && message !== null && "kind" in message
+      ? (message as { kind: unknown }).kind
+      : null;
+  switch (kind) {
     case "settings/get":
       return { kind: "settings/get", settings: null, backendUrl: null, error };
     case "settings/set":
@@ -186,6 +201,10 @@ function errorResponseFor(message: Message, error: string): MessageResponse {
       return { kind: "settings/load", settings: null, error };
     case "settings/update":
       return { kind: "settings/update", settings: null, error };
+    default:
+      // Unknown/malformed inbound kind — caller will see `error` set and
+      // bail; the chosen discriminant doesn't matter for routing.
+      return { kind: "settings/get", settings: null, backendUrl: null, error };
   }
 }
 

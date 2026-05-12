@@ -1,29 +1,35 @@
+import * as v from "valibot";
 import {
   authenticateBearer,
   badRequest,
   jsonOk,
   notFound,
+  parseOr400,
   readJsonBody,
-  readStringField,
   unauthorized,
 } from "./middleware.ts";
 import {
   CommentActionBadRequestError,
   CommentActionNotFoundError,
   performCommentAction,
-  type CommentActionKind,
 } from "../domain/comment-action.ts";
 
 const MAX_BODY_BYTES = 4 * 1024;
 const MAX_ID_LEN = 200;
 
-const VALID_ACTIONS: readonly CommentActionKind[] = [
-  "accept_projection",
-  "reanchor",
-  "mark_resolved",
-  "mark_wontfix",
-  "reopen",
-];
+const Id = v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_ID_LEN));
+
+const CommentActionBodySchema = v.object({
+  canonicalCommentId: Id,
+  action: v.picklist([
+    "accept_projection",
+    "reanchor",
+    "mark_resolved",
+    "mark_wontfix",
+    "reopen",
+  ]),
+  targetVersionId: v.optional(v.nullable(Id)),
+});
 
 /**
  * POST /api/extension/comment-action — reconciliation actions on a single
@@ -43,7 +49,9 @@ export async function handleCommentActionPost(req: Request): Promise<Response> {
   const auth = await authenticateBearer(req);
   if (!auth) return unauthorized();
 
-  const parsed = await readActionPayload(req);
+  const payload = await readJsonBody(req, MAX_BODY_BYTES);
+  if (payload instanceof Response) return payload;
+  const parsed = parseOr400(CommentActionBodySchema, payload);
   if (parsed instanceof Response) return parsed;
 
   try {
@@ -51,7 +59,7 @@ export async function handleCommentActionPost(req: Request): Promise<Response> {
       userId: auth.userId,
       canonicalCommentId: parsed.canonicalCommentId,
       action: parsed.action,
-      targetVersionId: parsed.targetVersionId,
+      targetVersionId: parsed.targetVersionId ?? null,
     });
     return jsonOk(result);
   } catch (err) {
@@ -63,39 +71,4 @@ export async function handleCommentActionPost(req: Request): Promise<Response> {
     }
     throw err;
   }
-}
-
-interface ActionPayload {
-  canonicalCommentId: string;
-  action: CommentActionKind;
-  targetVersionId: string | null;
-}
-
-async function readActionPayload(req: Request): Promise<ActionPayload | Response> {
-  const payload = await readJsonBody(req, MAX_BODY_BYTES);
-  if (payload instanceof Response) return payload;
-
-  const canonicalCommentId = readStringField(payload, "canonicalCommentId", MAX_ID_LEN);
-  if (canonicalCommentId instanceof Response) return canonicalCommentId;
-
-  const rawAction = payload.action;
-  if (
-    typeof rawAction !== "string" ||
-    !(VALID_ACTIONS as readonly string[]).includes(rawAction)
-  ) {
-    return badRequest(
-      `expected { action: ${VALID_ACTIONS.map((a) => `"${a}"`).join(" | ")} }`,
-    );
-  }
-  const action = rawAction as CommentActionKind;
-
-  let targetVersionId: string | null = null;
-  const rawTarget = payload.targetVersionId;
-  if (rawTarget !== undefined && rawTarget !== null) {
-    const t = readStringField(payload, "targetVersionId", MAX_ID_LEN);
-    if (t instanceof Response) return t;
-    targetVersionId = t;
-  }
-
-  return { canonicalCommentId, action, targetVersionId };
 }

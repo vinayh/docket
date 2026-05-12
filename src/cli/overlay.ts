@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import * as v from "valibot";
 import {
   addOverlayOperation,
   applyOverlayAsDerivative,
@@ -8,7 +9,7 @@ import {
   listOverlays,
 } from "../domain/overlay.ts";
 import type { OverlayOpType } from "../db/schema.ts";
-import { usage, dispatchSubcommands } from "./util.ts";
+import { usage, dispatchSubcommands, parseNumberArg } from "./util.ts";
 
 const USAGE = `\
 usage:
@@ -70,13 +71,11 @@ export const run = (args: string[]) =>
       if (type !== "append" && !values.quoted) {
         usage(`--quoted is required for ${type} ops`);
       }
-      const threshold = values.threshold ? Number(values.threshold) : undefined;
-      if (
-        threshold !== undefined &&
-        (Number.isNaN(threshold) || threshold < 0 || threshold > 100)
-      ) {
-        usage(`--threshold must be 0–100, got ${values.threshold}`);
-      }
+      const threshold = parseNumberArg(
+        values.threshold,
+        v.pipe(v.number(), v.minValue(0), v.maxValue(100)),
+        "--threshold",
+      );
 
       const op = await addOverlayOperation({
         overlayId,

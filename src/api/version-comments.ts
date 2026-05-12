@@ -1,15 +1,20 @@
+import * as v from "valibot";
 import {
   authenticateBearer,
   jsonOk,
   notFound,
+  parseOr400,
   readJsonBody,
-  readStringField,
   unauthorized,
 } from "./middleware.ts";
 import { getVersionCommentsPayload } from "../domain/version-comments.ts";
 
 const MAX_BODY_BYTES = 4 * 1024;
 const MAX_ID_LEN = 200;
+
+const VersionCommentsBodySchema = v.object({
+  versionId: v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_ID_LEN)),
+});
 
 /**
  * POST /api/extension/version-comments — canonical comments + their
@@ -26,19 +31,15 @@ export async function handleVersionCommentsPost(req: Request): Promise<Response>
   const auth = await authenticateBearer(req);
   if (!auth) return unauthorized();
 
-  const versionId = await readVersionId(req);
-  if (versionId instanceof Response) return versionId;
-
-  const payload = await getVersionCommentsPayload({
-    versionId,
-    userId: auth.userId,
-  });
-  if (!payload) return notFound();
-  return jsonOk(payload);
-}
-
-async function readVersionId(req: Request): Promise<string | Response> {
   const payload = await readJsonBody(req, MAX_BODY_BYTES);
   if (payload instanceof Response) return payload;
-  return readStringField(payload, "versionId", MAX_ID_LEN);
+  const parsed = parseOr400(VersionCommentsBodySchema, payload);
+  if (parsed instanceof Response) return parsed;
+
+  const result = await getVersionCommentsPayload({
+    versionId: parsed.versionId,
+    userId: auth.userId,
+  });
+  if (!result) return notFound();
+  return jsonOk(result);
 }

@@ -1,7 +1,8 @@
 import { parseArgs } from "node:util";
+import * as v from "valibot";
 import { startServer } from "../api/server.ts";
 import { sqlite } from "../db/client.ts";
-import { usage } from "./util.ts";
+import { parseNumberArg } from "./util.ts";
 
 const USAGE = `\
 usage:
@@ -16,8 +17,11 @@ export async function run(args: string[]): Promise<void> {
     allowPositionals: false,
   });
 
-  const port = values.port !== undefined ? Number(values.port) : undefined;
-  if (port !== undefined && Number.isNaN(port)) usage(USAGE);
+  const port = parseNumberArg(
+    values.port,
+    v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(65535)),
+    "--port",
+  );
 
   const server = startServer(port !== undefined ? { port } : {});
   console.log(`margin api listening on http://${server.hostname}:${server.port}`);

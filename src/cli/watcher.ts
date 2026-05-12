@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import * as v from "valibot";
 import {
   handleDriveWatchEvent,
   listWatchChannels,
@@ -7,7 +8,7 @@ import {
   subscribeVersionWatch,
   unsubscribeVersionWatch,
 } from "../domain/watcher.ts";
-import { usage, dispatchSubcommands } from "./util.ts";
+import { usage, dispatchSubcommands, parseNumberArg } from "./util.ts";
 
 const USAGE = `\
 usage:
@@ -35,7 +36,11 @@ export const run = (args: string[]) =>
       });
       const versionId = positionals[0];
       if (!versionId || !values.address) usage(USAGE);
-      const ttlMs = values["ttl-ms"] ? Number(values["ttl-ms"]) : undefined;
+      const ttlMs = parseNumberArg(
+        values["ttl-ms"],
+        v.pipe(v.number(), v.integer(), v.minValue(1)),
+        "--ttl-ms",
+      );
 
       const ch = await subscribeVersionWatch({
         versionId,

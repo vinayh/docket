@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import * as v from "valibot";
 import { db } from "../db/client.ts";
 import { auditLog, project, type ProjectSettings } from "../db/schema.ts";
 import { getOwnedProject } from "./project.ts";
@@ -30,17 +31,56 @@ const MAX_REVIEWERS = 64;
 const MAX_EMAIL_LEN = 254;
 const MAX_FIELD_LEN = 256;
 
+const Email = v.pipe(
+  v.string(),
+  v.transform((s) => s.trim()),
+  v.email(),
+  v.maxLength(MAX_EMAIL_LEN),
+);
+
+const ReviewerEmails = v.pipe(
+  v.array(Email),
+  v.maxLength(MAX_REVIEWERS),
+  v.transform((arr) => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const email of arr) {
+      const key = email.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(email);
+    }
+    return out;
+  }),
+);
+
+// nullable string that trims, drops empty-after-trim to null, and caps length.
+const TrimmedNullable = v.pipe(
+  v.nullable(v.string()),
+  v.transform((s): string | null => {
+    if (s === null) return null;
+    const trimmed = s.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }),
+  v.nullable(v.pipe(v.string(), v.maxLength(MAX_FIELD_LEN))),
+);
+
+export const ProjectSettingsPatchSchema = v.partial(
+  v.object({
+    notifyOnComment: v.boolean(),
+    notifyOnReviewComplete: v.boolean(),
+    defaultReviewerEmails: ReviewerEmails,
+    defaultOverlayId: TrimmedNullable,
+    slackWorkspaceRef: TrimmedNullable,
+  }),
+);
+
+export type ProjectSettingsPatch = v.InferOutput<typeof ProjectSettingsPatchSchema>;
+
 export class SettingsNotFoundError extends Error {
   constructor() {
     super("project_not_found");
     this.name = "SettingsNotFoundError";
-  }
-}
-
-export class SettingsBadRequestError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "SettingsBadRequestError";
   }
 }
 
@@ -55,7 +95,7 @@ export async function loadProjectSettings(opts: {
 export async function updateProjectSettings(opts: {
   projectId: string;
   userId: string;
-  patch: Partial<ProjectSettingsView>;
+  patch: ProjectSettingsPatch;
 }): Promise<ProjectSettingsView> {
   const proj = await loadOwnedProject(opts.projectId, opts.userId);
   const before = hydrateView(proj.settings);
@@ -116,78 +156,17 @@ function toStored(
 
 function applyPatch(
   base: ProjectSettingsView,
-  patch: Partial<ProjectSettingsView>,
+  patch: ProjectSettingsPatch,
 ): ProjectSettingsView {
   const next: ProjectSettingsView = { ...base };
-  if (patch.notifyOnComment !== undefined) {
-    requireBoolean("notifyOnComment", patch.notifyOnComment);
-    next.notifyOnComment = patch.notifyOnComment;
-  }
+  if (patch.notifyOnComment !== undefined) next.notifyOnComment = patch.notifyOnComment;
   if (patch.notifyOnReviewComplete !== undefined) {
-    requireBoolean("notifyOnReviewComplete", patch.notifyOnReviewComplete);
     next.notifyOnReviewComplete = patch.notifyOnReviewComplete;
   }
   if (patch.defaultReviewerEmails !== undefined) {
-    next.defaultReviewerEmails = normalizeReviewers(patch.defaultReviewerEmails);
+    next.defaultReviewerEmails = patch.defaultReviewerEmails;
   }
-  if (patch.defaultOverlayId !== undefined) {
-    next.defaultOverlayId = normalizeOptionalString(
-      "defaultOverlayId",
-      patch.defaultOverlayId,
-    );
-  }
-  if (patch.slackWorkspaceRef !== undefined) {
-    next.slackWorkspaceRef = normalizeOptionalString(
-      "slackWorkspaceRef",
-      patch.slackWorkspaceRef,
-    );
-  }
+  if (patch.defaultOverlayId !== undefined) next.defaultOverlayId = patch.defaultOverlayId;
+  if (patch.slackWorkspaceRef !== undefined) next.slackWorkspaceRef = patch.slackWorkspaceRef;
   return next;
-}
-
-function requireBoolean(field: string, value: unknown): asserts value is boolean {
-  if (typeof value !== "boolean") {
-    throw new SettingsBadRequestError(`${field} must be boolean`);
-  }
-}
-
-function normalizeReviewers(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    throw new SettingsBadRequestError("defaultReviewerEmails must be an array");
-  }
-  if (value.length > MAX_REVIEWERS) {
-    throw new SettingsBadRequestError(
-      `defaultReviewerEmails capped at ${MAX_REVIEWERS} entries`,
-    );
-  }
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const raw of value) {
-    if (typeof raw !== "string") {
-      throw new SettingsBadRequestError("defaultReviewerEmails entries must be strings");
-    }
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) continue;
-    if (trimmed.length > MAX_EMAIL_LEN || !trimmed.includes("@")) {
-      throw new SettingsBadRequestError(`invalid email: ${trimmed}`);
-    }
-    const lowered = trimmed.toLowerCase();
-    if (seen.has(lowered)) continue;
-    seen.add(lowered);
-    out.push(trimmed);
-  }
-  return out;
-}
-
-function normalizeOptionalString(field: string, value: unknown): string | null {
-  if (value === null) return null;
-  if (typeof value !== "string") {
-    throw new SettingsBadRequestError(`${field} must be a string or null`);
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
-  if (trimmed.length > MAX_FIELD_LEN) {
-    throw new SettingsBadRequestError(`${field} too long`);
-  }
-  return trimmed;
 }

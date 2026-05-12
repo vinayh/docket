@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import { auth } from "../auth/server.ts";
 
 export interface AuthenticatedRequest {
@@ -81,7 +82,7 @@ export function jsonOk<T>(body: T, init?: ResponseInit): Response {
  * Size-checks the request, parses JSON, and asserts the payload is an
  * object (`{...}`, not an array or primitive). Returns the parsed object
  * on success, or a 400 `Response` describing the failure. Routes pair
- * this with `readStringField` to pull out individual fields.
+ * this with `parseOr400` + a valibot schema to validate individual fields.
  *
  * The check is enforced at the stream level — `Content-Length` is advisory
  * (chunked-encoded requests omit it; hostile clients can lie about it), so
@@ -141,18 +142,18 @@ async function readCappedText(req: Request, max: number): Promise<string | Respo
 }
 
 /**
- * Extracts a non-empty string field from a parsed JSON object, capped at
- * `maxLen` characters. Returns the value on success or a 400 `Response`
- * shaped after the route's field name. Pair with `readJsonBody`.
+ * Run a Valibot schema against a parsed payload. Returns the schema's output
+ * on success, or a 400 `Response` carrying the first issue. The 400 message
+ * includes the dotted path (`patch.defaultReviewerEmails.0`) so the caller
+ * gets enough to localize the problem without exposing internal details.
  */
-export function readStringField(
-  payload: Record<string, unknown>,
-  key: string,
-  maxLen: number,
-): string | Response {
-  const raw = payload[key];
-  if (typeof raw !== "string" || raw.length === 0 || raw.length > maxLen) {
-    return badRequest(`expected { ${key}: string }`);
-  }
-  return raw;
+export function parseOr400<TSchema extends v.GenericSchema>(
+  schema: TSchema,
+  payload: unknown,
+): v.InferOutput<TSchema> | Response {
+  const result = v.safeParse(schema, payload);
+  if (result.success) return result.output;
+  const issue = result.issues[0];
+  const path = issue.path?.map((p) => String(p.key)).join(".") ?? "";
+  return badRequest(path ? `${path}: ${issue.message}` : issue.message);
 }

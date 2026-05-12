@@ -14,6 +14,11 @@ export default defineConfig({
   // Vite, not Bun, runs the build — WXT is built on Vite. Bun still drives
   // tests and the backend; only the extension pipeline changes here.
   manifestVersion: 3, // Firefox defaults to MV2 in WXT; we ship MV3 on both.
+  // The codebase imports explicitly everywhere; WXT's auto-import scanner
+  // re-exports every top-level binding it finds, which clashes with common
+  // local names (e.g. `v` from `import * as v from "valibot"` getting
+  // auto-injected into files that already use `v` as a loop variable).
+  imports: false,
   // Default is `.output/`, but Finder + the Chrome "Load Unpacked" picker
   // hide leading-dot dirs.
   outDir: "dist",

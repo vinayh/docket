@@ -1,16 +1,24 @@
+import * as v from "valibot";
 import {
   authenticateBearer,
   badRequest,
   jsonOk,
   notFound,
+  parseOr400,
   readJsonBody,
-  readStringField,
   unauthorized,
 } from "./middleware.ts";
 import { getVersionDiffPayload } from "../domain/version-diff.ts";
 
 const MAX_BODY_BYTES = 4 * 1024;
 const MAX_ID_LEN = 200;
+
+const Id = v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_ID_LEN));
+
+const VersionDiffBodySchema = v.object({
+  fromVersionId: Id,
+  toVersionId: Id,
+});
 
 /**
  * POST /api/extension/version-diff — structured side-by-side diff payload
@@ -27,32 +35,19 @@ export async function handleVersionDiffPost(req: Request): Promise<Response> {
   const auth = await authenticateBearer(req);
   if (!auth) return unauthorized();
 
-  const ids = await readVersionIds(req);
-  if (ids instanceof Response) return ids;
-
-  const payload = await getVersionDiffPayload({
-    fromVersionId: ids.fromVersionId,
-    toVersionId: ids.toVersionId,
-    userId: auth.userId,
-  });
-  if (!payload) return notFound();
-  return jsonOk(payload);
-}
-
-interface VersionIds {
-  fromVersionId: string;
-  toVersionId: string;
-}
-
-async function readVersionIds(req: Request): Promise<VersionIds | Response> {
   const payload = await readJsonBody(req, MAX_BODY_BYTES);
   if (payload instanceof Response) return payload;
-  const from = readStringField(payload, "fromVersionId", MAX_ID_LEN);
-  if (from instanceof Response) return from;
-  const to = readStringField(payload, "toVersionId", MAX_ID_LEN);
-  if (to instanceof Response) return to;
-  if (from === to) {
+  const parsed = parseOr400(VersionDiffBodySchema, payload);
+  if (parsed instanceof Response) return parsed;
+  if (parsed.fromVersionId === parsed.toVersionId) {
     return badRequest("fromVersionId and toVersionId must differ");
   }
-  return { fromVersionId: from, toVersionId: to };
+
+  const result = await getVersionDiffPayload({
+    fromVersionId: parsed.fromVersionId,
+    toVersionId: parsed.toVersionId,
+    userId: auth.userId,
+  });
+  if (!result) return notFound();
+  return jsonOk(result);
 }
