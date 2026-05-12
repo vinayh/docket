@@ -23,16 +23,16 @@
     "@types/chrome": "^0.1.42",
     "@types/diff": "^8.0.0",
     "drizzle-kit": "^0.31.10",
-    "wxt": "^0.20.25"
+    "wxt": "^0.20.26"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^6.0.3"
   },
   "dependencies": {
     "better-auth": "^1.6.10",
     "diff": "^9.0.0",
     "drizzle-orm": "^0.45.2",
-    "fast-xml-parser": "^5.7.3",
+    "fast-xml-parser": "^5.8.0",
     "fflate": "^0.8.2",
     "preact": "^10.29.1"
   }

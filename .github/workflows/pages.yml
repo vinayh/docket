@@ -28,8 +28,8 @@ jobs:
       run:
         working-directory: docs
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
       - uses: oven-sh/setup-bun@v2
@@ -37,7 +37,7 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: docs/dist
 
@@ -49,4 +49,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
