@@ -1,4 +1,8 @@
-import { handleAuthExtFinalize, handleAuthExtLaunch, handleAuthRequest } from "./auth-handler.ts";
+import {
+  handleAuthExtLaunchTab,
+  handleAuthExtSuccess,
+  handleAuthRequest,
+} from "./auth-handler.ts";
 import { handleDocStatePost } from "./doc-state.ts";
 import { handleDocSyncPost } from "./doc-sync.ts";
 import { handleProjectDetailPost } from "./project-detail.ts";
@@ -7,7 +11,7 @@ import { handleVersionCommentsPost } from "./version-comments.ts";
 import { handleCommentActionPost } from "./comment-action.ts";
 import { handleSettingsPost } from "./settings.ts";
 import { handleReviewActionGet } from "./review-action.ts";
-import { handlePickerConfig } from "./picker-config.ts";
+import { handlePickerPage } from "./picker-page.ts";
 import { handleRegisterDocPost } from "./picker-register.ts";
 import { handleDriveWebhook } from "./drive-webhook.ts";
 import { preflight, withCors, withSecurity } from "./cors.ts";
@@ -86,11 +90,11 @@ type RateLimitGate =
   | { kind: "block"; response: Response };
 
 /**
- * Pre-handler rate-limit check for `/api/extension/*` and `/api/picker/*`.
- * Keys on the authenticated user id when possible (so a stolen-token
- * abuser burns *their own* budget, not their victim's pool, and a
- * NAT'd office shares per-user buckets), falling back to client IP for
- * unauthenticated requests (e.g. `/api/picker/config`). On exhaustion the
+ * Pre-handler rate-limit check for `/api/extension/*` and
+ * `/api/picker/register-doc`. Keys on the authenticated user id when
+ * possible (so a stolen-token abuser burns *their own* budget, not their
+ * victim's pool, and a NAT'd office shares per-user buckets), falling
+ * back to client IP for unauthenticated requests. On exhaustion the
  * caller receives 429 + `Retry-After`; otherwise the handler runs and the
  * remaining slot count is surfaced via `x-margin-rate-limit-remaining`.
  *
@@ -119,10 +123,12 @@ async function rateLimitGate(req: Request): Promise<RateLimitGate> {
 
 /**
  * Phase-2 HTTP API host. Public routes: `/healthz`, the magic-link review
- * handler `/r/<token>`, and Better Auth's catch-all `/api/auth/**`
- * (sign-in, social-provider callback, session lookup, sign-out). Webhooks:
- * `/webhooks/drive` (Drive push notifications). Bearer-authenticated API
- * surface: `/api/extension/{doc-state,doc-sync,project,version-diff,
+ * handler `/r/<token>`, the backend-hosted Drive Picker page
+ * `/api/picker/page` (cookie-authenticated), and Better Auth's catch-all
+ * `/api/auth/**` (sign-in, social-provider callback, session lookup,
+ * sign-out). Webhooks: `/webhooks/drive` (Drive push notifications).
+ * Bearer-authenticated API surface:
+ * `/api/extension/{doc-state,doc-sync,project,version-diff,
  * version-comments,comment-action,settings}`, `/api/picker/register-doc`.
  * Method dispatch + 405-on-mismatch comes from Bun.serve's `routes:` option;
  * unknown paths fall through to `fetch`'s 404.
@@ -149,8 +155,12 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       // wrap GET-only routes in the method-keyed form to get automatic 405
       // on the wrong verb.
       "/healthz": { GET: secured(() => Response.json({ ok: true })) },
-      "/api/auth/ext/launch": { GET: secured(handleAuthExtLaunch) },
-      "/api/auth/ext/finalize": { GET: secured(handleAuthExtFinalize) },
+      "/api/auth/ext/launch-tab": { GET: secured(handleAuthExtLaunchTab) },
+      // `secured` wraps the response with default-deny CSP + frame-deny
+      // *unless* the handler set its own — `handleAuthExtSuccess` returns
+      // a CSP with a sha256 script hash, so the global default-src 'none'
+      // doesn't clobber it.
+      "/api/auth/ext/success": { GET: secured(handleAuthExtSuccess) },
       "/api/auth/*": {
         GET: secured(handleAuthRequest),
         POST: secured(handleAuthRequest),
@@ -163,7 +173,7 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       "/api/extension/version-comments": corsRoute({ POST: handleVersionCommentsPost }),
       "/api/extension/comment-action": corsRoute({ POST: handleCommentActionPost }),
       "/api/extension/settings": corsRoute({ POST: handleSettingsPost }),
-      "/api/picker/config": corsRoute({ GET: handlePickerConfig }),
+      "/api/picker/page": { GET: secured(handlePickerPage) },
       "/api/picker/register-doc": corsRoute({ POST: handleRegisterDocPost }),
       "/r/:token": { GET: secured(handleReviewActionGet) },
     },

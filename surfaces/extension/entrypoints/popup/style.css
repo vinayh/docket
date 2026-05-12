@@ -109,13 +109,6 @@ button.primary {
 .ok {
   color: var(--good);
 }
-#picker-frame {
-  width: 100%;
-  height: 240px;
-  border: 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
 #diagnostics {
   border-top: 1px solid var(--border);
   padding: 0.4rem 0.8rem 0.6rem;

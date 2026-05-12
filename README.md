@@ -139,21 +139,19 @@ bun margin comments list <project-id>
 
 ## Track an existing doc via the Drive Picker
 
-The Picker is the only mechanism that grants `drive.file` access to a doc the OAuth client didn't create (SPEC §9.2). Open any Google Doc, click the Margin toolbar icon, click **Add to Margin** — on Chromium the Picker mounts inline in the popup. Firefox MV3 lacks `sandbox.pages`, so the "add doc" flow is Chromium-only for now.
-
-The Picker handshake POSTs to `/api/picker/register-doc`; the response includes the new project id (or `409 already_exists` with the existing id).
+The Picker is the only mechanism that grants `drive.file` access to a doc the OAuth client didn't create (SPEC §9.2). Open any Google Doc, click the Margin toolbar icon, click **Add to Margin** — the backend-hosted Picker (`/api/picker/page`) opens in a new tab. Pick the doc; the page POSTs to `/api/picker/register-doc` and auto-closes. Works on Chromium and Firefox.
 
 ## Test the browser extension
 
-The MV3 extension lives in [`surfaces/extension/`](./surfaces/extension/) — its [README](./surfaces/extension/README.md) covers build, layout, popup state machine, and the Picker mechanics. End-to-end smoke test:
+The MV3 extension lives in [`surfaces/extension/`](./surfaces/extension/) — its [README](./surfaces/extension/README.md) covers build, layout, popup state machine, and OAuth/Picker mechanics. End-to-end smoke test:
 
 1. Start the backend: `bun margin serve` (defaults to `http://localhost:8787`).
 2. Build and load the extension:
    - **Chrome / Edge:** `bun run ext:build` → `chrome://extensions` → Developer Mode → **Load unpacked** → `surfaces/extension/dist/chrome-mv3`.
-   - **Firefox:** `bun run ext:build:firefox` → `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on** → any file inside `surfaces/extension/dist/firefox-mv3` (e.g. `manifest.json`). Firefox can read tracked-doc state but the "add doc" flow is currently Chromium-only.
+   - **Firefox:** `bun run ext:build:firefox` → `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on** → any file inside `surfaces/extension/dist/firefox-mv3` (e.g. `manifest.json`).
 3. Open the extension's **Options** page, enter the backend URL, click **Test connection** (Chrome will prompt for the backend origin — approve), then **Save backend URL**.
-4. Click **Sign in with Google**. `chrome.identity.launchWebAuthFlow` walks the consent screen; Better Auth lands the user back at the extension's `chromiumapp.org` callback URL with a session token, which the SW persists in `chrome.storage.local`.
-5. Open a Google Doc, click the toolbar icon → **Add to Margin**. The sandboxed Picker mounts in the popup; pick the same doc and Margin registers it as a project. `bun margin comments list <project-id>` will show ingested comments after the first webhook fires (or `bun margin watcher poll` to force-pull).
+4. Click **Sign in with Google**. The Options page opens a top-level tab at `/api/auth/ext/launch-tab`; after Google's consent screen, the bridge page hands the session token to the SW and closes itself.
+5. Open a Google Doc, click the toolbar icon → **Add to Margin**. The Picker tab opens; pick the doc and the page registers it as a project. `bun margin comments list <project-id>` will show ingested comments after the first webhook fires (or `bun margin watcher poll` to force-pull).
 
 ## Deployment (Fly.io)
 

@@ -1,9 +1,10 @@
 export interface Settings {
   backendUrl: string;
   /**
-   * Better Auth session token, populated by `chrome.identity.launchWebAuthFlow`
-   * during the in-extension Google sign-in (see `entrypoints/background.ts`).
-   * Sent as `Authorization: Bearer <sessionToken>` on every backend call.
+   * Better Auth session token, populated by the tab-based OAuth bridge:
+   * `/api/auth/ext/success` `sendMessage`s the token to the SW, which
+   * writes it here (see `entrypoints/background.ts`). Sent as
+   * `Authorization: Bearer <sessionToken>` on every backend call.
    */
   sessionToken: string;
 }
@@ -38,17 +39,6 @@ export type DocState =
       commentCount: number;
       openReviewCount: number;
     };
-
-/**
- * Picker runtime config the popup pulls from the backend (via /picker-config)
- * and forwards to the sandboxed picker iframe. Same fields the backend's
- * inline /picker page consumes — keeps both in sync.
- */
-export interface PickerConfig {
-  clientId: string;
-  apiKey: string;
-  projectNumber: string;
-}
 
 /**
  * Result of POST /api/picker/register-doc as the SW returns it to the popup.

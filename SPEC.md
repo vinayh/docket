@@ -90,7 +90,8 @@ Primary chat surface for review coordination.
 
 Deliberately minimal — the rich UI is in the extension.
 
-- **`/api/auth/**`** — Better Auth's catch-all (sign-in, Google OAuth callback, get-session, sign-out). Extensions hit `/api/auth/ext/launch` from `chrome.identity.launchWebAuthFlow`; that endpoint kicks off Google OAuth, and `/api/auth/ext/finalize` redirects back to the `chromiumapp.org` callback with `?token=<sessionToken>`.
+- **`/api/auth/**`** — Better Auth's catch-all (sign-in, Google OAuth callback, get-session, sign-out). Extension sign-in opens `/api/auth/ext/launch-tab?ext=<chrome.runtime.id>` in a normal browser tab; after Google → Better Auth's social callback, `/api/auth/ext/success` hands the session token to the SW (Chromium: `chrome.runtime.sendMessage` gated by `externally_connectable.matches`; Firefox: `location.hash` picked up by `tabs.onUpdated`).
+- **`/api/picker/page`** — backend-hosted Drive Picker. Cookie-authenticated top-level navigation; mints a Drive access token, runs the Picker, POSTs to `/api/picker/register-doc` same-origin on pick, and closes itself.
 - **Magic-link handlers** — `/r/<token>` style, one-click state changes for external reviewers; rendered confirmation page. Distinct from Better Auth sessions: review-action tokens authorize a specific state transition (single-use, scoped to one assignment), not an authenticated session.
 - **Public landing page** — marketing/explainer with install CTAs.
 
@@ -100,14 +101,14 @@ Project dashboards, diff viewer, reconciliation UI, overlay editor, settings liv
 
 ### 6.4 Browser extension
 
-Chrome / Firefox / Edge extension — popup + options + side panel + Picker sandbox. The extension is a **pure UI surface**: ingestion happens server-side via docx export (§9.8), so the manifest has no content script and no `host_permissions` on `docs.google.com`. Roles across phases:
+Chrome / Firefox / Edge extension — popup + options + side panel. The extension is a **pure UI surface**: ingestion happens server-side via docx export (§9.8), so the manifest has no content script and no `host_permissions` on `docs.google.com`. Roles across phases:
 
-- **Project surface (Phase 3 — shipped).** The popup is the primary "is this doc tracked, what state is it in, sync it now, add it as a new project" surface. Reads `tab.title` (stripped of the locale `" - Google Docs"` suffix) → backend `/api/extension/doc-state`, branches into onboarding / tracked views. "Add to Margin" mounts a sandboxed Drive Picker iframe inline on Chromium; Firefox MV3 lacks `sandbox.pages` so its "add doc" path is deferred. "Sync now" calls `/api/extension/doc-sync` to re-ingest comments. No Workspace add-on required.
-- **Rich UI (Phase 4 — shipped).** Preact app in the side panel: project dashboard (versions, derivatives, review history, reviewer participation), structured side-by-side version diff, comment reconciliation list. Talks to backend with the user's Better Auth session token (acquired via `chrome.identity.launchWebAuthFlow`) sent as `Authorization: Bearer …` from the SW.
+- **Project surface (Phase 3 — shipped).** The popup is the primary "is this doc tracked, what state is it in, sync it now, add it as a new project" surface. Reads `tab.title` (stripped of the locale `" - Google Docs"` suffix) → backend `/api/extension/doc-state`, branches into onboarding / tracked views. "Add to Margin" opens `/api/picker/page` (§6.3) in a new tab; on pick, the page registers the doc and closes. "Sync now" calls `/api/extension/doc-sync` to re-ingest comments. Works on Chromium and Firefox. No Workspace add-on required.
+- **Rich UI (Phase 4 — shipped).** Preact app in the side panel: project dashboard (versions, derivatives, review history, reviewer participation), structured side-by-side version diff, comment reconciliation list. Talks to backend with the user's Better Auth session token (acquired via §6.3) sent as `Authorization: Bearer …` from the SW.
 - **Visualization (Phase 6).** Highlights overlaid on the doc body, gutter markers, hover previews, right-click "comment on selection," native-comment-rail integration. Doc body is `<canvas>` (§9.6) — needs accessibility-DOM mirror or selection-event hooks. **This is the only future role that touches the doc page**; if it ships, it will reintroduce `host_permissions` on `docs.google.com/*` and a content script, but only to read selection events / a11y-mirror coordinates — never comment data.
 - **Capture (Phase 2 — retired).** Originally scraped suggestion-thread replies from the discussion sidebar (the public Drive/Docs APIs didn't surface them). The docx-export ingest path (§9.8) recovers the same data server-side with exact anchors and ISO timestamps, so the `MutationObserver`, SW capture queue, `/api/extension/captures` endpoint, and the `host_permissions` on `docs.google.com/*` were all removed in Phase 4.
 
-Implementation detail (popup state machine, sandboxed-Picker handshake, manifest permissions, cross-browser shim) lives in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Conventions for working on this surface: [`AGENTS.md`](./AGENTS.md#browser-extension-surfacesextension).
+Implementation detail (popup state machine, tab-based OAuth bridge, backend-hosted Picker mechanics, manifest permissions, cross-browser shim) lives in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Conventions for working on this surface: [`AGENTS.md`](./AGENTS.md#browser-extension-surfacesextension).
 
 **Out of scope:** mobile / iPad Docs.
 
@@ -248,7 +249,7 @@ Headless backend + CLI. Drizzle schema (16 tables, Better Auth-shaped) on `bun:s
 ### Phase 2 — Backend HTTP API + browser extension (capture) + minimal web entry points
 **Status: shipped; capture role removed in Phase 4 (replaced by §9.8 docx ingest).** ✅
 
-Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun margin serve` HTTP host: `/healthz`, `/api/auth/**` (Better Auth), `/webhooks/drive`, `/api/picker/register-doc`. Better Auth sessions over the bearer plugin (`Authorization: Bearer <sessionToken>`) — the extension acquires its token through `chrome.identity.launchWebAuthFlow` against `/api/auth/ext/launch`. MV3 extension (Chrome / Edge — Firefox dock for the "add doc" flow deferred until `sandbox.pages` lands there). Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops, gated on `MARGIN_PUBLIC_BASE_URL`.
+Fly.io deploy + GitHub Actions auto-deploy on `main`. `bun margin serve` HTTP host: `/healthz`, `/api/auth/**` (Better Auth + tab-based OAuth bridge, §6.3), `/webhooks/drive`, `/api/picker/{page,register-doc}` (backend-hosted Drive Picker + register endpoint, §6.3). Better Auth sessions over the bearer plugin (`Authorization: Bearer <sessionToken>`). MV3 extension (Chrome / Edge / Firefox). Auto-subscribe of Drive `files.watch` per new version + in-process renew + polling loops, gated on `MARGIN_PUBLIC_BASE_URL`.
 
 The original capture-role components — `/api/extension/captures`, `domain/capture.ts`, sidebar scraper + `MutationObserver`, SW capture queue + flush alarm, the `canonical_comment.{kix_discussion_id, external_id}` columns, and the `host_permissions: ["https://docs.google.com/*"]` manifest entry — were all deleted in Phase 4 once the docx-export ingest path (§9.8) was running. The extension is now a pure UI surface; ingestion lives entirely in the backend.
 
@@ -261,10 +262,11 @@ New backend routes:
 
 - `POST /api/extension/doc-state` — tracked? state for the open doc. Owner-scoped (cross-user reads return `tracked: false`).
 - `POST /api/extension/doc-sync` — "Sync now" — re-runs `ingestVersionComments` on the relevant version and returns refreshed state.
-- `GET /api/picker/config` — public; emits the Picker client-id + API key + GCP project number the sandboxed iframe needs to boot. Not a secret (the Picker SDK accepts these on the public web too).
-- CORS allow-list extended to chromium / firefox extension origins on `/api/extension/*` and `/api/picker/*`.
+- `GET /api/picker/page` — backend-hosted Drive Picker (cookie-auth, top-level navigation).
+- `POST /api/picker/register-doc` — resolves caller (cookie or bearer) → `createProject(ownerUserId, parentDocUrlOrId)`.
+- CORS allow-list extended to chromium / firefox extension origins on `/api/extension/*` and `/api/picker/register-doc`.
 
-Popup state machine + sandboxed-Picker mechanics live in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Notable design choices: popup never holds the session token (everything routes through the SW); sandboxed Picker on Chromium runs at `null` origin and postMessages back to the popup; Firefox MV3 doesn't support `sandbox.pages` so the "add doc" flow is Chromium-only for now.
+Popup state machine + OAuth/Picker mechanics live in [`surfaces/extension/README.md`](./surfaces/extension/README.md). The popup never holds the session token — everything routes through the SW.
 
 **Delivers:** the popup owns the entire "track → check state → sync now" loop. New users never see a Margin-hosted page after OAuth.
 

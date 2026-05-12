@@ -34,20 +34,33 @@ export default defineConfig({
     // `sidePanel` is Chromium-only (browser.sidePanel.* APIs); Firefox
     // uses `sidebar_action` declared below and ignores unknown permission
     // entries gracefully, but we keep the request scoped to Chromium so
-    // the store reviewers see a clean list.
-    // `identity` powers `chrome.identity.launchWebAuthFlow` for Google
-    // sign-in (see `entrypoints/background.ts`). Both Chromium and Firefox
-    // expose this API under the same namespace.
+    // the store reviewers see a clean list. Tab-based sign-in opens the
+    // backend's `/api/auth/ext/launch-tab` page via `browser.tabs.create`,
+    // which doesn't need the `identity` permission.
     permissions:
       browser === "firefox"
-        ? ["storage", "identity"]
-        : ["storage", "sidePanel", "identity"],
-    // The user-configured backend URL isn't known at build time. We declare
-    // `<all_urls>` as optional and request the specific origin from the
-    // options page on save. See entrypoints/options/main.ts. There is no
-    // static `host_permissions` block — every other surface (popup, side
-    // panel, SW) talks to the backend over the optional origin.
+        ? ["storage"]
+        : ["storage", "sidePanel"],
+    // `docs.google.com` is known at build time and must be static: without
+    // it the popup's `chrome.tabs.query({active: true, currentWindow: true})`
+    // gets a Tab with `url`/`title` stripped on any Doc page, and falls
+    // through to the no-doc view. Static grants happen at install with a
+    // single consent prompt — no second-step "Test connection" needed.
+    //
+    // The user-configured backend URL is the only thing we genuinely can't
+    // pin at build time, so `<all_urls>` stays optional and the Options
+    // page calls `permissions.request` on save (see
+    // entrypoints/options/main.ts).
+    host_permissions: ["https://docs.google.com/*"],
     optional_host_permissions: ["<all_urls>"],
+    // Tab-based OAuth bridge: the success page (`/api/auth/ext/success`)
+    // running on the user-configured backend `chrome.runtime.sendMessage`s
+    // the session token to this extension. We can't pin a host here because
+    // the backend URL is user-configurable, so we declare the broadest match
+    // pattern and gate `onMessageExternal` against `sender.origin === stored
+    // backendUrl` in the SW. A third-party page that knows the extension ID
+    // can post messages, but the SW drops them.
+    externally_connectable: { matches: ["*://*/*"] },
     action: {
       default_title: "Margin",
       default_icon: {
@@ -82,21 +95,18 @@ export default defineConfig({
         },
       },
     }),
-    // Chromium-only: the sandboxed Picker iframe lives at
-    // entrypoints/picker-sandbox.sandbox/. WXT auto-registers the sandbox
-    // page from the `.sandbox.html` filename; we only need the CSP here
-    // because the gapi + gsi script loads are external. Firefox MV3 lacks
-    // `sandbox.pages`, and the popup detects via UA and falls back to a
-    // backend `/picker` tab (see entrypoints/popup/main.ts).
+    // Chromium-only side panel. The popup opens this via
+    // `chrome.sidePanel.open` — see entrypoints/popup/views/Tracked.tsx.
+    // `enabled: true` keeps the panel selectable from the side-panel
+    // chooser even before the popup ever explicitly opens it.
+    //
+    // The Drive Picker used to live in a sandboxed iframe loaded by the
+    // popup; Google's `origin_mismatch` enforcement on `Web application`
+    // OAuth clients rejected the `chrome-extension://` parent origin, so
+    // the picker now opens as a top-level tab served from the backend
+    // origin instead (see `src/api/picker-page.ts`). No `sandbox.pages`
+    // and no extension-side CSP for it.
     ...(browser === "chrome" && {
-      content_security_policy: {
-        sandbox:
-          "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals; script-src 'self' https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline'; connect-src https://accounts.google.com https://apis.google.com https://www.googleapis.com; frame-src https://accounts.google.com https://docs.google.com https://content.googleapis.com; img-src 'self' data: https:;",
-      },
-      // Chromium side panel. The popup opens this via `chrome.sidePanel.open`
-      // — see entrypoints/popup/views/Tracked.tsx. `enabled: true` keeps the
-      // panel selectable from the side-panel chooser even before the popup
-      // ever explicitly opens it.
       side_panel: {
         default_path: "sidepanel.html",
       },

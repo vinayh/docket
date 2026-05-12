@@ -1,29 +1,29 @@
 import { useEffect, useState } from "preact/hooks";
 import { browser } from "wxt/browser";
 import { cleanDocTitle, parseDocIdFromUrl } from "../../utils/ids.ts";
-import type {
-  DocState,
-  PickerConfig,
-  RegisterDocResult,
-} from "../../utils/types.ts";
+import type { DocState } from "../../utils/types.ts";
 import { Header } from "../../ui/Header.tsx";
-import { getSettings, sendMessage } from "../../ui/sendMessage.ts";
+import { getSettingsStatus, sendMessage } from "../../ui/sendMessage.ts";
 import { Diagnostics } from "./Diagnostics.tsx";
-import { PickerOverlay } from "./PickerOverlay.tsx";
 import { NoSettings } from "./views/NoSettings.tsx";
+import { NeedsSignIn } from "./views/NeedsSignIn.tsx";
 import { NoDoc } from "./views/NoDoc.tsx";
 import { Untracked } from "./views/Untracked.tsx";
 import { Tracked } from "./views/Tracked.tsx";
 import { ErrorView } from "./views/ErrorView.tsx";
 
 /**
- * Popup state machine. The single `View` union below replaces the original
- * popup.ts's six render-* functions + module-level mutable state for the
- * picker handshake. Top-level setView drives all transitions; flows live
- * here so the view components stay pure render fns.
+ * Popup state machine. The single `View` union below drives all rendering;
+ * async flows live here so the view components stay pure render fns.
  *
- * On Firefox MV3 the sandboxed picker is unsupported (no `sandbox.pages`),
- * so `startAddFlow` opens the backend `/picker` tab instead.
+ * "Add to Margin" no longer renders a sandboxed Picker iframe in the
+ * popup — Google's `origin_mismatch` policy on `chrome-extension://`
+ * origins broke that path. Instead the popup opens the backend-hosted
+ * Drive Picker at `/api/picker/page` in a new tab; the page runs on the
+ * backend origin (which the OAuth client allow-lists), registers the
+ * picked doc against `/api/picker/register-doc` directly, and the user
+ * comes back to the original Docs tab. Re-opening the popup re-runs
+ * `doc/state` and flips into the tracked view automatically.
  */
 
 export interface ActiveDocTab {
@@ -41,18 +41,35 @@ export type TrackedState = Extract<DocState, { tracked: true }>;
 export type View =
   | { kind: "loading" }
   | { kind: "no-settings" }
+  | { kind: "needs-sign-in"; backendUrl: string }
   | { kind: "no-doc" }
   | { kind: "untracked"; tab: ActiveDocTab }
   | { kind: "tracked"; tab: ActiveDocTab; state: TrackedState }
-  | { kind: "error"; tab: ActiveDocTab | null; message: string }
-  | { kind: "picker"; tab: ActiveDocTab; cfg: PickerConfig }
-  | { kind: "registering"; tab: ActiveDocTab; heading: string };
+  | { kind: "error"; tab: ActiveDocTab | null; message: string };
 
 export function Popup() {
   const [view, setView] = useState<View>({ kind: "loading" });
 
   useEffect(() => {
     void boot(setView);
+    // The tab-based sign-in flow lands `settings.sessionToken` into
+    // `chrome.storage.local` via the SW (Chromium via onMessageExternal,
+    // Firefox via tabs.onUpdated reading the bridge fragment). Watching
+    // for that lets the popup flip from "needs sign-in" into the
+    // tracked/untracked view without the user closing and reopening it.
+    const listener = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: chrome.storage.AreaName,
+    ) => {
+      if (areaName !== "local" || !changes.settings) return;
+      const before = (changes.settings.oldValue as { sessionToken?: string } | undefined)
+        ?.sessionToken ?? "";
+      const after = (changes.settings.newValue as { sessionToken?: string } | undefined)
+        ?.sessionToken ?? "";
+      if (before !== after) void boot(setView);
+    };
+    browser.storage.onChanged.addListener(listener);
+    return () => browser.storage.onChanged.removeListener(listener);
   }, []);
 
   return (
@@ -77,6 +94,13 @@ function ViewBody({ view, setView }: BodyProps) {
       return <p class="muted">Loading…</p>;
     case "no-settings":
       return <NoSettings />;
+    case "needs-sign-in":
+      return (
+        <NeedsSignIn
+          backendUrl={view.backendUrl}
+          onSignedIn={() => void boot(setView)}
+        />
+      );
     case "no-doc":
       return <NoDoc />;
     case "untracked":
@@ -104,38 +128,19 @@ function ViewBody({ view, setView }: BodyProps) {
           }
         />
       );
-    case "picker":
-      return (
-        <PickerOverlay
-          tab={view.tab}
-          cfg={view.cfg}
-          onPicked={(docId, name) =>
-            void completeRegistration(view.tab, docId, name, setView)
-          }
-          onCancelled={() => setView({ kind: "untracked", tab: view.tab })}
-          onError={(message) =>
-            setView({ kind: "error", tab: view.tab, message })
-          }
-        />
-      );
-    case "registering":
-      return (
-        <>
-          <p class="title" title={view.heading}>
-            {view.heading}
-          </p>
-          <p class="muted">Registering with Margin…</p>
-        </>
-      );
   }
 }
 
 // ---- async flows ---------------------------------------------------------
 
 async function boot(setView: (v: View) => void): Promise<void> {
-  const settings = await getSettings();
+  const { settings, backendUrl } = await getSettingsStatus();
   if (!settings) {
-    setView({ kind: "no-settings" });
+    if (backendUrl) {
+      setView({ kind: "needs-sign-in", backendUrl });
+    } else {
+      setView({ kind: "no-settings" });
+    }
     return;
   }
   const tab = await getActiveDocTab();
@@ -210,67 +215,31 @@ async function runSync(
 }
 
 /**
- * Decides between in-popup sandboxed Picker (Chromium) and backend `/picker`
- * tab fallback (Firefox MV3 lacks `sandbox.pages` support). On Chromium it
- * fetches the Picker config and transitions to the `picker` view; the
- * `<PickerOverlay/>` then owns the iframe lifecycle and message handshake.
+ * Open the backend-hosted Drive Picker in a new tab. The page runs on
+ * the backend origin (which the OAuth client allow-lists, unlike
+ * `chrome-extension://`), pulls a fresh Drive access token from the
+ * user's session, registers the picked doc via
+ * `/api/picker/register-doc`, and closes itself. The popup closes after
+ * launching the tab; re-opening it on the original Docs tab picks up
+ * the new tracked state via `doc/state`.
  */
 async function startAddFlow(
   tab: ActiveDocTab,
   setView: (v: View) => void,
 ): Promise<void> {
-  if (navigator.userAgent.includes("Firefox")) {
-    // The hosted `/picker` page used to be the Firefox fallback for the
-    // sandboxed in-popup picker, but it was deleted along with the
-    // bring-your-own-API-token model. Until Firefox's MV3 supports
-    // `sandbox.pages` (or we ship a sidebar-hosted picker), Firefox users
-    // can't add docs from the popup.
+  const { backendUrl } = await getSettingsStatus();
+  if (!backendUrl) {
     setView({
       kind: "error",
       tab,
-      message:
-        "Adding docs from Firefox isn't supported yet — please use Chrome or Edge.",
+      message: "Backend URL is not configured.",
     });
     return;
   }
-
-  const r = await sendMessage({ kind: "picker/config" });
-  const cfg = r?.kind === "picker/config" ? r.config : null;
-  if (!cfg) {
-    setView({
-      kind: "error",
-      tab,
-      message:
-        "Picker is not configured on the backend (GOOGLE_CLIENT_ID / GOOGLE_API_KEY / GOOGLE_PROJECT_NUMBER missing).",
-    });
-    return;
-  }
-  setView({ kind: "picker", tab, cfg });
-}
-
-async function completeRegistration(
-  tab: ActiveDocTab,
-  docId: string,
-  name: string,
-  setView: (v: View) => void,
-): Promise<void> {
-  const heading = name || tab.title || "Google Doc";
-  setView({ kind: "registering", tab, heading });
-  const r = await sendMessage({ kind: "doc/register", docUrlOrId: docId });
-  const result: RegisterDocResult | null =
-    r?.kind === "doc/register" ? r.result : null;
-  if (!result) {
-    setView({ kind: "error", tab, message: "no response from backend" });
-    return;
-  }
-  if (result.kind === "error") {
-    setView({ kind: "error", tab, message: result.message });
-    return;
-  }
-  // Success — re-fetch state so the tracked view reflects the new project.
-  // Use the originally-open tab's docId; register-doc accepts either parent
-  // or version doc ids, but the popup is contextual to the open doc.
-  await renderDocState(tab, setView);
+  const base = backendUrl.replace(/\/+$/, "");
+  const url = `${base}/api/picker/page?docId=${encodeURIComponent(tab.docId)}`;
+  await browser.tabs.create({ url });
+  window.close();
 }
 
 // ---- helpers -------------------------------------------------------------

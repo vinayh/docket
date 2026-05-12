@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { getSettings } from "../../ui/sendMessage.ts";
+import { getSettingsStatus } from "../../ui/sendMessage.ts";
 
 /**
  * Bottom-of-popup diagnostics. Pre-docx-ingest this also showed the SW
@@ -19,13 +19,13 @@ export function Diagnostics({ initiallyOpen }: Props) {
 
   useEffect(() => {
     void (async () => {
-      const settings = await getSettings();
-      if (!settings) {
+      const { backendUrl } = await getSettingsStatus();
+      if (!backendUrl) {
         setConn({ tone: "error", text: "No backend configured." });
         return;
       }
-      setConn({ tone: "", text: `Probing ${settings.backendUrl}…` });
-      await probeBackend(settings.backendUrl, setConn);
+      setConn({ tone: "", text: `Probing ${backendUrl}…` });
+      await probeBackend(backendUrl, setConn);
     })();
   }, []);
 

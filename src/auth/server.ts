@@ -11,8 +11,8 @@ import { encryptWithMaster } from "./encryption.ts";
  * lookup) and the four standard tables `user`, `session`, `account`, and
  * `verification`. Bearer plugin lets the extension authenticate via
  * `Authorization: Bearer <session_token>` instead of cookies — the SW
- * acquires its token through `chrome.identity.launchWebAuthFlow` (see
- * `surfaces/extension/entrypoints/background.ts`).
+ * acquires its token via the tab-based OAuth bridge at
+ * `/api/auth/ext/success` (see `surfaces/extension/entrypoints/background.ts`).
  *
  * Google refresh tokens stored on `account.refreshToken` are envelope-
  * encrypted on write by the `databaseHooks.account` hook below; the

@@ -2,7 +2,6 @@ import type {
   CommentActionKind,
   CommentActionResult,
   DocState,
-  PickerConfig,
   ProjectDetail,
   ProjectSettingsView,
   RegisterDocResult,
@@ -23,12 +22,10 @@ import type {
 export type Message =
   | { kind: "settings/get" }
   | { kind: "settings/set"; settings: Settings }
-  | { kind: "auth/sign-in"; backendUrl: string }
   | { kind: "auth/sign-out" }
   | { kind: "doc/state"; docId: string }
   | { kind: "doc/sync"; docId: string }
   | { kind: "doc/register"; docUrlOrId: string }
-  | { kind: "picker/config" }
   | { kind: "project/detail"; projectId: string }
   | { kind: "version/diff"; fromVersionId: string; toVersionId: string }
   | { kind: "version/comments"; versionId: string }
@@ -51,14 +48,23 @@ export type Message =
  * the fields as undefined/unreliable.
  */
 export type MessageResponse =
-  | { kind: "settings/get"; settings: Settings | null; error?: string }
+  | {
+      kind: "settings/get";
+      settings: Settings | null;
+      /**
+       * The persisted backend URL, returned even when `settings` is null
+       * because the user has saved a backend URL but not yet signed in.
+       * The popup uses this to distinguish "needs Open Options" from
+       * "needs sign-in" without a second round-trip.
+       */
+      backendUrl: string | null;
+      error?: string;
+    }
   | { kind: "settings/set"; ok: true; error?: string }
-  | { kind: "auth/sign-in"; ok: boolean; error?: string }
   | { kind: "auth/sign-out"; ok: true; error?: string }
   | { kind: "doc/state"; state: DocState | null; error?: string }
   | { kind: "doc/sync"; state: DocState | null; error?: string }
   | { kind: "doc/register"; result: RegisterDocResult; error?: string }
-  | { kind: "picker/config"; config: PickerConfig | null; error?: string }
   | { kind: "project/detail"; detail: ProjectDetail | null; error?: string }
   | { kind: "version/diff"; payload: VersionDiffPayload | null; error?: string }
   | {

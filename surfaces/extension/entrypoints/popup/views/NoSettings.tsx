@@ -4,7 +4,7 @@ export function NoSettings() {
   return (
     <>
       <p class="muted">
-        Configure your Margin backend URL and API token to get started.
+        Configure your Margin backend URL to get started.
       </p>
       <div class="actions">
         <button

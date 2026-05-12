@@ -99,17 +99,33 @@ signInBtn.addEventListener("click", async () => {
     setStatus(perm.reason, "error");
     return;
   }
-  setStatus("Opening Google sign-in…", null);
-  const r = (await browser.runtime.sendMessage({
-    kind: "auth/sign-in",
-    backendUrl,
-  } satisfies Message)) as MessageResponse | undefined;
-  if (r?.kind === "auth/sign-in" && r.ok) {
-    setStatus("Signed in.", "ok");
-    renderAuthState(true);
-  } else {
-    setStatus(r?.error ?? "sign-in failed", "error");
-  }
+  setStatus("Opening Google sign-in in a new tab…", null);
+  // Tab-based OAuth: `chrome.identity.launchWebAuthFlow` is unusable now
+  // that Chrome 122+ stamps the extension origin onto Google's OAuth
+  // request (which Google rejects on `Web application` clients). Open a
+  // normal top-level tab instead; the `/api/auth/ext/success` bridge
+  // posts the session token back to the SW via
+  // `chrome.runtime.sendMessage`. The storage `onChanged` listener
+  // below flips the UI to "Signed in" once the token lands.
+  const launchUrl = `${backendUrl}/api/auth/ext/launch-tab?ext=${encodeURIComponent(
+    browser.runtime.id,
+  )}`;
+  await browser.tabs.create({ url: launchUrl });
+});
+
+// React to the SW's `auth/token` write so the Options page flips to
+// "Signed in" without the user having to reload the tab.
+browser.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes.settings) return;
+  const after =
+    (changes.settings.newValue as { sessionToken?: string } | undefined)
+      ?.sessionToken ?? "";
+  const before =
+    (changes.settings.oldValue as { sessionToken?: string } | undefined)
+      ?.sessionToken ?? "";
+  if (before === after) return;
+  renderAuthState(Boolean(after));
+  if (after) setStatus("Signed in.", "ok");
 });
 
 signOutBtn.addEventListener("click", async () => {
@@ -129,6 +145,8 @@ signOutBtn.addEventListener("click", async () => {
 // declare optional_host_permissions: ["<all_urls>"] in the manifest and
 // request the specific origin here. permissions.request must run from a
 // user gesture (button click) — every call site above is one.
+// `docs.google.com` is granted statically via host_permissions in the
+// manifest (see wxt.config.ts), so it isn't part of this request.
 async function ensureBackendOrigin(
   rawUrl: string,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {

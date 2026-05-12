@@ -1,12 +1,11 @@
 import { defineBackground } from "wxt/utils/define-background";
 import { browser } from "wxt/browser";
 import type { Message, MessageResponse } from "../utils/messages.ts";
-import { getSettings, patchSettings, setSettings } from "../utils/storage.ts";
+import { getBackendUrl, getSettings, patchSettings, setSettings } from "../utils/storage.ts";
 import type {
   CommentActionKind,
   CommentActionResult,
   DocState,
-  PickerConfig,
   ProjectDetail,
   ProjectSettingsView,
   RegisterDocResult,
@@ -42,16 +41,130 @@ export default defineBackground(() => {
       return true; // keep the message channel open for the async response
     },
   );
+
+  // Tab-based OAuth bridge — Chromium path. The `/api/auth/ext/success`
+  // page (served by the user's configured backend) runs
+  // `chrome.runtime.sendMessage(extId, { kind: "auth/token", token })`
+  // from page context. Anything outside the configured backend origin is
+  // ignored. Firefox doesn't expose `externally_connectable.matches` to
+  // pages (Bugzilla 1319168), so this listener never fires there — the
+  // `tabs.onUpdated` listener below handles Firefox via URL fragment.
+  browser.runtime.onMessageExternal.addListener(
+    (msg, sender, sendResponse: (r: { ok: boolean; error?: string }) => void) => {
+      void handleExternal(msg, sender)
+        .then(sendResponse)
+        .catch((err) => {
+          console.error("[margin] external message handler:", err);
+          sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
+        });
+      return true;
+    },
+  );
+
+  // Tab-based OAuth bridge — fragment fallback. The bridge page sets
+  // `location.hash = 'token=…'` when `chrome.runtime.sendMessage` isn't
+  // available (Firefox today, or any other browser where the
+  // externally_connectable bridge can't reach the SW). Match on URL
+  // origin + pathname so a token in a random tab's fragment never lands
+  // in `settings.sessionToken`.
+  browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const url = changeInfo.url ?? tab.url;
+    if (!url) return;
+    void handleAuthFragment(tabId, url);
+  });
 });
+
+interface ExternalAuthMessage {
+  kind: "auth/token";
+  token: string;
+}
+
+function isExternalAuthMessage(msg: unknown): msg is ExternalAuthMessage {
+  if (!msg || typeof msg !== "object") return false;
+  const m = msg as { kind?: unknown; token?: unknown };
+  return m.kind === "auth/token" && typeof m.token === "string" && m.token.length > 0;
+}
+
+/**
+ * Normalise a URL down to its origin for the bridge-page allow-list. Both
+ * the stored backend URL (`http://localhost:8787` or similar) and Chrome's
+ * `sender.origin` (e.g. `http://localhost:8787`) should compare equal after
+ * stripping path / trailing slashes. Returns null when the input isn't a
+ * parseable absolute URL — the caller treats that as a no-match.
+ */
+function originOf(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+async function handleExternal(
+  msg: unknown,
+  sender: chrome.runtime.MessageSender,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isExternalAuthMessage(msg)) {
+    return { ok: false, error: "unsupported message" };
+  }
+  const expected = originOf(await getBackendUrl());
+  const actual = originOf(sender.origin ?? sender.url);
+  if (!expected || !actual || expected !== actual) {
+    // Don't echo the expected origin back — keep the rejection opaque.
+    console.warn(
+      "[margin] rejected external auth/token from",
+      actual ?? "unknown sender",
+    );
+    return { ok: false, error: "origin not allowed" };
+  }
+  await patchSettings({ sessionToken: msg.token });
+  return { ok: true };
+}
+
+/**
+ * Firefox-path companion to `handleExternal`: the bridge page parks the
+ * session token in `location.hash` because `externally_connectable.matches`
+ * isn't honored. We gate on origin + pathname (so a token in some
+ * unrelated tab's fragment never makes it into settings) and then close
+ * the bridge tab once the token's been persisted.
+ *
+ * Reading `tab.url` requires either the `tabs` permission or matching host
+ * permissions; the user grants the backend origin via the Options page's
+ * `permissions.request({ origins: [...] })` flow, so by the time this
+ * listener has anything to do, the URL is visible.
+ */
+async function handleAuthFragment(tabId: number, url: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return;
+  }
+  if (!parsed.hash || parsed.hash.length < 2) return;
+  if (parsed.pathname !== "/api/auth/ext/success") return;
+
+  const backendOrigin = originOf(await getBackendUrl());
+  if (!backendOrigin || backendOrigin !== parsed.origin) return;
+
+  const params = new URLSearchParams(parsed.hash.slice(1));
+  const token = params.get("token");
+  if (!token) return;
+
+  await patchSettings({ sessionToken: token });
+  try {
+    await browser.tabs.remove(tabId);
+  } catch (err) {
+    console.warn("[margin] could not close auth bridge tab:", err);
+  }
+}
 
 function errorResponseFor(message: Message, error: string): MessageResponse {
   switch (message.kind) {
     case "settings/get":
-      return { kind: "settings/get", settings: null, error };
+      return { kind: "settings/get", settings: null, backendUrl: null, error };
     case "settings/set":
       return { kind: "settings/set", ok: true, error };
-    case "auth/sign-in":
-      return { kind: "auth/sign-in", ok: false, error };
     case "auth/sign-out":
       return { kind: "auth/sign-out", ok: true, error };
     case "doc/state":
@@ -60,8 +173,6 @@ function errorResponseFor(message: Message, error: string): MessageResponse {
       return { kind: "doc/sync", state: null, error };
     case "doc/register":
       return { kind: "doc/register", result: { kind: "error", message: error }, error };
-    case "picker/config":
-      return { kind: "picker/config", config: null, error };
     case "project/detail":
       return { kind: "project/detail", detail: null, error };
     case "version/diff":
@@ -80,16 +191,15 @@ function errorResponseFor(message: Message, error: string): MessageResponse {
 async function handleMessage(message: Message): Promise<MessageResponse> {
   switch (message.kind) {
     case "settings/get": {
-      const settings = await getSettings();
-      return { kind: "settings/get", settings };
+      const [settings, backendUrl] = await Promise.all([
+        getSettings(),
+        getBackendUrl(),
+      ]);
+      return { kind: "settings/get", settings, backendUrl };
     }
     case "settings/set": {
       await setSettings(message.settings);
       return { kind: "settings/set", ok: true };
-    }
-    case "auth/sign-in": {
-      await signInWithGoogle(message.backendUrl);
-      return { kind: "auth/sign-in", ok: true };
     }
     case "auth/sign-out": {
       await signOutFromBackend();
@@ -106,10 +216,6 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
     case "doc/register": {
       const result = await registerDoc(message.docUrlOrId);
       return { kind: "doc/register", result };
-    }
-    case "picker/config": {
-      const config = await fetchPickerConfig();
-      return { kind: "picker/config", config };
     }
     case "project/detail": {
       const detail = await fetchProjectDetail(message.projectId);
@@ -203,37 +309,6 @@ async function postJsonRaw(
     throw new Error("session rejected — sign in again from Options");
   }
   return res;
-}
-
-/**
- * Drive `chrome.identity.launchWebAuthFlow` through Better Auth's social
- * sign-in flow. The backend's `/api/auth/ext/launch` endpoint kicks off
- * Google OAuth and ultimately 302s to the extension's `chromiumapp.org`
- * callback URL with `#token=<sessionToken>` as a URL fragment; we extract
- * that and persist it as the Authorization header source for every
- * subsequent backend call. The fragment (vs. query param) keeps the token
- * out of any server log that might otherwise record the redirect target.
- */
-async function signInWithGoogle(backendUrl: string): Promise<void> {
-  const trimmed = backendUrl.trim().replace(/\/+$/, "");
-  if (!trimmed) throw new Error("backend URL required to sign in");
-  const cb = browser.identity.getRedirectURL();
-  const launchUrl =
-    `${trimmed}/api/auth/ext/launch?cb=${encodeURIComponent(cb)}`;
-
-  const completed = await browser.identity.launchWebAuthFlow({
-    url: launchUrl,
-    interactive: true,
-  });
-  if (!completed) throw new Error("sign-in was cancelled");
-
-  const url = new URL(completed);
-  const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
-  const params = new URLSearchParams(hash);
-  const token = params.get("token");
-  if (!token) throw new Error("sign-in did not return a session token");
-
-  await patchSettings({ backendUrl: trimmed, sessionToken: token });
 }
 
 /**
@@ -405,24 +480,3 @@ async function updateProjectSettings(
   return r?.settings ?? null;
 }
 
-async function fetchPickerConfig(): Promise<PickerConfig | null> {
-  const settings = await getSettings();
-  if (!settings) return null;
-  const url = new URL("/api/picker/config", settings.backendUrl).toString();
-  const res = await fetch(url, { method: "GET" });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`picker-config ${res.status}: ${text.slice(0, 200)}`);
-  }
-  const body = (await res.json()) as {
-    clientId: string | null;
-    apiKey: string | null;
-    projectNumber: string | null;
-  };
-  if (!body.clientId || !body.apiKey || !body.projectNumber) return null;
-  return {
-    clientId: body.clientId,
-    apiKey: body.apiKey,
-    projectNumber: body.projectNumber,
-  };
-}

@@ -21,3 +21,20 @@ export async function getSettings(): Promise<Settings | null> {
   if (r?.kind === "settings/get") return r.settings;
   return null;
 }
+
+/**
+ * Returns both the resolved-and-signed-in `settings` (or null if either
+ * field is missing) and the raw `backendUrl` from storage. The popup needs
+ * `backendUrl` separately to distinguish the "configured but not signed in"
+ * state from "nothing configured" and surface a sign-in CTA inline.
+ */
+export async function getSettingsStatus(): Promise<{
+  settings: Settings | null;
+  backendUrl: string | null;
+}> {
+  const r = await sendMessage({ kind: "settings/get" });
+  if (r?.kind === "settings/get") {
+    return { settings: r.settings, backendUrl: r.backendUrl };
+  }
+  return { settings: null, backendUrl: null };
+}
