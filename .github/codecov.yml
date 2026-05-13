@@ -29,6 +29,10 @@ flags:
   integration:
     paths:
       - src/
-    # Carry forward keeps the most recent integration coverage visible
-    # between nightly runs (so PR checks aren't penalized for missing it).
-    carryforward: true
+    # No carryforward: a stale integration session from a previous commit
+    # ships its own line numbers and merges badly with the current unit
+    # upload (Codecov ends up reporting on lines that no longer exist —
+    # e.g. ingest.ts showed 6% under the carryforward session because the
+    # nightly's 149-line snapshot didn't line up with the current 144-line
+    # file). Integration only contributes when integration.yml actually runs.
+    carryforward: false
