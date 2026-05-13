@@ -55,4 +55,46 @@ describe("handleVersionCreatePost", () => {
     );
     expect(res.status).toBe(404);
   });
+
+  test("400 when projectId is the wrong type", async () => {
+    const u = await seedUser();
+    const { token } = await issueTestSession({ userId: u.id });
+    const res = await handleVersionCreatePost(
+      postCreate({ projectId: 123 }, { auth: `Bearer ${token}` }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("400 when label exceeds the 64-char cap", async () => {
+    const u = await seedUser();
+    const { token } = await issueTestSession({ userId: u.id });
+    const res = await handleVersionCreatePost(
+      postCreate(
+        { projectId: "p", label: "x".repeat(65) },
+        { auth: `Bearer ${token}` },
+      ),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("400 when label is an empty string (minLength=1)", async () => {
+    const u = await seedUser();
+    const { token } = await issueTestSession({ userId: u.id });
+    const res = await handleVersionCreatePost(
+      postCreate(
+        { projectId: "p", label: "" },
+        { auth: `Bearer ${token}` },
+      ),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("400 on a body that isn't a JSON object", async () => {
+    const u = await seedUser();
+    const { token } = await issueTestSession({ userId: u.id });
+    const res = await handleVersionCreatePost(
+      postCreate("[]", { auth: `Bearer ${token}` }),
+    );
+    expect(res.status).toBe(400);
+  });
 });
