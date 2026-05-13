@@ -219,6 +219,22 @@ Drive `files.export?mimeType=…wordprocessingml.document` returns the doc as OO
 
 **Reply-on-suggestion detection rule.** A `<w:comment>` whose `commentRangeStart`/`End` interval overlaps a `<w:del>` or `<w:ins>` element is a reply on that suggestion's thread. No `paraIdParent` or equivalent in Google's export — linkage is purely positional.
 
+### 9.9 Docx round-trip on Drive upload (V2 validation)
+
+Question: if Margin uploads a `.docx` with anchored comments + tracked-change suggestions and tells Drive to convert it to a Google Doc, do the annotations survive? If yes, the "derivative Doc with materialized comments" path becomes viable for cross-org reviewers and side-steps canvas visualization for that cohort (SPEC §12 Phase 6 V2).
+
+**How to run.** `bun margin v2-check` uploads a probe doc with three known anchors (start-of-paragraph, mid-paragraph, disjoint multi-range) plus one `<w:ins>` + one `<w:del>` suggestion to the operator's Drive, re-exports the converted Doc as `.docx`, and prints a structured observation report covering: (a) anchors landed at the right positions, (b) `w:author` preserved vs. rewritten, (c) `w:date` preserved vs. rewritten, (d) disjoint multi-range preserved / fragmented / lost, (e) suggestions round-trip as suggesting-mode edits.
+
+**Findings.** _Pending — operator to run `bun margin v2-check` against a dev Drive account and fill in below._
+
+- (a) anchors landed: _todo_
+- (b) author preserved: _todo_
+- (c) timestamp preserved: _todo_
+- (d) disjoint multi-range: _todo_
+- (e) suggestions round-trip: _todo_
+
+**Implication.** _Pending — fill in once findings are recorded above. If anchors survive cleanly, document the derivative-Doc-with-materialized-comments path here and re-scope Phase 6's visualization gating accordingly._
+
 ## 10. Privacy and security
 
 - Drive refresh tokens encrypted at rest in `account.refresh_token` (envelope encryption: KEK → per-row DEK → ciphertext) via a Better Auth `databaseHooks.account` write hook.
@@ -272,6 +288,8 @@ Popup state machine + OAuth/Picker mechanics live in [`surfaces/extension/README
 
 ### Phase 4 — Extension rich UI + docx-export ingest + magic-link action handlers
 **Status: shipped.** ✅
+
+**Phase 4.5 follow-up (shipped, 2026-05-13).** Side panel now covers the full §7.4 review cycle end-to-end without dropping to the CLI: "Snapshot new version" on the dashboard (`POST /api/extension/version/create`), per-version "Request review" form with inline magic-link rendering (`POST /api/extension/review/request` + new `createReviewRequest` domain helper + Drive `permissions.create`), expand-in-place review-row drill-in showing per-assignee status + magic-link URLs, and a project-picker fallback for when the active tab isn't a tracked Doc (`POST /api/extension/projects`). Email transport is still log-only — magic links surface inline so they can be redeemed manually until Phase 5 wires Slack/email. Empirical V2 check tooling shipped as `bun margin v2-check` (see [§9.9](#99-docx-round-trip-on-drive-upload-v2-validation)).
 
 Builds on the Phase-3 popup project surface. The popup retains the lightweight read-only view; the side-panel / options page hosts the rich React app.
 

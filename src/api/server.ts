@@ -6,11 +6,14 @@ import {
 import { handleDocStatePost } from "./doc-state.ts";
 import { handleDocSyncPost } from "./doc-sync.ts";
 import { handleProjectDetailPost } from "./project-detail.ts";
+import { handleProjectsListPost } from "./projects-list.ts";
+import { handleVersionCreatePost } from "./version-create.ts";
 import { handleVersionDiffPost } from "./version-diff.ts";
 import { handleVersionCommentsPost } from "./version-comments.ts";
 import { handleCommentActionPost } from "./comment-action.ts";
 import { handleSettingsPost } from "./settings.ts";
 import { handleReviewActionGet } from "./review-action.ts";
+import { handleReviewRequestPost } from "./review-request.ts";
 import { handlePickerPage } from "./picker-page.ts";
 import { handleRegisterDocPost } from "./picker-register.ts";
 import { handleDriveWebhook } from "./drive-webhook.ts";
@@ -30,8 +33,9 @@ export interface ServeOptions {
  * `/api/auth/**` (sign-in, social-provider callback, session lookup,
  * sign-out). Webhooks: `/webhooks/drive` (Drive push notifications).
  * Bearer-authenticated API surface:
- * `/api/extension/{doc-state,doc-sync,project,version-diff,
- * version-comments,comment-action,settings}`, `/api/picker/register-doc`.
+ * `/api/extension/{doc-state,doc-sync,project,projects,version/create,
+ * version-diff,version-comments,comment-action,settings,review/request}`,
+ * `/api/picker/register-doc`.
  * Method dispatch + 405-on-mismatch comes from Bun.serve's `routes:` option;
  * unknown paths fall through to `fetch`'s 404.
  *
@@ -70,10 +74,13 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       "/api/extension/doc-state": corsRoute({ POST: handleDocStatePost }),
       "/api/extension/doc-sync": corsRoute({ POST: handleDocSyncPost }),
       "/api/extension/project": corsRoute({ POST: handleProjectDetailPost }),
+      "/api/extension/projects": corsRoute({ POST: handleProjectsListPost }),
+      "/api/extension/version/create": corsRoute({ POST: handleVersionCreatePost }),
       "/api/extension/version-diff": corsRoute({ POST: handleVersionDiffPost }),
       "/api/extension/version-comments": corsRoute({ POST: handleVersionCommentsPost }),
       "/api/extension/comment-action": corsRoute({ POST: handleCommentActionPost }),
       "/api/extension/settings": corsRoute({ POST: handleSettingsPost }),
+      "/api/extension/review/request": corsRoute({ POST: handleReviewRequestPost }),
       "/api/picker/page": { GET: secured(handlePickerPage) },
       "/api/picker/register-doc": corsRoute({ POST: handleRegisterDocPost }),
       "/r/:token": { GET: secured(handleReviewActionGet) },

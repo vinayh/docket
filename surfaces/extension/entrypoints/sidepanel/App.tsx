@@ -6,6 +6,7 @@ import { getSettings, sendMessage } from "../../ui/sendMessage.ts";
 import type {
   DocState,
   ProjectDetail,
+  ProjectListEntry,
 } from "../../utils/types.ts";
 import { Comments } from "./views/Comments.tsx";
 import { Dashboard } from "./views/Dashboard.tsx";
@@ -23,7 +24,7 @@ import { VersionDiff } from "./views/VersionDiff.tsx";
 type View =
   | { kind: "loading" }
   | { kind: "no-settings" }
-  | { kind: "no-project" }
+  | { kind: "picker"; projects: ProjectListEntry[] }
   | { kind: "loaded"; detail: ProjectDetail }
   | { kind: "diff"; detail: ProjectDetail; fromVersionId: string; toVersionId: string }
   | {
@@ -97,15 +98,27 @@ function Body({ view, setView }: { view: View; setView: (v: View) => void }) {
           </p>
         </>
       );
-    case "no-project":
+    case "picker":
       return (
-        <>
-          <p class="title">No project</p>
-          <p class="muted">
-            Open a Google Doc that's tracked by Margin — or add a new project
-            from the toolbar popup — to see its dashboard here.
-          </p>
-        </>
+        <ProjectPicker
+          projects={view.projects}
+          onPick={async (p) => {
+            setView({ kind: "loading" });
+            try {
+              const detail = await fetchProjectDetail(p.id);
+              if (!detail) {
+                setView({ kind: "error", message: "project not found" });
+                return;
+              }
+              setView({ kind: "loaded", detail });
+            } catch (err) {
+              setView({
+                kind: "error",
+                message: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }}
+        />
       );
     case "loaded":
       return (
@@ -172,24 +185,23 @@ async function boot(setView: (v: View) => void): Promise<void> {
     return;
   }
 
-  const docId = await getActiveDocId();
-  if (!docId) {
-    setView({ kind: "no-project" });
-    return;
-  }
-
   try {
-    const state = await fetchDocState(docId);
-    if (!state || !state.tracked) {
-      setView({ kind: "no-project" });
-      return;
+    const docId = await getActiveDocId();
+    if (docId) {
+      const state = await fetchDocState(docId);
+      if (state && state.tracked) {
+        const detail = await fetchProjectDetail(state.project.id);
+        if (detail) {
+          setView({ kind: "loaded", detail });
+          return;
+        }
+      }
     }
-    const detail = await fetchProjectDetail(state.project.id);
-    if (!detail) {
-      setView({ kind: "no-project" });
-      return;
-    }
-    setView({ kind: "loaded", detail });
+    // Fall through to the project picker when there's no active Docs tab or
+    // it isn't tracked. The user can pick from their own projects to navigate
+    // the dashboard without needing to alt-tab over to a Docs window first.
+    const projects = await fetchProjects();
+    setView({ kind: "picker", projects: projects ?? [] });
   } catch (err) {
     setView({
       kind: "error",
@@ -226,4 +238,54 @@ async function fetchProjectDetail(projectId: string): Promise<ProjectDetail | nu
   if (r?.kind !== "project/detail") return null;
   if (r.error) throw new Error(r.error);
   return r.detail;
+}
+
+async function fetchProjects(): Promise<ProjectListEntry[] | null> {
+  const r = await sendMessage({ kind: "projects/list" });
+  if (r?.kind !== "projects/list") return null;
+  if (r.error) throw new Error(r.error);
+  return r.projects;
+}
+
+function ProjectPicker({
+  projects,
+  onPick,
+}: {
+  projects: ProjectListEntry[];
+  onPick: (p: ProjectListEntry) => void;
+}) {
+  if (projects.length === 0) {
+    return (
+      <>
+        <p class="title">No projects yet</p>
+        <p class="muted">
+          Open a Google Doc and use the toolbar popup's "Add to Margin" button
+          to track your first doc.
+        </p>
+      </>
+    );
+  }
+  return (
+    <>
+      <p class="title">Your projects</p>
+      <p class="muted">
+        Open a tracked Google Doc to jump straight to its dashboard, or pick
+        from your existing projects:
+      </p>
+      <ul class="project-picker">
+        {projects.map((p) => (
+          <li key={p.id}>
+            <button type="button" onClick={() => onPick(p)}>
+              <span class="project-picker-doc">{p.parentDocId}</span>
+              <span class="muted"> · added {formatDate(p.createdAt)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function formatDate(ts: number): string {
+  return new Date(ts).toLocaleDateString();
 }

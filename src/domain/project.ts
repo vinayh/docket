@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db, isUniqueConstraintError } from "../db/client.ts";
 import { project, type ProjectSettings } from "../db/schema.ts";
 import { tokenProviderForUser } from "../auth/credentials.ts";
@@ -92,6 +92,16 @@ export async function requireProject(id: string): Promise<Project> {
 
 export async function listAllProjects(): Promise<Project[]> {
   return db.select().from(project);
+}
+
+export async function listProjectsOwnedBy(
+  userId: string,
+): Promise<Project[]> {
+  return db
+    .select()
+    .from(project)
+    .where(eq(project.ownerUserId, userId))
+    .orderBy(desc(project.createdAt));
 }
 
 // Returns null for both "no such project" and "not owned" so callers 404 both —

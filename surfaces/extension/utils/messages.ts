@@ -3,10 +3,13 @@ import type {
   CommentActionResult,
   DocState,
   ProjectDetail,
+  ProjectListEntry,
   ProjectSettingsView,
   RegisterDocResult,
+  ReviewRequestResult,
   Settings,
   VersionCommentsPayload,
+  VersionCreateResult,
   VersionDiffPayload,
 } from "./types.ts";
 
@@ -68,6 +71,12 @@ export const MessageSchema = v.variant("kind", [
     docUrlOrId: v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_URL_LEN)),
   }),
   v.object({ kind: v.literal("project/detail"), projectId: Id }),
+  v.object({ kind: v.literal("projects/list") }),
+  v.object({
+    kind: v.literal("version/create"),
+    projectId: Id,
+    label: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(64))),
+  }),
   v.object({
     kind: v.literal("version/diff"),
     fromVersionId: Id,
@@ -85,6 +94,16 @@ export const MessageSchema = v.variant("kind", [
     kind: v.literal("settings/update"),
     projectId: Id,
     patch: SettingsPatchSchema,
+  }),
+  v.object({
+    kind: v.literal("review/request"),
+    versionId: Id,
+    assigneeEmails: v.pipe(
+      v.array(v.pipe(v.string(), v.maxLength(MAX_FIELD_LEN))),
+      v.minLength(1),
+      v.maxLength(MAX_REVIEWERS),
+    ),
+    deadline: v.optional(v.union([v.null(), v.pipe(v.number(), v.integer())])),
   }),
 ]);
 
@@ -117,6 +136,16 @@ export type MessageResponse =
   | { kind: "doc/sync"; state: DocState | null; error?: string }
   | { kind: "doc/register"; result: RegisterDocResult; error?: string }
   | { kind: "project/detail"; detail: ProjectDetail | null; error?: string }
+  | {
+      kind: "projects/list";
+      projects: ProjectListEntry[] | null;
+      error?: string;
+    }
+  | {
+      kind: "version/create";
+      result: VersionCreateResult | null;
+      error?: string;
+    }
   | { kind: "version/diff"; payload: VersionDiffPayload | null; error?: string }
   | {
       kind: "version/comments";
@@ -136,5 +165,10 @@ export type MessageResponse =
   | {
       kind: "settings/update";
       settings: ProjectSettingsView | null;
+      error?: string;
+    }
+  | {
+      kind: "review/request";
+      result: ReviewRequestResult | null;
       error?: string;
     };

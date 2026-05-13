@@ -36,6 +36,12 @@ export type RegisterDocResult =
   | { kind: "registered"; projectId: string; parentDocId: string; alreadyExisted: boolean }
   | { kind: "error"; message: string };
 
+export interface ProjectListEntry {
+  id: string;
+  parentDocId: string;
+  createdAt: number;
+}
+
 // Mirror of backend's ProjectDetail. Keep field names/types in sync.
 export interface ProjectDetail {
   project: {
@@ -75,6 +81,42 @@ export interface ProjectReviewRequestDetail {
   status: "open" | "closed" | "cancelled";
   deadline: number | null;
   createdAt: number;
+  assignees: ReviewAssigneeView[];
+}
+
+export type ReviewAssignmentStatus =
+  | "pending"
+  | "reviewed"
+  | "changes_requested"
+  | "declined";
+
+export interface ReviewAssigneeView {
+  email: string;
+  userId: string;
+  status: ReviewAssignmentStatus;
+  respondedAt: number | null;
+}
+
+export type ReviewActionKind =
+  | "mark_reviewed"
+  | "request_changes"
+  | "decline"
+  | "accept_reconciliation";
+
+export interface ReviewRequestResult {
+  reviewRequestId: string;
+  versionId: string;
+  assignees: {
+    email: string;
+    userId: string;
+    links: { action: ReviewActionKind; url: string; expiresAt: number }[];
+  }[];
+}
+
+export interface VersionCreateResult {
+  versionId: string;
+  label: string;
+  googleDocId: string;
 }
 
 // Mirror of backend's VersionDiffPayload. Keep field names/types in sync.

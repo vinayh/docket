@@ -60,3 +60,22 @@ export async function requireFirstUser(): Promise<User> {
 export async function resolveUserByEmailOrFirst(email?: string): Promise<User> {
   return email ? requireUserByEmail(email) : requireFirstUser();
 }
+
+/**
+ * Look up a user by email, creating a minimal row if none exists. Used to add
+ * an external reviewer to a review_request before they've signed in to Margin
+ * — they redeem the magic link with email-only identity (SPEC §8), so the
+ * `account`/refresh-token rows stay absent until they actually sign in via
+ * Better Auth. The placeholder name comes from the local-part of the email
+ * and is overwritten on first OAuth callback by Better Auth's user-info sync.
+ */
+export async function getOrCreateUserByEmail(email: string): Promise<User> {
+  const existing = await getUserByEmail(email);
+  if (existing) return existing;
+  const placeholderName = email.split("@")[0] ?? email;
+  const inserted = await db
+    .insert(user)
+    .values({ email, name: placeholderName })
+    .returning();
+  return inserted[0]!;
+}

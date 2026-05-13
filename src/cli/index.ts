@@ -1,5 +1,6 @@
 import { config } from "../config.ts";
 import { run as runSmoke } from "./smoke.ts";
+import { run as runV2Check } from "./v2-check.ts";
 import { run as runDoc } from "./doc.ts";
 import { run as runInspect } from "./inspect.ts";
 import { run as runProject } from "./project.ts";
@@ -13,6 +14,7 @@ import { run as runE2E } from "./e2e.ts";
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
   smoke: runSmoke,
+  "v2-check": runV2Check,
   doc: runDoc,
   inspect: runInspect,
   project: runProject,

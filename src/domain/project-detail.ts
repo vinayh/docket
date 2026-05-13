@@ -5,7 +5,13 @@ import {
   countCommentsByOriginVersion,
   pickLastSyncedAtByVersion,
 } from "./stats.ts";
-import { listOpenReviewRequests, type ReviewRequest } from "./review.ts";
+import {
+  listAssigneesForRequests,
+  listOpenReviewRequests,
+  type ReviewAssigneeDetail,
+  type ReviewRequest,
+} from "./review.ts";
+import type { ReviewAssignmentStatus } from "../db/schema.ts";
 import { userEmailById } from "./user.ts";
 
 /**
@@ -57,6 +63,14 @@ export interface ReviewRequestDetail {
   status: "open" | "closed" | "cancelled";
   deadline: number | null;
   createdAt: number;
+  assignees: ReviewAssigneeView[];
+}
+
+export interface ReviewAssigneeView {
+  email: string;
+  userId: string;
+  status: ReviewAssignmentStatus;
+  respondedAt: number | null;
 }
 
 export async function getProjectDetail(opts: {
@@ -73,6 +87,9 @@ export async function getProjectDetail(opts: {
   const derivatives = await listDerivatives(proj.id);
   const reviewRequests = await listOpenReviewRequests(proj.id);
   const ownerEmail = await userEmailById(proj.ownerUserId);
+  const assignees = await listAssigneesForRequests(
+    reviewRequests.map((r) => r.id),
+  );
 
   return {
     project: {
@@ -83,7 +100,9 @@ export async function getProjectDetail(opts: {
     },
     versions: versions.map((v) => versionDetail(v, commentCounts, lastSynced)),
     derivatives: derivatives.map(derivativeDetail),
-    reviewRequests: reviewRequests.map(reviewRequestDetail),
+    reviewRequests: reviewRequests.map((r) =>
+      reviewRequestDetail(r, assignees.get(r.id) ?? []),
+    ),
   };
 }
 
@@ -115,13 +134,22 @@ function derivativeDetail(d: Derivative): DerivativeDetail {
   };
 }
 
-function reviewRequestDetail(r: ReviewRequest): ReviewRequestDetail {
+function reviewRequestDetail(
+  r: ReviewRequest,
+  assignees: ReviewAssigneeDetail[],
+): ReviewRequestDetail {
   return {
     id: r.id,
     versionId: r.versionId,
     status: r.status,
     deadline: r.deadline?.getTime() ?? null,
     createdAt: r.createdAt.getTime(),
+    assignees: assignees.map((a) => ({
+      email: a.email,
+      userId: a.userId,
+      status: a.status,
+      respondedAt: a.respondedAt,
+    })),
   };
 }
 

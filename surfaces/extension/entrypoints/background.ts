@@ -5,10 +5,13 @@ import { MessageSchema, type Message, type MessageResponse } from "../utils/mess
 import { parseDocIdFromUrl } from "../utils/ids.ts";
 import { getBackendUrl, getSettings, patchSettings, setSettings } from "../utils/storage.ts";
 import {
+  createReviewRequest,
+  createVersion,
   fetchDocState,
   fetchProjectDetail,
   fetchVersionComments,
   fetchVersionDiff,
+  listProjects,
   loadProjectSettings,
   registerDoc,
   runCommentAction,
@@ -288,6 +291,10 @@ function errorResponseFor(message: Message | unknown, error: string): MessageRes
       return { kind: "doc/register", result: { kind: "error", message: error }, error };
     case "project/detail":
       return { kind: "project/detail", detail: null, error };
+    case "projects/list":
+      return { kind: "projects/list", projects: null, error };
+    case "version/create":
+      return { kind: "version/create", result: null, error };
     case "version/diff":
       return { kind: "version/diff", payload: null, error };
     case "version/comments":
@@ -298,6 +305,8 @@ function errorResponseFor(message: Message | unknown, error: string): MessageRes
       return { kind: "settings/load", settings: null, error };
     case "settings/update":
       return { kind: "settings/update", settings: null, error };
+    case "review/request":
+      return { kind: "review/request", result: null, error };
     default:
       // Unknown inbound kind; caller bails on `error`, the discriminant doesn't matter.
       return { kind: "settings/get", settings: null, backendUrl: null, error };
@@ -355,6 +364,17 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
       const detail = await fetchProjectDetail(message.projectId);
       return { kind: "project/detail", detail };
     }
+    case "projects/list": {
+      const projects = await listProjects();
+      return { kind: "projects/list", projects };
+    }
+    case "version/create": {
+      const result = await createVersion({
+        projectId: message.projectId,
+        label: message.label,
+      });
+      return { kind: "version/create", result };
+    }
     case "version/diff": {
       const payload = await fetchVersionDiff(
         message.fromVersionId,
@@ -381,6 +401,14 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
     case "settings/update": {
       const settings = await updateProjectSettings(message.projectId, message.patch);
       return { kind: "settings/update", settings };
+    }
+    case "review/request": {
+      const result = await createReviewRequest({
+        versionId: message.versionId,
+        assigneeEmails: message.assigneeEmails,
+        deadline: message.deadline,
+      });
+      return { kind: "review/request", result };
     }
   }
 }

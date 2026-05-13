@@ -91,6 +91,114 @@ button.primary {
   color: var(--muted);
   margin: 0 0 0.4rem;
 }
+.section-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.section-heading-row .section-heading {
+  margin: 0;
+}
+.snapshot-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.project-picker {
+  list-style: none;
+  padding: 0;
+  margin: 0.6rem 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.project-picker > li > button {
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  background: var(--row-bg, transparent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.project-picker > li > button:hover {
+  border-color: var(--fg);
+}
+.project-picker-doc {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+.review-request-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
+.review-request-form textarea {
+  font: inherit;
+  width: 100%;
+  resize: vertical;
+  padding: 0.3rem;
+}
+.review-row-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.review-row-body {
+  margin: 0.3rem 0 0.6rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border);
+}
+.review-assignees {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.review-assignees > li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.review-magic-links {
+  list-style: none;
+  padding: 0;
+  margin: 0.2rem 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 11px;
+}
+.review-magic-links code {
+  word-break: break-all;
+}
+.status-assignment-pending {
+  background: var(--border);
+}
+.status-assignment-reviewed {
+  background: rgba(40, 167, 69, 0.18);
+  color: #1b5e20;
+}
+.status-assignment-changes_requested {
+  background: rgba(255, 152, 0, 0.18);
+  color: #7a4100;
+}
+.status-assignment-declined {
+  background: rgba(220, 53, 69, 0.18);
+  color: #8e0c1a;
+}
 .section-heading .count {
   display: inline-block;
   margin-left: 0.3rem;

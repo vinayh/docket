@@ -52,6 +52,53 @@ export async function exportDocx(
   return new Uint8Array(buf);
 }
 
+/**
+ * Multipart upload of bytes as a new Drive file with format conversion. Used by
+ * the V2 empirical check (SPEC §12 Phase 6) to verify that uploading a known
+ * `.docx` and converting to a Google Doc preserves anchored comments. The
+ * RFC 2387 boundary is fixed because this is a one-shot upload — we don't
+ * need stream-friendly framing.
+ */
+export async function uploadFileMultipart(
+  tp: TokenProvider,
+  opts: {
+    name: string;
+    bytes: Uint8Array;
+    sourceMimeType: string;
+    targetMimeType?: string;
+  },
+): Promise<DriveFile> {
+  const url = new URL("https://www.googleapis.com/upload/drive/v3/files");
+  url.searchParams.set("uploadType", "multipart");
+  url.searchParams.set("fields", DEFAULT_FILE_FIELDS);
+  url.searchParams.set("supportsAllDrives", "true");
+
+  const boundary = `margin-${crypto.randomUUID()}`;
+  const metadata = {
+    name: opts.name,
+    ...(opts.targetMimeType ? { mimeType: opts.targetMimeType } : {}),
+  };
+  const enc = new TextEncoder();
+  const head = enc.encode(
+    `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+      JSON.stringify(metadata) +
+      `\r\n--${boundary}\r\n` +
+      `Content-Type: ${opts.sourceMimeType}\r\n\r\n`,
+  );
+  const tail = enc.encode(`\r\n--${boundary}--`);
+  const body = new Uint8Array(head.length + opts.bytes.length + tail.length);
+  body.set(head, 0);
+  body.set(opts.bytes, head.length);
+  body.set(tail, head.length + opts.bytes.length);
+
+  return authedJson(tp, url, {
+    method: "POST",
+    headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+    body,
+  });
+}
+
 export async function copyFile(
   tp: TokenProvider,
   fileId: string,
@@ -132,6 +179,46 @@ export async function listComments(
     pageToken = page.nextPageToken;
   } while (pageToken);
   return all;
+}
+
+export interface CreatedPermission {
+  id: string;
+  type: string;
+  role: string;
+  emailAddress?: string;
+}
+
+/**
+ * Share a Drive file with a single user by email. The doc owner's token is the
+ * caller (cross-org reviewers grant no Drive scope themselves — SPEC §7.2);
+ * `sendNotificationEmail=false` because Margin sends its own review-request
+ * email with magic-link buttons.
+ */
+export async function createPermission(
+  tp: TokenProvider,
+  fileId: string,
+  opts: {
+    emailAddress: string;
+    role?: "reader" | "commenter" | "writer";
+    sendNotificationEmail?: boolean;
+  },
+): Promise<CreatedPermission> {
+  const url = new URL(`${DRIVE_BASE}/files/${encodeURIComponent(fileId)}/permissions`);
+  url.searchParams.set("fields", "id,type,role,emailAddress");
+  url.searchParams.set("supportsAllDrives", "true");
+  url.searchParams.set(
+    "sendNotificationEmail",
+    opts.sendNotificationEmail === true ? "true" : "false",
+  );
+  return authedJson(tp, url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "user",
+      role: opts.role ?? "commenter",
+      emailAddress: opts.emailAddress,
+    }),
+  });
 }
 
 export interface WatchChannel {

@@ -4,10 +4,13 @@ import type {
   CommentActionResult,
   DocState,
   ProjectDetail,
+  ProjectListEntry,
   ProjectSettingsView,
   RegisterDocResult,
+  ReviewRequestResult,
   Settings,
   VersionCommentsPayload,
+  VersionCreateResult,
   VersionDiffPayload,
 } from "./types.ts";
 
@@ -132,12 +135,36 @@ export async function registerDoc(docUrlOrId: string): Promise<RegisterDocResult
   };
 }
 
+export async function listProjects(): Promise<ProjectListEntry[] | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  const r = await postJsonOrNull<{ projects: ProjectListEntry[] }>(
+    "/api/extension/projects",
+    {},
+    settings,
+  );
+  return r?.projects ?? null;
+}
+
 export async function fetchProjectDetail(projectId: string): Promise<ProjectDetail | null> {
   const settings = await getSettings();
   if (!settings) return null;
   return postJsonOrNull<ProjectDetail>(
     "/api/extension/project",
     { projectId },
+    settings,
+  );
+}
+
+export async function createVersion(opts: {
+  projectId: string;
+  label?: string;
+}): Promise<VersionCreateResult | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  return postJsonOrNull<VersionCreateResult>(
+    "/api/extension/version/create",
+    opts,
     settings,
   );
 }
@@ -192,6 +219,20 @@ export async function loadProjectSettings(
     settings,
   );
   return r?.settings ?? null;
+}
+
+export async function createReviewRequest(opts: {
+  versionId: string;
+  assigneeEmails: string[];
+  deadline?: number | null;
+}): Promise<ReviewRequestResult | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  return postJsonOrNull<ReviewRequestResult>(
+    "/api/extension/review/request",
+    opts,
+    settings,
+  );
 }
 
 export async function updateProjectSettings(
