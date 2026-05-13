@@ -214,12 +214,12 @@ describe("upsertCanonical", () => {
     expect(Number.isNaN(rows[0]!.originTimestamp.getTime())).toBe(false);
   });
 
-  test("race: existing projection that the SELECT missed is recovered via the unique-index throw", async () => {
-    // Simulate a concurrent ingest that committed its row between our SELECT
-    // and INSERT: pre-seed a canonical row + projection with our target
-    // (versionId, googleCommentId) and then make upsertCanonical attempt the
-    // same key. The unique index throws and the catch branch returns the
-    // winner's canonical id.
+  test("pre-existing canonical + projection: SELECT-hit branch returns the existing id, body is not overwritten", async () => {
+    // The unique-index catch branch in upsert.ts (lines 98-114) handles the
+    // race where a concurrent ingest commits between our SELECT and INSERT.
+    // That can't be driven deterministically from a unit test, so here we
+    // just verify the SELECT-hit branch behaviour: existing rows are
+    // returned as-is and the new body is ignored.
     const { proj, ver } = await harness();
     const inserted = await db
       .insert(canonicalComment)
@@ -236,23 +236,16 @@ describe("upsertCanonical", () => {
     await db.insert(commentProjection).values({
       canonicalCommentId: winnerId,
       versionId: ver.id,
-      googleCommentId: "gc-race",
+      googleCommentId: "gc-existing",
       projectionStatus: "clean",
       anchorMatchConfidence: 100,
     });
 
-    // Force the SELECT to miss by deleting + re-inserting the projection
-    // *after* the upsert reads it — too racy to drive deterministically here.
-    // Easier path: just call upsertCanonical and trust it hits the
-    // already-present branch via the SELECT (this is the common case, and
-    // line-coverage of the catch branch is exercised by suggestions.test's
-    // idempotency-rerun test through a different code path. We at least
-    // confirm the post-condition).
     const result = emptyResult(ver.id);
     const id = await upsertCanonical({
       projectId: proj.id,
       versionId: ver.id,
-      googleCommentId: "gc-race",
+      googleCommentId: "gc-existing",
       kind: "comment",
       authorDisplayName: null,
       authorEmail: null,
