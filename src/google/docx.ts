@@ -2,26 +2,11 @@ import { unzipSync, strFromU8 } from "fflate";
 import { XMLParser } from "fast-xml-parser";
 import type { DocRegion } from "../db/schema.ts";
 
-/**
- * OOXML (`.docx`) parser. The ingest entry point — see SPEC §9.8 for why
- * this is the canonical inbound source and not Drive `comments.list` /
- * `documents.get`. Output is consumed by `src/domain/comments.ts`; this
- * module does no DB work.
- *
- * Endpoint-shaped: a single function `parseDocx(bytes) → DocxAnnotations`.
- * No tokens, no fetches. Pair with `exportDocx` in `./drive.ts` for the
- * fetch half.
- */
+// OOXML (.docx) parser. Pure: bytes in, DocxAnnotations out. See SPEC §9.8.
 
 export type DocxSuggestionKind = "suggestion_insert" | "suggestion_delete";
 
-/**
- * One annotation range, anchored to (region, paragraphIndex, runOffset).
- * `runOffset` is a character offset *within the paragraph's plaintext*
- * (excluding the trailing newline), computed by summing every `<w:r><w:t>`
- * length up to the marker, matching how the rest of Margin's anchor model
- * already addresses positions (SPEC §4, anchor.structuralPosition.offset).
- */
+// runOffset is a character offset within the paragraph's plaintext (excluding newline).
 export interface DocxRange {
   region: DocRegion;
   /** Header/footer/footnote id; empty string for body. */
@@ -30,41 +15,24 @@ export interface DocxRange {
   startOffset: number;
   endParagraphIndex: number;
   endOffset: number;
-  /** Paragraph plaintext for each paragraph the range covers, in order. */
   paragraphTexts: string[];
 }
 
 export interface DocxComment {
-  /** `w:id` on the `<w:comment>` element. Stable within one export. */
   id: string;
-  /** Display name from `w:author`. OOXML drops email entirely (SPEC §9.8). */
   author: string;
-  /** `w:date` as the raw ISO-8601 string. */
   date: string;
-  /** Plain-text body — `<w:t>` content inside `<w:comment>`, with paragraph breaks joined by `\n`. */
   body: string;
-  /**
-   * One or more ranges. >1 when the same (author, date, body) appears as
-   * multiple OOXML `<w:comment>` rows — Google exports a disjoint
-   * multi-range comment as N rows sharing those three fields (SPEC §9.8).
-   * `ranges[0]` is the primary anchor used by the canonical store.
-   */
+  // >1 range when Google exports a disjoint multi-range comment as multiple rows.
   ranges: DocxRange[];
-  /**
-   * When this comment's range overlaps a `<w:ins>` or `<w:del>` span,
-   * the suggestion's id. Per SPEC §9.8 reply-on-suggestion detection,
-   * such a comment is a reply on that suggestion's thread.
-   */
+  // Set when the comment's range overlaps a <w:ins>/<w:del>; treats it as a suggestion reply.
   overlapsSuggestionId?: string;
 }
 
 export interface DocxSuggestion {
-  /** `w:id` on the `<w:ins>` / `<w:del>` element. */
   id: string;
   kind: DocxSuggestionKind;
-  /** Author display name from `w:author`. */
   author: string;
-  /** `w:date` as raw ISO-8601. */
   date: string;
   region: DocRegion;
   regionId: string;
@@ -72,7 +40,6 @@ export interface DocxSuggestion {
   paragraphText: string;
   offset: number;
   length: number;
-  /** The text the suggestion adds (insert) or proposes to remove (delete). */
   text: string;
 }
 
@@ -86,19 +53,11 @@ const COMMENT_MIME =
 
 void COMMENT_MIME; // referenced only for grep traceability from drive.ts
 
-/**
- * Top-level entry. Unzips, parses each part we care about, then merges
- * comment metadata (from `word/comments.xml`) with anchor positions (from
- * `<w:commentRangeStart>`/`End` in `word/document.xml` + headers / footers /
- * footnotes). Disjoint multi-range comments are grouped by
- * `(author, date, body)` per SPEC §9.8.
- */
 export function parseDocx(bytes: Uint8Array): DocxAnnotations {
   const entries = unzipSync(bytes);
   const docXml = readEntry(entries, "word/document.xml");
   if (!docXml) {
-    // A doc with no body part isn't a docx — treat as empty rather than throwing,
-    // so a malformed export doesn't poison the polling loop.
+    // Malformed export: return empty so the polling loop doesn't trip on it.
     return { comments: [], suggestions: [] };
   }
 
@@ -106,7 +65,6 @@ export function parseDocx(bytes: Uint8Array): DocxAnnotations {
   const commentMeta = parseCommentsXml(readEntry(entries, "word/comments.xml"));
 
   const collector = new AnchorCollector();
-  // Body is required; header/footer/footnote parts are optional.
   collector.walkRegion("body", "", docTree, "w:document", "w:body");
   walkAuxiliary(entries, "word/header", "header", collector);
   walkAuxiliary(entries, "word/footer", "footer", collector);
@@ -130,8 +88,6 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
   trimValues: false,
-  // Disable entity / DTD handling — `.docx` doesn't use them and disabling
-  // narrows the parser's attack surface for malicious uploads.
   processEntities: true,
   parseTagValue: false,
 });
@@ -145,7 +101,6 @@ function readEntry(entries: Record<string, Uint8Array>, path: string): string | 
   return bytes ? strFromU8(bytes) : null;
 }
 
-/** Find the *first* descendant by tag name (depth-first, document order). */
 function firstChild(nodes: XmlNode[], tag: string): XmlNode[] | null {
   for (const n of nodes) {
     if (tag in n && Array.isArray(n[tag])) return n[tag] as XmlNode[];
@@ -171,7 +126,6 @@ function childrenOf(n: XmlNode): XmlNode[] {
   return Array.isArray(c) ? c : [];
 }
 
-/** Walk every `<w:p>` paragraph under a given subtree (e.g. `<w:body>`). */
 function* paragraphsOf(nodes: XmlNode[]): Generator<XmlNode> {
   for (const n of nodes) {
     const t = tagOf(n);
@@ -195,10 +149,7 @@ interface OpenComment {
   startRegion: DocRegion;
   startRegionId: string;
   paragraphTexts: string[];
-  /**
-   * Suggestion ids the comment's range has intersected so far. First match
-   * wins for `overlapsSuggestionId` per SPEC §9.8 reply-on-suggestion rule.
-   */
+  // First overlapping suggestion id wins.
   overlapsSuggestionId?: string;
 }
 
@@ -232,9 +183,7 @@ class AnchorCollector {
       this.walkParagraph(region, regionId, paragraphIndex, p);
     }
 
-    // A range left open at the end of a region is malformed but Word
-    // tolerates it. Close at the last paragraph's end so we don't leak
-    // state into the next region.
+    // Close any range still open at end-of-region so state doesn't leak across regions.
     for (const oc of [...this.open.values()]) {
       const last = oc.paragraphTexts[oc.paragraphTexts.length - 1] ?? "";
       this.completeRange(oc, paragraphIndex, last.length);
@@ -248,17 +197,12 @@ class AnchorCollector {
     paragraphIndex: number,
     paragraph: XmlNode,
   ): void {
-    // First pass: compute the full plaintext of this paragraph so every range
-    // that touches it records the whole line (anchor.paragraphHash depends on
-    // the complete paragraph, not the slice up to the marker).
+    // Anchors hash the full paragraph, so compute it once up front.
     const paragraphText = paragraphPlaintext(paragraph);
 
-    // Every currently-open comment grows a new paragraph entry the moment we
-    // cross a paragraph boundary. The first paragraph for a freshly-opened
-    // range is pushed at open time below.
+    // Open ranges record one paragraphTexts entry per paragraph they cross.
     for (const oc of this.open.values()) oc.paragraphTexts.push(paragraphText);
 
-    // Second pass: walk in document order to emit cursor-tracked events.
     let cursor = 0;
     for (const child of childrenOf(paragraph)) {
       const tag = tagOf(child);
@@ -309,13 +253,10 @@ class AnchorCollector {
             length: text.length,
             text,
           });
-          // Mark any currently-open comments as overlapping this suggestion.
           for (const oc of this.open.values()) {
             if (!oc.overlapsSuggestionId) oc.overlapsSuggestionId = id;
           }
-          // Inserts and deletes both contribute to the cursor; the deletion
-          // text is still in the document body (struck through) so offsets
-          // stay stable whether the suggestion is later accepted or rejected.
+          // Both insert and delete text live in the body, so both advance the cursor.
           cursor += text.length;
         }
         continue;
@@ -326,9 +267,7 @@ class AnchorCollector {
         continue;
       }
 
-      // Containers (`<w:hyperlink>`, `<w:sdtContent>`) hide runs / markers
-      // inside another element. Recurse so commentRange markers nested under
-      // a hyperlink still land.
+      // Containers can wrap runs and commentRange markers; recurse to catch them.
       if (tag === "w:hyperlink" || tag === "w:sdt" || tag === "w:sdtContent") {
         cursor = this.walkContainer(
           child,
@@ -343,7 +282,6 @@ class AnchorCollector {
     }
   }
 
-  /** Recurse into a container element (`<w:hyperlink>`, `<w:sdtContent>`). */
   private walkContainer(
     container: XmlNode,
     region: DocRegion,
@@ -417,12 +355,6 @@ class AnchorCollector {
   }
 }
 
-/**
- * Concatenate every visible character contributed by a `<w:p>`'s children
- * (runs, inserted/deleted suggestion text, hyperlink/sdt-wrapped runs). The
- * trailing implicit paragraph break is not included — paragraphs are
- * delimited by index, not embedded `\n`.
- */
 function paragraphPlaintext(paragraph: XmlNode): string {
   let out = "";
   for (const child of childrenOf(paragraph)) {
@@ -439,7 +371,6 @@ function paragraphPlaintext(paragraph: XmlNode): string {
         if (tagOf(sub) === "w:r") out += collectDelText(sub);
       }
     } else if (tag === "w:hyperlink" || tag === "w:sdt" || tag === "w:sdtContent") {
-      // Recurse into containers that wrap runs.
       out += paragraphPlaintext(child);
     }
   }
@@ -459,7 +390,7 @@ function collectRunText(run: XmlNode): string {
 }
 
 function collectDelText(run: XmlNode): string {
-  // `<w:r>` inside `<w:del>` uses `<w:delText>` instead of `<w:t>`.
+  // Runs inside <w:del> use <w:delText> instead of <w:t>.
   let out = "";
   for (const child of childrenOf(run)) {
     const t = tagOf(child);
@@ -516,7 +447,6 @@ function parseCommentsXml(xml: string | null): Map<string, CommentMeta> {
   return out;
 }
 
-/** Concatenate every `<w:p>/<w:r>/<w:t>` under a `<w:comment>`, joining paragraphs with `\n`. */
 function collectCommentBody(c: XmlNode): string {
   const paragraphs: string[] = [];
   for (const p of paragraphsOf(childrenOf(c))) {
@@ -539,10 +469,6 @@ function walkAuxiliary(
   region: DocRegion,
   collector: AnchorCollector,
 ): void {
-  // Headers/footers are numbered (header1.xml, header2.xml, …);
-  // footnotes/endnotes are single files. Either form fits this glob.
-  // The `.xml.rels` exclusion is enforced by the `!p.includes(".rels")`
-  // guard; the prefix + `.xml` suffix check is enough on its own.
   const paths = Object.keys(entries)
     .filter((p) => p.startsWith(prefix) && p.endsWith(".xml") && !p.includes(".rels"))
     .sort();
@@ -552,15 +478,13 @@ function walkAuxiliary(
     const tree = parseXml(xml);
     const regionId = regionIdFor(region, path);
     if (region === "footnote") {
-      // <w:footnotes> contains many <w:footnote w:id="…">; emit one region per.
       const wrap = firstChild(tree, region === "footnote" ? "w:footnotes" : "w:endnotes");
       if (!wrap) continue;
       for (const node of wrap) {
         const t = tagOf(node);
         if (t !== "w:footnote" && t !== "w:endnote") continue;
         const id = attrsOf(node)["@_w:id"] ?? "";
-        // Skip Word's built-in separator footnotes (-1, 0) which have no
-        // user content and would inflate paragraph indices.
+        // Skip Word's separator footnotes (-1, 0) — no user content.
         if (id === "-1" || id === "0") continue;
         collector.walkRegion(region, id, [node], t);
       }
@@ -573,11 +497,7 @@ function walkAuxiliary(
 
 function regionIdFor(region: DocRegion, path: string): string {
   if (region === "header" || region === "footer") {
-    // Use the file basename ("header1") as the regionId — it's stable across
-    // ingests of the same export and matches how the relationship file maps
-    // header/footer references.
-    const base = path.replace(/^.*\//, "").replace(/\.xml$/, "");
-    return base;
+    return path.replace(/^.*\//, "").replace(/\.xml$/, "");
   }
   return "";
 }
@@ -590,8 +510,6 @@ function assembleComments(
   meta: Map<string, CommentMeta>,
   collector: AnchorCollector,
 ): DocxComment[] {
-  // Group ranges by commentId so disjoint-range comments collapse into one
-  // canonical DocxComment with multiple ranges (SPEC §9.8).
   const byId = new Map<string, CompletedRange[]>();
   for (const r of collector.ranges) {
     const list = byId.get(r.commentId) ?? [];
@@ -599,9 +517,7 @@ function assembleComments(
     byId.set(r.commentId, list);
   }
 
-  // Also group by (author, date, body) — Google's export of a disjoint
-  // multi-range comment creates N `<w:comment>` rows sharing those fields.
-  // We collapse them post-hoc.
+  // Google exports a disjoint multi-range comment as N rows sharing (author, date, body); collapse them.
   type GroupKey = string;
   const groupKey = (m: CommentMeta): GroupKey => `${m.author}${m.date}${m.body}`;
 
@@ -619,7 +535,7 @@ function assembleComments(
 
   const out: DocxComment[] = [];
   for (const { meta: m, ranges } of groups.values()) {
-    if (ranges.length === 0) continue; // metadata with no anchor — orphan, skip
+    if (ranges.length === 0) continue; // orphan: metadata with no anchor
     const overlap = ranges.find((r) => r.overlapsSuggestionId)?.overlapsSuggestionId;
     out.push({
       id: m.id,
@@ -630,7 +546,6 @@ function assembleComments(
       overlapsSuggestionId: overlap,
     });
   }
-  // Stable order: earliest range first.
   out.sort((a, b) => compareRanges(a.ranges[0]!, b.ranges[0]!));
   return out;
 }

@@ -1,7 +1,7 @@
 # Margin browser extension
 
 MV3 extension for Chrome / Edge / Firefox. **Phase-4 scope** — see
-[`SPEC.md` §6.4](../../SPEC.md#64-browser-extension):
+[`docs/spec.md` §6.4](../../docs/spec.md#64-browser-extension):
 
 - **Project surface (popup).** State machine driven by the active Docs
   tab: configure backend → sign in → open a Doc → "Add to Margin"
@@ -146,5 +146,5 @@ surfaces/extension/
 ## Out of scope (yet)
 
 - In-canvas highlights / gutter markers — Phase 6, requires the
-  accessibility-DOM mirror or selection-event hooks ([`SPEC.md` §9.6](../../SPEC.md#96-canvas-rendered-doc-body)).
+  accessibility-DOM mirror or selection-event hooks ([`docs/spec.md` §9.6](../../docs/spec.md#96-canvas-rendered-doc-body)).
 - Mobile / iPad Docs — browser extensions don't run on those clients.

@@ -11,24 +11,9 @@ import type {
   VersionDiffPayload,
 } from "./types.ts";
 
-/**
- * Thin authenticated client the SW uses for every backend round-trip. Lives
- * here (not inline in `background.ts`) so the SW entry point stays focused
- * on message routing + the external-auth bridge.
- *
- * One token rule: the popup / sidepanel never see the session token — they
- * `sendMessage` to the SW and the SW reads `chrome.storage.local` and sets
- * the `Authorization: Bearer …` header here. A missing or rejected token
- * surfaces the same prompt everywhere so the user gets one consistent
- * "sign in again from Options" message.
- */
+// Authenticated client used only from the SW. Popup / sidepanel never see the session token —
+// they sendMessage to the SW and the SW attaches the Bearer header here.
 
-/**
- * Authenticated POST helper. One place for: URL build, auth header, friendly
- * 401/403 message, body-prefix-on-error, JSON parse. Every SW fetch wrapper
- * that authenticates with the user's session token routes through here so a
- * single missing/expired token yields the same prompt everywhere.
- */
 async function postJson<T>(path: string, body: unknown, settings: Settings): Promise<T> {
   const res = await postJsonRaw(path, body, settings);
   if (!res.ok) {
@@ -38,12 +23,7 @@ async function postJson<T>(path: string, body: unknown, settings: Settings): Pro
   return (await res.json()) as T;
 }
 
-/**
- * Variant of postJson where the route signals "not found / not visible to
- * this caller" with a 404. Returns null on 404; throws on everything else
- * non-ok. Used by side-panel routes that map missing/not-owner cases into
- * a "no such project" UI state.
- */
+// Returns null on 404 (e.g. "no such project / not yours"); throws otherwise.
 async function postJsonOrNull<T>(
   path: string,
   body: unknown,
@@ -78,13 +58,8 @@ async function postJsonRaw(
   return res;
 }
 
-/**
- * Drop the local session token. We also POST to Better Auth's `/sign-out`
- * endpoint so the corresponding `session` row in the DB is invalidated — a
- * stolen token left active in the DB after a "sign out" would defeat the
- * purpose. Failures here don't block local clear: the backend session will
- * expire on its own.
- */
+// Calls Better Auth's /sign-out so the DB session row is invalidated. Backend failures
+// still clear the local token (the row will expire on its own).
 export async function signOutFromBackend(): Promise<void> {
   const settings = await getSettings();
   if (settings) {
@@ -101,12 +76,7 @@ export async function signOutFromBackend(): Promise<void> {
   await patchSettings({ sessionToken: "" });
 }
 
-/**
- * Routes the popup's "is this doc tracked?" query to the backend's doc-state
- * endpoint. Returns null when settings are missing — the popup renders that
- * as a configuration error rather than an unknown-doc state. Network / auth
- * failures bubble up via the message-handler error path.
- */
+// null = settings missing (popup renders that as "configure backend"). Network errors throw.
 export async function fetchDocState(docId: string): Promise<DocState | null> {
   const settings = await getSettings();
   if (!settings) return null;
@@ -119,20 +89,12 @@ export async function runDocSync(docId: string): Promise<DocState | null> {
   return postJson<DocState>("/api/extension/doc-sync", { docId }, settings);
 }
 
-/**
- * Calls /api/picker/register-doc on the popup's behalf — the sandboxed picker
- * iframe can't reach the backend (null origin), so it postMessages the picked
- * id up to the popup, the popup dispatches here. Maps both 200 (created) and
- * 409 already_exists into the same `registered` shape because the popup
- * treats them identically: show "tracked, project <id>".
- */
+// Maps both 200 (created) and 409 already_exists into the same `registered` shape.
 export async function registerDoc(docUrlOrId: string): Promise<RegisterDocResult> {
   const settings = await getSettings();
   if (!settings) return { kind: "error", message: "no settings configured" };
   let res: Response;
   try {
-    // postJsonRaw is the shared auth + URL-build helper; it throws on 401/403
-    // with the same "API token rejected" message we want surfaced here.
     res = await postJsonRaw("/api/picker/register-doc", { docUrlOrId }, settings);
   } catch (err) {
     return { kind: "error", message: err instanceof Error ? err.message : String(err) };
@@ -170,12 +132,6 @@ export async function registerDoc(docUrlOrId: string): Promise<RegisterDocResult
   };
 }
 
-/**
- * Routes the side-panel's project-dashboard query through the SW so the
- * session token never reaches the side-panel origin. Returns null on 404
- * (missing / not-owner) so the panel can render a "no such project" state
- * without conflating it with network errors.
- */
 export async function fetchProjectDetail(projectId: string): Promise<ProjectDetail | null> {
   const settings = await getSettings();
   if (!settings) return null;

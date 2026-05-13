@@ -6,32 +6,12 @@ export interface AuthenticatedRequest {
   sessionId: string;
 }
 
-/**
- * Upper bound for any opaque id we accept on the wire (project, version,
- * canonical-comment, etc.). 200 covers UUIDs, Google Doc ids, and slugs with
- * room to spare; anything longer is almost certainly hostile. Routes that
- * carry user-supplied URLs (e.g. `picker-register`'s `docUrlOrId`) override
- * locally.
- */
+// Upper bound for opaque ids on the wire. Routes with user-supplied URLs override locally.
 export const MAX_ID_LEN = 200;
 
-/**
- * Shared schema for opaque ids on incoming JSON bodies. Pairs with
- * `MAX_ID_LEN` above.
- */
 export const IdSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_ID_LEN));
 
-/**
- * Resolve the caller's user via Better Auth. Accepts either a session cookie
- * or `Authorization: Bearer <session_token>` (the bearer plugin converts the
- * header into the same session lookup). Returns null when no valid session
- * is present; routes decide whether to 401 or fall through.
- *
- * The pre-handler rate-limit gate and the handler itself both call this for
- * every authenticated route. We memoize on the `Request` object so the
- * second call reuses the first call's promise instead of running the DB
- * lookup twice per request.
- */
+// Memoized on Request so pre-handler gates + the handler share one session lookup.
 const sessionCache = new WeakMap<Request, Promise<AuthenticatedRequest | null>>();
 
 export function authenticateBearer(req: Request): Promise<AuthenticatedRequest | null> {
@@ -70,12 +50,7 @@ export function notFound(message = "not found"): Response {
   });
 }
 
-/**
- * 500 response. Body is a fixed shape and never includes the underlying
- * exception — Drizzle/Drive/Bun-sqlite errors regularly contain SQL
- * fragments, internal user IDs, or response snippets we don't want on the
- * wire. Callers log the detail with `console.error` before invoking this.
- */
+// Never include the underlying exception — driver errors can leak SQL / ids / response bodies.
 export function internalError(): Response {
   return new Response(JSON.stringify({ error: "internal_error" }), {
     status: 500,
@@ -93,18 +68,7 @@ export function jsonOk<T>(body: T, init?: ResponseInit): Response {
   });
 }
 
-/**
- * Size-checks the request, parses JSON, and asserts the payload is an
- * object (`{...}`, not an array or primitive). Returns the parsed object
- * on success, or a 400 `Response` describing the failure. Routes pair
- * this with `parseOr400` + a valibot schema to validate individual fields.
- *
- * The check is enforced at the stream level — `Content-Length` is advisory
- * (chunked-encoded requests omit it; hostile clients can lie about it), so
- * we accumulate bytes off `req.body` and bail the moment the cap is
- * exceeded. A trusted `Content-Length` that's already too large gets
- * short-circuited without reading the body at all.
- */
+// Enforces the size cap at the stream level; Content-Length is advisory and can lie.
 export async function readJsonBody(
   req: Request,
   maxBodyBytes: number,
@@ -156,12 +120,6 @@ async function readCappedText(req: Request, max: number): Promise<string | Respo
   return new TextDecoder().decode(concat);
 }
 
-/**
- * Run a Valibot schema against a parsed payload. Returns the schema's output
- * on success, or a 400 `Response` carrying the first issue. The 400 message
- * includes the dotted path (`patch.defaultReviewerEmails.0`) so the caller
- * gets enough to localize the problem without exposing internal details.
- */
 export function parseOr400<TSchema extends v.GenericSchema>(
   schema: TSchema,
   payload: unknown,
@@ -173,12 +131,6 @@ export function parseOr400<TSchema extends v.GenericSchema>(
   return badRequest(path ? `${path}: ${issue.message}` : issue.message);
 }
 
-/**
- * Read + size-check the request body, parse JSON, and validate against
- * `schema` in one call. Returns the parsed value or a 400 `Response`.
- * Callers use a single `if (x instanceof Response) return x` guard instead
- * of two.
- */
 export async function readAndParseJson<TSchema extends v.GenericSchema>(
   req: Request,
   maxBodyBytes: number,

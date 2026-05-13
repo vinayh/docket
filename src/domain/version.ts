@@ -58,12 +58,7 @@ export async function createVersion(opts: {
     .returning();
   const ver = inserted[0]!;
 
-  // Best-effort: in production (MARGIN_PUBLIC_BASE_URL set), subscribe a
-  // Drive `files.watch` channel so the doc-watcher picks up downstream
-  // edits without operator intervention. Polling fallback covers the
-  // failure case, so we never block version creation on this. The .catch
-  // is mandatory at the call site — even if `autoSubscribeWatch` is later
-  // refactored to throw, we don't want an unhandled rejection.
+  // Best-effort: polling is the failure-mode safety net. Never block version creation on this.
   autoSubscribeWatch(ver.id).catch((err) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`auto-subscribe failed for version ${ver.id}: ${msg}`);
@@ -79,21 +74,8 @@ async function autoSubscribeWatch(versionId: string): Promise<void> {
   await subscribeVersionWatch({ versionId, address });
 }
 
-/**
- * Auto-assign the next `v<N>` label for a project. We parse the integer
- * suffix off existing labels and take MAX + 1, which is robust against:
- *   - archived versions still occupying their label
- *   - manual labels (skipped — any non `v\d+` label doesn't contribute)
- *   - any prior delete (we never delete versions, but parsing MAX is the
- *     correct primitive even if we someday do)
- *
- * Concurrency note: two `createVersion` calls landing simultaneously with
- * `opts.label === undefined` can still compute the same label. The unique
- * index on `(project_id, label)` makes the loser of the race surface as a
- * clean error rather than silently committing a duplicate row. Auto-labelling
- * concurrent versions is rare, and the operator can retry or pass an explicit
- * `--label` to disambiguate.
- */
+// MAX+1 on parsed `v\d+` suffixes. Concurrent auto-labels can collide; the unique index
+// on (project_id, label) surfaces that as a clean conflict rather than a dup row.
 async function nextAutoLabel(projectId: string): Promise<string> {
   const rows = await db
     .select({ label: version.label })
@@ -102,11 +84,7 @@ async function nextAutoLabel(projectId: string): Promise<string> {
   return pickNextLabel(rows.map((r) => r.label));
 }
 
-/**
- * Pure helper exposed for tests: parse `v\d+` labels and return `v<MAX+1>`.
- * Non-matching labels are ignored, so a project with `["alpha", "v1", "v3"]`
- * yields `v4`. Empty input → `v1`.
- */
+// Non-matching labels are ignored: ["alpha", "v1", "v3"] → "v4". Empty → "v1".
 export function pickNextLabel(existing: string[]): string {
   let max = 0;
   for (const label of existing) {
@@ -137,13 +115,8 @@ export async function requireVersion(id: string): Promise<Version> {
   return ver;
 }
 
-/**
- * Owner-scoped version lookup. Returns the version when it exists AND the
- * caller is the project owner, otherwise `null`. Collapsing both "no such
- * version" and "version not owned by caller" into the same null result is
- * intentional: callers map it to a 404 so the response can't be used to
- * probe for the existence of versions in projects the caller can't see.
- */
+// Returns null for both "no such version" and "not owned" so callers can 404 both —
+// avoids leaking existence of versions in projects the caller can't see.
 export async function loadOwnedVersion(
   versionId: string,
   userId: string,

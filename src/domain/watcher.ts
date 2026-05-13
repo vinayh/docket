@@ -15,13 +15,7 @@ export type DriveWatchChannel = typeof driveWatchChannel.$inferSelect;
 const DEFAULT_CHANNEL_TTL_MS = 24 * 60 * 60 * 1000; // 24h, well within Drive's 7-day max
 const RENEW_HORIZON_MS = 60 * 60 * 1000; // renew when < 1h remaining
 
-/**
- * Drive returns `expiration` as a string of ms-since-epoch. A malformed
- * value would silently become `new Date(NaN)`, which Drizzle persists as
- * NULL — and then the renewer's `isNull(expiration)` clause picks the row
- * up every sweep, looping forever. Fall back to our own deadline when the
- * incoming value isn't a finite number.
- */
+// new Date(NaN) → NULL in Drizzle → row matches isNull and gets renewed every sweep. Guard against it.
 function parseExpiration(raw: string | undefined, fallbackMs: number): Date {
   if (raw) {
     const n = Number(raw);
@@ -30,15 +24,7 @@ function parseExpiration(raw: string | undefined, fallbackMs: number): Date {
   return new Date(fallbackMs);
 }
 
-/**
- * Subscribe a `drive.files.watch` channel to a version's Google Doc and persist the
- * channel metadata. The webhook server (Phase 2 HTTP API) verifies inbound POSTs and
- * calls `handleDriveWatchEvent` with the channel id.
- *
- * Per SPEC §9.3 this requires a Search-Console-verified HTTPS endpoint; the URL is
- * passed in via `address`. The DB row is the source of truth — channels can drop
- * silently and we treat the polling fallback (`pollVersion*`) as the safety net.
- */
+// address must be a Search-Console-verified HTTPS endpoint (SPEC §9.3). Polling is the safety net.
 export async function subscribeVersionWatch(opts: {
   versionId: string;
   address: string;
@@ -71,7 +57,6 @@ export async function subscribeVersionWatch(opts: {
   return inserted[0]!;
 }
 
-/** Look up a Drive watch channel row by its primary key; nullable on miss. */
 export async function getDriveWatchChannel(id: string): Promise<DriveWatchChannel | null> {
   const rows = await db
     .select()
@@ -81,7 +66,6 @@ export async function getDriveWatchChannel(id: string): Promise<DriveWatchChanne
   return rows[0] ?? null;
 }
 
-/** Look up a Drive watch channel row by its Google channel id; nullable on miss. */
 export async function getDriveWatchChannelByChannelId(
   channelId: string,
 ): Promise<DriveWatchChannel | null> {
@@ -93,10 +77,7 @@ export async function getDriveWatchChannelByChannelId(
   return rows[0] ?? null;
 }
 
-/**
- * Stop a watch channel both on Google's side and locally. Idempotent — if the row's
- * already gone or Drive returns 404 we treat it as success.
- */
+// Idempotent: missing row or 404 from Drive both treat as success.
 export async function unsubscribeVersionWatch(channelRowId: string): Promise<void> {
   const row = await getDriveWatchChannel(channelRowId);
   if (!row) return;
@@ -115,13 +96,8 @@ export async function listWatchChannels(): Promise<DriveWatchChannel[]> {
 }
 
 /**
- * Inbound push handler. Drive sends `X-Goog-Channel-ID` + `X-Goog-Channel-Token` +
- * `X-Goog-Resource-State` (no body, per SPEC §9.3). We look up the channel, verify
- * the token, mark `lastEventAt`, and re-pull comments for the corresponding version.
- *
- * Resource states we care about: "update", "change". "sync" is a no-op handshake.
- * Returns null when the event is for an unknown channel (already stopped) — the HTTP
- * layer should still respond 200 OK so Google stops retrying.
+ * Inbound push handler. Returns null for unknown channels and for `resourceState === "sync"`
+ * (handshake). The HTTP layer should still respond 200 in those cases so Google stops retrying.
  */
 export async function handleDriveWatchEvent(opts: {
   channelId: string;
@@ -130,10 +106,8 @@ export async function handleDriveWatchEvent(opts: {
 }): Promise<IngestResult | null> {
   const row = await getDriveWatchChannelByChannelId(opts.channelId);
   if (!row) return null;
-  // The token is always set when `subscribeVersionWatch` creates the row.
-  // Defense in depth: refuse the event if the column is null for any reason
-  // (manual seeding, future migration, etc.) rather than allowing an
-  // attacker who learns a channel id to trigger ingests freely.
+  // Defense in depth: refuse when token is null (manual seeding, future migration) so an
+  // attacker who learns a channel id can't trigger ingests.
   if (!row.token || opts.channelToken !== row.token) {
     throw new Error(`channel ${opts.channelId}: token mismatch`);
   }
@@ -153,17 +127,10 @@ export async function handleDriveWatchEvent(opts: {
   return result;
 }
 
-/**
- * Polling fallback (SPEC §9.3): re-ingest comments for every active version whose row
- * is missing watch coverage or whose last sync is stale. Cheap to call on a cron — the
- * Drive `comments.list` endpoint is idempotent and `ingestVersionComments` skips rows
- * that already exist.
- */
+// Polling fallback (SPEC §9.3). Idempotent; safe to run on a cron.
 export interface PollOutcome {
   versionId: string;
-  /** Set when the per-version ingest succeeded. */
   result?: IngestResult;
-  /** Set when the per-version ingest threw; the rest of the sweep still ran. */
   error?: string;
 }
 
@@ -177,9 +144,7 @@ export async function pollAllActiveVersions(): Promise<PollOutcome[]> {
     try {
       out.push({ versionId: v.id, result: await ingestVersionComments(v.id) });
     } catch (err) {
-      // One bad version (revoked credentials, doc trashed, transient 5xx)
-      // shouldn't stall the cron. Record and move on; the next sweep
-      // retries. The callsite logs per-version failures off `error`.
+      // One bad version shouldn't stall the cron; record and continue.
       const message = err instanceof Error ? err.message : String(err);
       out.push({ versionId: v.id, error: message });
     }
@@ -188,23 +153,9 @@ export async function pollAllActiveVersions(): Promise<PollOutcome[]> {
 }
 
 /**
- * Renew channels whose expiration is within RENEW_HORIZON_MS. For each
- * expiring row:
- *  1. Subscribe a fresh channel on Google (network side-effect, can't roll back).
- *  2. In a single DB transaction: delete the old row and insert the new one.
- *  3. Best-effort stop the old channel on Google.
- *
- * Folding the row swap into one transaction matters because the renew sweep
- * runs on a timer: if step (2) crashed between an `insert(new)` and a
- * `delete(old)`, the next sweep would find *both* rows expiring and renew
- * each independently, multiplying channels every cycle. With the swap atomic,
- * a crash between (1) and (2) leaves an orphan channel on Google (it'll fire
- * webhooks for an unknown channelId until its own expiration; ingest is
- * idempotent) but the DB row count stays bounded.
- *
- * Channels with no expiration recorded are renewed unconditionally — that
- * usually indicates a prior malformed `parseExpiration` fallback we want to
- * clean up.
+ * Renew channels expiring within RENEW_HORIZON_MS. Row swap (delete-old + insert-new) is
+ * atomic so a crash between insert and delete can't leave both rows expiring and double the
+ * channel count on the next sweep. Channels with null expiration are renewed unconditionally.
  */
 export async function renewExpiringChannels(opts: { now?: number } = {}): Promise<{
   renewed: number;

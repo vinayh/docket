@@ -10,11 +10,7 @@ const GOOGLE_DOC_MIME = "application/vnd.google-apps.document";
 
 export type Project = typeof project.$inferSelect;
 
-/**
- * Thrown by `createProject` when the parent doc is already registered.
- * Carries the existing project id so callers can render a "already tracked"
- * state without parsing prose.
- */
+// Carries the existing project id so callers can render an "already tracked" state.
 export class DuplicateProjectError extends Error {
   readonly projectId: string;
   readonly parentDocId: string;
@@ -33,8 +29,7 @@ export async function createProject(opts: {
 }): Promise<Project> {
   const parentDocId = parseGoogleDocId(opts.parentDocUrlOrId);
 
-  // First pass: cheap existence check that avoids the Drive round-trip when
-  // the doc is already a project for this owner.
+  // Cheap dup check before the Drive round-trip.
   const preExisting = await loadExistingProject(parentDocId, opts.ownerUserId);
   if (preExisting) {
     throw new DuplicateProjectError(preExisting.id, parentDocId);
@@ -51,10 +46,7 @@ export async function createProject(opts: {
     throw new Error(`doc ${parentDocId} is in the trash`);
   }
 
-  // The unique index on (parent_doc_id, owner_user_id) is the source of truth.
-  // Two concurrent register-doc posts can both pass the pre-check above; the
-  // loser of the race surfaces here as a unique-constraint error, which we
-  // translate into `DuplicateProjectError` by re-reading the winner.
+  // The unique index is the source of truth. A race past the pre-check surfaces here.
   try {
     const inserted = await db
       .insert(project)
@@ -92,12 +84,6 @@ export async function getProject(id: string): Promise<Project | null> {
   return rows[0] ?? null;
 }
 
-/**
- * Like `getProject` but throws if the row is missing. Use this for the
- * common "look up project, fail loudly if it doesn't exist" path; reserve
- * the nullable `getProject` for code that genuinely wants to branch on
- * existence (e.g. "is this doc already a project?" checks).
- */
 export async function requireProject(id: string): Promise<Project> {
   const proj = await getProject(id);
   if (!proj) throw new Error(`project ${id} not found`);
@@ -108,13 +94,8 @@ export async function listAllProjects(): Promise<Project[]> {
   return db.select().from(project);
 }
 
-/**
- * Owner-scoped project lookup. Returns the project when it exists AND the
- * caller is the owner; otherwise `null`. Collapsing both "no such project"
- * and "project not owned by caller" into the same null result is intentional:
- * callers map it to a 404 so the response can't be used to probe for the
- * existence of projects the caller can't see.
- */
+// Returns null for both "no such project" and "not owned" so callers 404 both —
+// prevents probing for the existence of projects the caller can't see.
 export async function getOwnedProject(
   projectId: string,
   userId: string,
@@ -127,13 +108,6 @@ export async function getOwnedProject(
   return rows[0] ?? null;
 }
 
-/**
- * Resolve a project id straight to a Drive/Docs token provider for its owner.
- * Use this at sites whose only reason to fetch the project is to get the
- * owner's `userId`. Sites that need other project fields should call
- * `requireProject` directly and pass `proj.ownerUserId` to
- * `tokenProviderForUser` themselves.
- */
 export async function tokenProviderForProject(projectId: string): Promise<TokenProvider> {
   const proj = await requireProject(projectId);
   return tokenProviderForUser(proj.ownerUserId);

@@ -5,12 +5,6 @@ import { decryptWithMaster } from "./encryption.ts";
 import { config } from "../config.ts";
 import type { TokenProvider } from "../google/api.ts";
 
-/**
- * Swap a long-lived Google refresh token for a fresh access token. Google's
- * OAuth2 endpoint; the authorization URL + code exchange live inside Better
- * Auth's Google social provider (`src/auth/server.ts`). This helper only
- * exists for `TokenProvider`'s refresh path.
- */
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 interface GoogleTokenResponse {
@@ -58,17 +52,7 @@ async function loadRefreshToken(userId: string): Promise<string> {
   return decryptWithMaster(row.refreshToken);
 }
 
-/**
- * Memoize providers by userId so the cached access token is shared across
- * every call site for that user. Without this, each `tokenProviderForUser`
- * caller (createVersion, ingestVersionComments, reanchor, …) built its own
- * closure and refreshed from scratch on first use, multiplying Google
- * `oauth2/token` round-trips.
- *
- * Cache holds the closure, not the access token directly — refresh state
- * still lives in the closure, so two concurrent calls for the same user
- * dedup through the existing `inflight` promise.
- */
+// Memoize per user so the cached access token + inflight refresh are shared across callers.
 const tpCache = new Map<string, TokenProvider>();
 
 export function tokenProviderForUser(userId: string): TokenProvider {

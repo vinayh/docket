@@ -108,7 +108,7 @@ Chrome / Firefox / Edge extension — popup + options + side panel. The extensio
 - **Visualization (Phase 6).** Highlights overlaid on the doc body, gutter markers, hover previews, right-click "comment on selection," native-comment-rail integration. Doc body is `<canvas>` (§9.6) — needs accessibility-DOM mirror or selection-event hooks. **This is the only future role that touches the doc page**; if it ships, it will reintroduce `host_permissions` on `docs.google.com/*` and a content script, but only to read selection events / a11y-mirror coordinates — never comment data.
 - **Capture (Phase 2 — retired).** Originally scraped suggestion-thread replies from the discussion sidebar (the public Drive/Docs APIs didn't surface them). The docx-export ingest path (§9.8) recovers the same data server-side with exact anchors and ISO timestamps, so the `MutationObserver`, SW capture queue, `/api/extension/captures` endpoint, and the `host_permissions` on `docs.google.com/*` were all removed in Phase 4.
 
-Implementation detail (popup state machine, tab-based OAuth bridge, backend-hosted Picker mechanics, manifest permissions, cross-browser shim) lives in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Conventions for working on this surface: [`AGENTS.md`](./AGENTS.md#browser-extension-surfacesextension).
+Implementation detail (popup state machine, tab-based OAuth bridge, backend-hosted Picker mechanics, manifest permissions, cross-browser shim) lives in [`surfaces/extension/README.md`](../surfaces/extension/README.md). Conventions for working on this surface: [`AGENTS.md`](../AGENTS.md#browser-extension-surfacesextension).
 
 **Out of scope:** mobile / iPad Docs.
 
@@ -266,7 +266,7 @@ New backend routes:
 - `POST /api/picker/register-doc` — resolves caller (cookie or bearer) → `createProject(ownerUserId, parentDocUrlOrId)`.
 - CORS allow-list extended to chromium / firefox extension origins on `/api/extension/*` and `/api/picker/register-doc`.
 
-Popup state machine + OAuth/Picker mechanics live in [`surfaces/extension/README.md`](./surfaces/extension/README.md). The popup never holds the session token — everything routes through the SW.
+Popup state machine + OAuth/Picker mechanics live in [`surfaces/extension/README.md`](../surfaces/extension/README.md). The popup never holds the session token — everything routes through the SW.
 
 **Delivers:** the popup owns the entire "track → check state → sync now" loop. New users never see a Margin-hosted page after OAuth.
 

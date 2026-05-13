@@ -9,26 +9,14 @@ import {
 } from "../db/schema.ts";
 import { paragraphHash } from "./anchor.ts";
 
-/**
- * Magic-link review actions (SPEC §6.3 + §12 Phase 4). One row in
- * `review_action_token` per (assignment, action) pair — the email body
- * embeds four links and each redeems to one of these. Tokens are
- * single-use: `redeemReviewActionToken` checks `used_at`, applies the
- * assignment state change, then marks the token used inside the same
- * transaction's worth of writes.
- *
- * The plaintext token is `mra_<base64url(32 bytes)>` — 32 bytes of
- * randomness gives ~256 bits of entropy, so a single sha256 of the
- * plaintext is sufficient (these aren't passwords; brute-force is
- * already implausible). Plaintext is shown to the email recipient
- * only — the DB stores `token_hash`.
- */
+// Magic-link review actions. Tokens are single-use: redeem applies the state change and
+// marks used_at atomically. Plaintext is mra_<base64url(32 bytes)>; DB stores sha256(plaintext).
 export const REVIEW_ACTION_TOKEN_PREFIX = "mra_";
 const RANDOM_BYTES = 32;
 const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export interface IssuedReviewActionToken {
-  /** Plaintext token. Embed in the email link; not persisted. */
+  // Plaintext. Embed in the email link; not persisted.
   token: string;
   tokenId: string;
   expiresAt: Date;
@@ -66,9 +54,7 @@ export async function redeemReviewActionToken(
   if (!plaintext || !plaintext.startsWith(REVIEW_ACTION_TOKEN_PREFIX)) {
     return { ok: false, reason: "invalid" };
   }
-  // Single transaction so the "check usedAt, then mark used" pair is atomic.
-  // Without this, two concurrent redemptions of the same link could both
-  // pass the !usedAt check and double-fire the audit log + status change.
+  // Atomic check-then-mark: without this, two concurrent redemptions double-fire the side effects.
   return db.transaction((tx): RedeemOutcome => {
     const rows = tx
       .select()
@@ -81,10 +67,7 @@ export async function redeemReviewActionToken(
     if (row.usedAt) return { ok: false, reason: "already_used" };
     if (row.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
 
-    // Claim the token first with a conditional update; if zero rows match
-    // (because a parallel redemption just set used_at), bail out as
-    // already_used. After this point we hold the exclusive right to apply
-    // the side effects for this token.
+    // Conditional claim: 0 affected rows means a parallel redeem won; bail out.
     const claimed = tx
       .update(reviewActionToken)
       .set({ usedAt: new Date() })
@@ -113,10 +96,7 @@ export async function redeemReviewActionToken(
 
     const nextStatus = nextAssignmentStatus(row.action, assignment.status);
 
-    // Record the response on every successful redemption, even when the
-    // action leaves `status` unchanged (`accept_reconciliation` is the
-    // pure-acknowledgement case — without this, UI joins keyed on
-    // `responded_at` never see the assignee actually responded).
+    // Always set responded_at, even when status doesn't change (accept_reconciliation case).
     tx.update(reviewAssignment)
       .set(
         nextStatus !== assignment.status

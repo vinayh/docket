@@ -1,21 +1,12 @@
 export interface Settings {
   backendUrl: string;
-  /**
-   * Better Auth session token, populated by the tab-based OAuth bridge:
-   * `/api/auth/ext/success` `sendMessage`s the token to the SW, which
-   * writes it here (see `entrypoints/background.ts`). Sent as
-   * `Authorization: Bearer <sessionToken>` on every backend call.
-   */
+  // Better Auth session token. Sent as `Authorization: Bearer <token>` on every backend call.
   sessionToken: string;
 }
 
 export const DEFAULT_BACKEND_URL = "http://localhost:8787";
 
-/**
- * Mirror of the backend's `DocStateResponse` (src/domain/doc-state.ts).
- * Discriminated on `tracked`. The popup branches between the onboarding
- * affordance (`tracked: false`) and the project surface (`tracked: true`).
- */
+// Mirror of backend's DocStateResponse. Discriminated on `tracked`.
 export type DocState =
   | { tracked: false; docId: string }
   | {
@@ -40,20 +31,12 @@ export type DocState =
       openReviewCount: number;
     };
 
-/**
- * Result of POST /api/picker/register-doc as the SW returns it to the popup.
- * `kind: "registered"` covers both first-time registration (200) and the
- * already-tracked case (409): the popup just renders the project id either
- * way. `kind: "error"` carries a user-readable message.
- */
+// `kind: "registered"` covers both fresh registration (200) and already-tracked (409).
 export type RegisterDocResult =
   | { kind: "registered"; projectId: string; parentDocId: string; alreadyExisted: boolean }
   | { kind: "error"; message: string };
 
-/**
- * Mirror of the backend's `ProjectDetail` (src/domain/project-detail.ts) —
- * dashboard payload for one project. Keep field names/types in sync.
- */
+// Mirror of backend's ProjectDetail. Keep field names/types in sync.
 export interface ProjectDetail {
   project: {
     id: string;
@@ -94,11 +77,7 @@ export interface ProjectReviewRequestDetail {
   createdAt: number;
 }
 
-/**
- * Mirror of `VersionDiffPayload` from src/domain/version-diff.ts —
- * structured side-by-side diff payload (paragraph summaries) for two
- * versions of the same project. Keep field names/types in sync.
- */
+// Mirror of backend's VersionDiffPayload. Keep field names/types in sync.
 export interface VersionDiffPayload {
   from: VersionDiffSide;
   to: VersionDiffSide;
@@ -132,12 +111,7 @@ export interface TextStyleSummary {
   foregroundColorHex?: string;
 }
 
-/**
- * Mirror of `VersionCommentsPayload` from src/domain/version-comments.ts —
- * canonical comments projected onto a single version, with projection
- * status + origin-version attribution. Powers the side-panel comment
- * reconciliation view. Keep field names/types in sync.
- */
+// Mirror of backend's VersionCommentsPayload. Keep field names/types in sync.
 export interface VersionCommentsPayload {
   versionId: string;
   versionLabel: string;
@@ -197,11 +171,7 @@ export interface VersionProjectionEntry {
   lastSyncedAt: number;
 }
 
-/**
- * Mirrors `CommentActionKind` in src/domain/comment-action.ts. The side
- * panel offers one button per action on each comment row; the SW forwards
- * the call to /api/extension/comment-action.
- */
+// Mirror of backend's CommentActionKind.
 export type CommentActionKind =
   | "accept_projection"
   | "reanchor"
@@ -219,10 +189,7 @@ export interface CommentActionResult {
   } | null;
 }
 
-/**
- * Mirror of `ProjectSettingsView` from src/domain/settings.ts — project
- * settings rendered + edited in the side panel.
- */
+// Mirror of backend's ProjectSettingsView.
 export interface ProjectSettingsView {
   notifyOnComment: boolean;
   notifyOnReviewComplete: boolean;

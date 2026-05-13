@@ -22,18 +22,13 @@ import { upsertCanonical } from "./upsert.ts";
 import { hashShort, type IngestResult } from "./types.ts";
 
 /**
- * Pull every annotation (comments, replies, suggestions) from a version's
- * Google Doc and normalize into canonical_comment + comment_projection rows.
- * Idempotent: re-running on the same version returns existing rows from
- * `comment_projection.google_comment_id`.
+ * Pull every annotation from a version's doc and normalize into canonical_comment +
+ * comment_projection. Idempotent: existing projections short-circuit via google_comment_id.
  *
- * Source of truth is the `.docx` export (SPEC §9.8) — it surfaces exact
- * anchor coordinates, disjoint multi-range comments, suggestion author +
- * timestamp, and replies on a suggestion's thread, none of which
- * `comments.list` + `documents.get` recover. `comments.list` is queried in
- * parallel only to (a) recover author email for `me === true` (OOXML drops
- * email entirely) and (b) reconstruct reply chains on plain comment threads
- * (OOXML flattens replies; the Drive API preserves the parent→reply tree).
+ * Source of truth is the .docx export (SPEC §9.8) — it has exact anchors, disjoint multi-range
+ * comments, and suggestion author+timestamp that comments.list / documents.get don't expose.
+ * comments.list runs in parallel only to (a) recover the author email for `me === true` (OOXML
+ * drops it) and (b) reconstruct reply chains (OOXML flattens replies).
  */
 export async function ingestVersionComments(versionId: string): Promise<IngestResult> {
   const ver = await requireVersion(versionId);
@@ -84,7 +79,7 @@ interface CommentIngestArgs {
   projectId: string;
   versionId: string;
   comments: DocxComment[];
-  /** OOXML w:id of a `<w:ins>`/`<w:del>` → canonical_comment.id of the ingested suggestion row. */
+  // OOXML w:id of a <w:ins>/<w:del> → canonical_comment.id of the ingested suggestion row.
   suggestionByOoxmlId: Map<string, string>;
   authorIndex: AuthorIndex;
   driveIndex: DriveIndex;
@@ -92,9 +87,7 @@ interface CommentIngestArgs {
 }
 
 async function ingestComments(args: CommentIngestArgs): Promise<void> {
-  // Two passes: first ingest "thread roots" (comments that have no
-  // overlapping suggestion AND aren't Drive replies), then ingest replies +
-  // suggestion-thread comments so `parent_comment_id` references resolve.
+  // Two passes so parent_comment_id references resolve: roots first, then replies / suggestion-thread comments.
   const driveIdToCanonical = new Map<string, string>();
 
   // Phase A: roots.
@@ -139,11 +132,8 @@ async function ingestOneComment(
 ): Promise<string | null> {
   if (c.ranges.length === 0) {
     args.result.skippedOrphanMetadata++;
-    args.result.fetched--; // not actually fetched-and-ingested
-    // Returning null (rather than an empty string) so the caller's drive-id
-    // → canonical-id map doesn't accumulate `"" → ""` entries that would
-    // then surface as a literal `parentCommentId=""` on replies pointing at
-    // this orphan.
+    args.result.fetched--;
+    // null (not "") so the caller's drive-id → canonical-id map skips this orphan.
     return null;
   }
   const drive = lookupDrive(args.driveIndex, c);
@@ -192,14 +182,12 @@ function anchorFromDocxComment(c: DocxComment): CommentAnchor {
 }
 
 function quotedTextForRange(r: DocxRange): string {
-  // Single-paragraph range: slice once.
   if (r.startParagraphIndex === r.endParagraphIndex) {
     const text = r.paragraphTexts[0] ?? "";
     return text.slice(r.startOffset, r.endOffset);
   }
-  // Multi-paragraph: first slice from startOffset, middle paragraphs whole,
-  // last slice to endOffset. Joined with `\n` to match Drive's
-  // multi-paragraph quotedFileContent format.
+  // Multi-paragraph: first slice → middle paragraphs whole → last slice. Joined with \n to
+  // match Drive's multi-paragraph quotedFileContent format.
   const out: string[] = [];
   const first = r.paragraphTexts[0] ?? "";
   out.push(first.slice(r.startOffset));

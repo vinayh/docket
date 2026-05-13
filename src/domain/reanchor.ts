@@ -52,13 +52,9 @@ export function reanchor(doc: Document, source: CommentAnchor): ReanchorResult {
   const all = extractAllParagraphs(doc);
   const sourceRegion = source.structuralPosition?.region;
 
-  // When the source actually names a region (header / footer / footnote),
-  // try that region first and fall back to the rest of the doc — that
-  // prevents a header anchor from silently re-anchoring to body text that
-  // happens to share the phrase. When the region is unknown (the Drive API
-  // doesn't expose region for plain comments, so older anchors are blank),
-  // walk every region in one pass: defaulting to "body" first would skip
-  // header/footer-anchored comments whose region was never recorded.
+  // Region-aware ordering: when the source names a region, try it first so a header anchor
+  // doesn't silently match body text that shares the phrase. When unknown (Drive doesn't
+  // expose region for plain comments) walk everything in one pass.
   if (!sourceRegion) {
     return (
       tryMatch(all, source, quoted) ?? {
@@ -165,20 +161,13 @@ function tryMatch(
   return null;
 }
 
-/**
- * Equal segments shorter than this are ignored when scoring — character-level
- * Myers otherwise accumulates noise from incidental 1–2 char overlaps in
- * unrelated text. Mirrors the spirit of patience/histogram diff where
- * rare/long anchors carry the alignment.
- */
+// Filters out incidental 1–2 char overlaps that would otherwise inflate the score on unrelated text.
 const MIN_EQUAL_LEN = 3;
 
 /**
- * Walk a Myers character diff (jsdiff) between `source` and `target` and
- * report the smallest target span containing every matching segment plus the
- * total number of source characters matched. Equal segments shorter than
- * {@link MIN_EQUAL_LEN} don't count toward the span or score. Returns null if
- * nothing significant matched.
+ * Walk a Myers char diff and report the smallest target span containing every matching
+ * segment plus the total source chars matched. Segments shorter than {@link MIN_EQUAL_LEN}
+ * are ignored. Returns null when nothing significant matched.
  */
 export function matchSpan(
   source: string,

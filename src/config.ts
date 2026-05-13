@@ -5,12 +5,6 @@ function envValue(name: string): string | null {
   return value && value.length > 0 ? value : null;
 }
 
-/**
- * Parse an env var through a valibot schema, throwing a descriptive error on
- * failure. Use this from a lazy getter so config errors surface at first
- * access (boot for required keys, on-demand for optional ones) rather than
- * at the first crypto operation or Drive call.
- */
 function parseEnv<TSchema extends v.GenericSchema>(
   name: string,
   schema: TSchema,
@@ -66,12 +60,8 @@ export const config = {
         envValue("GOOGLE_CLIENT_SECRET"),
       );
     },
-    /**
-     * Drive Picker requires a public API key (developer key) and the GCP
-     * project number (`appId`), separate from the OAuth client credentials.
-     * Lazy + nullable so the server still boots without them; the picker
-     * page renders an explanatory error when either is missing.
-     */
+    // Drive Picker dev key + GCP project number. Nullable so the server boots without them;
+    // the picker page renders an explanatory error when either is missing.
     get apiKey() {
       return parseEnv("GOOGLE_API_KEY", OptionalStringSchema, envValue("GOOGLE_API_KEY"));
     },
@@ -86,11 +76,7 @@ export const config = {
   get masterKeyB64() {
     return parseEnv("MARGIN_MASTER_KEY", MasterKeySchema, envValue("MARGIN_MASTER_KEY"));
   },
-  /**
-   * Better Auth signing/encryption secret. Distinct from `MARGIN_MASTER_KEY`
-   * so a compromise of one layer (cookie signing vs. refresh-token-at-rest
-   * encryption) doesn't cascade into the other.
-   */
+  // Kept distinct from MARGIN_MASTER_KEY so a compromise of one layer doesn't cascade.
   get betterAuthSecret() {
     return parseEnv(
       "BETTER_AUTH_SECRET",
@@ -101,11 +87,6 @@ export const config = {
   get dbPath() {
     return envValue("MARGIN_DB_PATH") ?? "./margin.db";
   },
-  /**
-   * HTTP port for `bun margin serve`. The CLI's `--port` flag overrides;
-   * tests pass `port: 0` to let the kernel choose. Default 8787 keeps the
-   * dev server discoverable from the extension's default Options page.
-   */
   get port() {
     const raw = envValue("PORT");
     if (!raw) return 8787;
@@ -115,20 +96,11 @@ export const config = {
     }
     return n;
   },
-  /**
-   * When truthy (any non-empty value), include stack traces on CLI errors.
-   * Cheap toggle; we don't bother with `1`/`true` parsing — presence is the
-   * signal.
-   */
+  // Any non-empty value enables stack traces on CLI errors.
   get debug() {
     return envValue("DEBUG") !== null;
   },
-  /**
-   * Public origin of the Margin backend, e.g. `https://api.margin.pub`.
-   * Used to compute the Drive `files.watch` callback address and to decide
-   * whether the auto-subscribe / renew loop should run. Null in dev unless
-   * the operator opts in.
-   */
+  // Public origin of the backend. Gates the Drive watch subscribe / renew loops.
   get publicBaseUrl() {
     return parseEnv(
       "MARGIN_PUBLIC_BASE_URL",
@@ -136,28 +108,14 @@ export const config = {
       envValue("MARGIN_PUBLIC_BASE_URL"),
     );
   },
-  /**
-   * Gate for the `bun margin e2e seed-project` CLI. Must equal "1" for the
-   * seed to proceed — the seeder bypasses Drive validation and would shred a
-   * prod DB if invoked by accident. Set in the test harness shell only.
-   */
+  // Required "1" gate for `bun margin e2e seed-project` — the seeder bypasses Drive validation.
   get allowE2eSeed() {
     return Bun.env.MARGIN_ALLOW_E2E_SEED === "1";
   },
-  /**
-   * When "1", trust the upstream proxy's `Fly-Client-IP` / `X-Forwarded-For`
-   * headers as the client IP (rate-limit bucket key). Off by default — without
-   * an upstream proxy, those headers are attacker-controlled and would let
-   * a client spoof an arbitrary bucket key. The Fly deployment sets this.
-   */
+  // Off by default: without an upstream proxy, Fly-Client-IP / X-Forwarded-For are spoofable.
   get trustProxy() {
     return Bun.env.MARGIN_TRUST_PROXY === "1";
   },
-  /**
-   * Default user email for `bun margin e2e seed-project` when the operator
-   * doesn't pass `--user`. The user must already exist (run `bun margin
-   * connect` once with that account).
-   */
   get testUserEmail() {
     return parseEnv(
       "MARGIN_TEST_USER_EMAIL",

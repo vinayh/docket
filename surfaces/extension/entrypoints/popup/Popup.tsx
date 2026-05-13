@@ -12,27 +12,13 @@ import { Untracked } from "./views/Untracked.tsx";
 import { Tracked } from "./views/Tracked.tsx";
 import { ErrorView } from "./views/ErrorView.tsx";
 
-/**
- * Popup state machine. The single `View` union below drives all rendering;
- * async flows live here so the view components stay pure render fns.
- *
- * "Add to Margin" no longer renders a sandboxed Picker iframe in the
- * popup — Google's `origin_mismatch` policy on `chrome-extension://`
- * origins broke that path. Instead the popup opens the backend-hosted
- * Drive Picker at `/api/picker/page` in a new tab; the page runs on the
- * backend origin (which the OAuth client allow-lists), registers the
- * picked doc against `/api/picker/register-doc` directly, and the user
- * comes back to the original Docs tab. Re-opening the popup re-runs
- * `doc/state` and flips into the tracked view automatically.
- */
+// Popup state machine. The View union below drives rendering; views stay pure.
+// "Add to Margin" opens the backend-hosted Drive Picker in a new tab — chrome-extension:// origins
+// fail Google's origin_mismatch check, so the picker can't live in the popup itself.
 
 export interface ActiveDocTab {
   docId: string;
-  /**
-   * Doc name derived from `tab.title` with the " - Google Docs" locale
-   * suffix stripped (see `cleanDocTitle`). Empty when Chrome hasn't
-   * populated the tab title yet.
-   */
+  // tab.title with the " - Google Docs" locale suffix stripped. Empty if title hasn't loaded yet.
   title: string;
 }
 
@@ -52,11 +38,7 @@ export function Popup() {
 
   useEffect(() => {
     void boot(setView);
-    // The tab-based sign-in flow lands `settings.sessionToken` into
-    // `chrome.storage.local` via the SW (Chromium via onMessageExternal,
-    // Firefox via tabs.onUpdated reading the bridge fragment). Watching
-    // for that lets the popup flip from "needs sign-in" into the
-    // tracked/untracked view without the user closing and reopening it.
+    // Re-boot when settings.sessionToken changes so post-sign-in state lands without a reopen.
     const listener = (
       changes: Record<string, chrome.storage.StorageChange>,
       areaName: chrome.storage.AreaName,
@@ -214,15 +196,7 @@ async function runSync(
   }
 }
 
-/**
- * Open the backend-hosted Drive Picker in a new tab. The page runs on
- * the backend origin (which the OAuth client allow-lists, unlike
- * `chrome-extension://`), pulls a fresh Drive access token from the
- * user's session, registers the picked doc via
- * `/api/picker/register-doc`, and closes itself. The popup closes after
- * launching the tab; re-opening it on the original Docs tab picks up
- * the new tracked state via `doc/state`.
- */
+// Opens the backend-hosted Drive Picker in a new tab; the popup closes itself afterward.
 async function startAddFlow(
   tab: ActiveDocTab,
   setView: (v: View) => void,

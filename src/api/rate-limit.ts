@@ -1,21 +1,7 @@
-/**
- * In-memory fixed-window rate limiter for the bearer-authenticated extension
- * + picker routes. Margin runs as a single-instance Fly app, so a process-
- * local map is sufficient; if we ever horizontally scale this needs to move
- * into the DB or a shared store.
- *
- * Keying: prefer the authenticated user id ("u:<id>"), fall back to the
- * client IP ("ip:<ip>") for routes that didn't authenticate. This means
- * an attacker can't spend an anonymous user's budget on a victim, and a
- * NAT'd group of legitimate users only share a budget while signed out.
- *
- * Better Auth has its own rate limiter on `/api/auth/*` (100 reqs / 10s by
- * default in production); this module is the equivalent for everything
- * else we expose.
- */
+// In-memory fixed-window rate limiter. Single-instance only — move to a shared store before scaling out.
+// Better Auth has its own limiter on /api/auth/*; this covers everything else.
 
 interface Bucket {
-  /** Window start (ms since epoch). */
   windowStart: number;
   count: number;
 }
@@ -29,16 +15,9 @@ const buckets = new Map<string, Bucket>();
 export interface RateLimitDecision {
   allowed: boolean;
   remaining: number;
-  /** Seconds until the current window resets. */
   resetSeconds: number;
 }
 
-/**
- * Increment the bucket for `key` against `limit` requests per
- * `WINDOW_MS`. Returns whether the call may proceed and how many slots
- * remain in the current window. Side-effect-only when over budget — the
- * caller decides how to respond (we surface 429 + `Retry-After`).
- */
 export function checkRateLimit(key: string, limit: number = DEFAULT_LIMIT): RateLimitDecision {
   const now = Date.now();
   let bucket = buckets.get(key);
@@ -48,9 +27,7 @@ export function checkRateLimit(key: string, limit: number = DEFAULT_LIMIT): Rate
   }
   bucket.count += 1;
 
-  // Cheap unbounded-growth guard: when the map gets large, evict every
-  // entry whose window has already closed. This runs at most once per call
-  // and only when the population threshold is crossed.
+  // Cap memory: when the map gets large, evict closed-window entries.
   if (buckets.size > MAX_BUCKETS) {
     for (const [k, b] of buckets) {
       if (now - b.windowStart >= WINDOW_MS) buckets.delete(k);
@@ -62,20 +39,8 @@ export function checkRateLimit(key: string, limit: number = DEFAULT_LIMIT): Rate
   return { allowed: bucket.count <= limit, remaining, resetSeconds };
 }
 
-/**
- * Extract a stable client identifier from the request.
- *
- * Header trust is gated on `MARGIN_TRUST_PROXY=1` — without an upstream
- * proxy the `Fly-Client-IP` / `X-Forwarded-For` headers are
- * attacker-controlled, so spoofing them would let a client pick any bucket
- * key they liked. The Fly deployment sets that env; local dev doesn't.
- *
- * Trusted-proxy mode: `Fly-Client-IP`, then first hop of `X-Forwarded-For`.
- * Untrusted mode (default): socket address from `server.requestIP(req)`.
- *
- * Returns the literal "unknown" so a malformed request still gets bucketed
- * (rather than bypassing the limiter entirely).
- */
+// Proxy headers are only honored when MARGIN_TRUST_PROXY=1 (Fly sets this; local dev doesn't).
+// Without the gate, Fly-Client-IP / X-Forwarded-For would let a client pick any bucket key.
 export function clientIp(
   req: Request,
   opts: { server?: { requestIP(req: Request): { address: string } | null }; trustProxy: boolean },
@@ -94,7 +59,7 @@ export function clientIp(
   return "unknown";
 }
 
-/** Test-only — clear the in-memory bucket map between tests. */
+// Test-only: clear the in-memory bucket map between tests.
 export function _resetRateLimitForTests(): void {
   buckets.clear();
 }

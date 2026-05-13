@@ -2,18 +2,7 @@ import { tokenProviderForUser } from "../auth/credentials.ts";
 import { getDocument, type Document, type TextRun } from "../google/docs.ts";
 import { loadOwnedVersion } from "./version.ts";
 
-/**
- * Side-panel "structured diff" payload (SPEC §12 Phase 4). The frontend
- * pulls this for two version ids and runs a two-pass jsdiff locally
- * (paragraph alignment → intra-paragraph word diff).
- *
- * We pre-summarize on the backend so the wire format stays small: a raw
- * `documents.get` response can be megabytes (style maps, lists, named
- * ranges) but the diff renderer only needs paragraph text + a tight subset
- * of style flags. If the renderer grows new visual concerns (lists,
- * tables, named styles beyond `namedStyleType`), extend
- * `summarizeDocument` rather than shipping more raw JSON.
- */
+// Pre-summarized payload for the side-panel structured diff (frontend runs a two-pass jsdiff).
 export interface VersionDiffPayload {
   from: VersionSide;
   to: VersionSide;
@@ -27,19 +16,11 @@ export interface VersionSide {
 }
 
 export interface ParagraphSummary {
-  /** Concatenated text-run content for the paragraph, trailing `\n` stripped. */
+  // Plaintext with trailing newline stripped.
   plaintext: string;
-  /**
-   * `namedStyleType` from the paragraph style, e.g. `NORMAL_TEXT`,
-   * `HEADING_1`, `TITLE`. Captures heading-level changes that pure-text
-   * diff would miss.
-   */
+  // e.g. NORMAL_TEXT / HEADING_1 / TITLE. Catches heading changes pure-text diff would miss.
   namedStyleType: string | null;
-  /**
-   * Style-flagged text runs preserving order. Used by intra-paragraph
-   * rendering so inline bold/italic survives the diff. Null `style`
-   * means "default styling, no flags set."
-   */
+  // Style-flagged runs in order so inline bold/italic survives the diff. null style = default.
   runs: RunSummary[];
 }
 
@@ -48,12 +29,7 @@ export interface RunSummary {
   style: TextStyleSummary | null;
 }
 
-/**
- * The subset of `TextStyle` we surface in the diff renderer. Adding more
- * fields is cheap on the wire — what we don't want is to dump the raw
- * `textStyle` map, which carries opaque link / font / weighted-font /
- * background-color shapes that are awkward to compare and render.
- */
+// Curated subset of TextStyle. Don't dump raw textStyle — it carries opaque shapes we can't render.
 export interface TextStyleSummary {
   bold?: boolean;
   italic?: boolean;
@@ -72,10 +48,7 @@ export async function getVersionDiffPayload(opts: {
   const from = await loadOwnedVersion(opts.fromVersionId, opts.userId);
   const to = await loadOwnedVersion(opts.toVersionId, opts.userId);
   if (!from || !to) return null;
-  // Both versions must belong to the same project. Cross-project diffs
-  // would technically work but they're outside the dashboard's mental
-  // model (the panel is project-scoped) and let a caller probe for the
-  // existence of an unrelated version. Refuse them.
+  // Refuse cross-project diffs — they'd let a caller probe for the existence of unrelated versions.
   if (from.projectId !== to.projectId) return null;
 
   const tp = tokenProviderForUser(opts.userId);
@@ -100,13 +73,7 @@ export async function getVersionDiffPayload(opts: {
   };
 }
 
-/**
- * Walk the body's structural elements and emit one `ParagraphSummary` per
- * paragraph. Tables / section breaks / table-of-contents nodes are skipped
- * in v1 — the diff renderer doesn't yet have a table view, and surfacing
- * an empty placeholder paragraph would muddy paragraph alignment.
- * Headers/footers/footnotes are also out of scope for v1.
- */
+// v1 skips tables / section breaks / TOC / headers / footers / footnotes — emit body paragraphs only.
 export function summarizeDocument(doc: Document): ParagraphSummary[] {
   const out: ParagraphSummary[] = [];
   for (const el of doc.body?.content ?? []) {
@@ -128,8 +95,7 @@ function summarizeParagraph(p: NonNullable<Document["body"]>["content"][number][
       style: summarizeTextStyle(pe.textRun),
     });
   }
-  // Docs paragraphs always end in a literal `\n`; the diff renderer
-  // works in paragraph terms, so the trailing newline is noise.
+  // Docs paragraphs always end with a literal \n; strip it.
   if (plaintext.endsWith("\n")) plaintext = plaintext.slice(0, -1);
 
   const paraStyle = (p?.paragraphStyle ?? {}) as { namedStyleType?: unknown };

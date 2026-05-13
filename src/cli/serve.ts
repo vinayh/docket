@@ -29,9 +29,7 @@ export async function run(args: string[]): Promise<void> {
   const shutdown = async (signal: string) => {
     console.log(`received ${signal}, shutting down`);
     await server.stop();
-    // Close the SQLite handle so WAL is checkpointed before exit. Without
-    // this, a crash window between server.stop() and process.exit() could
-    // leave uncommitted WAL pages that recovery has to reapply on restart.
+    // Close SQLite to checkpoint the WAL before exit.
     sqlite.close();
     process.exit(0);
   };

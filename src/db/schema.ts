@@ -11,14 +11,7 @@ import {
 const newId = () => crypto.randomUUID();
 const now = () => new Date();
 
-/**
- * Better Auth owns the `user`, `session`, `account`, and `verification`
- * tables (column names follow its expectations: snake_case in SQL, camelCase
- * on the Drizzle object). Google refresh tokens live in `account.refreshToken`
- * envelope-encrypted via a `databaseHooks.account` write hook — see
- * `src/auth/server.ts`. `TokenProvider` reads them back through
- * `src/auth/credentials.ts`.
- */
+// user/session/account/verification are Better Auth tables. Column names follow its expectations.
 export const user = sqliteTable("user", {
   id: text("id").primaryKey().$defaultFn(newId),
   name: text("name").notNull(),
@@ -56,13 +49,7 @@ export const account = sqliteTable(
     providerId: text("provider_id").notNull(),
     accountId: text("account_id").notNull(),
     accessToken: text("access_token"),
-    /**
-     * Long-lived OAuth refresh token. Envelope-encrypted on write by the
-     * `databaseHooks.account` hook (see `src/auth/server.ts`) and decrypted
-     * on read by `tokenProviderForUser` (`src/auth/credentials.ts`).
-     * Better Auth's own refresh path is not used — `TokenProvider` calls
-     * Google's `oauth2/token` directly with the decrypted plaintext.
-     */
+    // Envelope-encrypted on write; decrypted by tokenProviderForUser.
     refreshToken: text("refresh_token"),
     idToken: text("id_token"),
     accessTokenExpiresAt: integer("access_token_expires_at", { mode: "timestamp_ms" }),
@@ -91,27 +78,13 @@ export const verification = sqliteTable(
   (t) => [index("verification_identifier_idx").on(t.identifier)],
 );
 
-/**
- * Free-form JSON blob persisted on `project.settings`. Phase 4 adds the
- * "Settings" surface (SPEC §12): notification prefs, default reviewers,
- * Slack workspace linking. Anything not set falls back to the safe default
- * — domain code reads these via `loadProjectSettings`.
- */
+// JSON blob on project.settings. Read via loadProjectSettings; unset fields fall back to defaults.
 export type ProjectSettings = {
-  /** Pre-fill these emails as reviewers on new review requests. */
   defaultReviewerEmails?: string[];
-  /** UUID of the overlay to auto-apply on new derivatives. */
   defaultOverlayId?: string;
-  /** Notify the owner when a new comment lands on a tracked version. */
   notifyOnComment?: boolean;
-  /** Notify the owner when every reviewer has responded on a request. */
   notifyOnReviewComplete?: boolean;
-  /**
-   * Slack workspace this project is linked to. Free-form for now — Phase 5
-   * lands the Slack bot, which will write a structured `{ teamId, channelId }`
-   * here. Stored as a string so the Phase-4 settings UI doesn't block on
-   * Phase-5 plumbing.
-   */
+  // Free-form for now; Phase 5 will write a structured { teamId, channelId } here.
   slackWorkspaceRef?: string;
 };
 
@@ -130,10 +103,7 @@ export const project = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
   },
   (t) => [
-    // One project per (doc, owner) — two concurrent `register-doc` posts for
-    // the same doc by the same user must collapse rather than racing into
-    // duplicate rows. `createProject` translates the resulting constraint
-    // violation into a `DuplicateProjectError`.
+    // createProject relies on this to translate a race into DuplicateProjectError.
     uniqueIndex("project_doc_owner_unique").on(t.parentDocId, t.ownerUserId),
   ],
 );
@@ -159,9 +129,7 @@ export const version = sqliteTable(
   },
   (t) => [
     index("version_project_idx").on(t.projectId),
-    // Labels are unique within a project — `nextAutoLabel` MAX+1 plus this
-    // constraint makes the race-on-auto-allocation observable rather than
-    // silently producing dup labels.
+    // Pairs with nextAutoLabel's MAX+1 so a race surfaces as a conflict instead of dup labels.
     uniqueIndex("version_project_label_unique").on(t.projectId, t.label),
     foreignKey({ columns: [t.parentVersionId], foreignColumns: [t.id] }),
   ],
@@ -223,13 +191,7 @@ export const derivative = sqliteTable("derivative", {
 
 export type DocRegion = "body" | "header" | "footer" | "footnote";
 
-/**
- * Range coordinates for one disjoint span of a multi-range comment. Populated
- * when a `<w:comment>` exported as multiple OOXML rows sharing (author, date,
- * body) collapses into one `canonical_comment` (SPEC §9.8). The primary span
- * is the `structuralPosition` on the parent `CommentAnchor`; this type covers
- * the *additional* ranges only.
- */
+// One additional range of a multi-range comment. The primary lives on structuralPosition.
 export type AnchorRange = {
   region: DocRegion;
   regionId?: string;
@@ -245,20 +207,14 @@ export type CommentAnchor = {
   contextAfter?: string;
   paragraphHash?: string;
   structuralPosition?: {
-    /** Region of the doc this anchor lives in. Omitted = "body" (back-compat). */
+    // Omitted region defaults to "body" (back-compat).
     region?: DocRegion;
-    /** ID of the header/footer/footnote element. Required when region != "body". */
+    // Required when region != "body".
     regionId?: string;
-    /** Zero-based paragraph index, local to the region. */
     paragraphIndex: number;
     offset: number;
   };
-  /**
-   * Extra disjoint ranges, populated when a comment was exported as multiple
-   * OOXML rows sharing (author, date, body). The primary range lives on
-   * `structuralPosition`; everything else lives here. Order is document
-   * order (region, regionId, paragraphIndex, startOffset).
-   */
+  // Sorted in document order (region, regionId, paragraphIndex, startOffset).
   additionalRanges?: AnchorRange[];
 };
 
@@ -266,14 +222,11 @@ export type CanonicalCommentStatus = "open" | "addressed" | "wontfix" | "superse
 
 /**
  * What kind of doc annotation produced this canonical_comment.
- *
- * - `comment`: a Drive comment thread (or reply within one). Author/timestamp from the API.
- * - `suggestion_insert` / `suggestion_delete`: a Google Docs tracked-change suggestion.
- *   Author/timestamp for the suggestion aren't surfaced by `documents.get`; resolving
- *   them via the Drive revisions API is deferred (SPEC Phase 6). Reply threads typed
- *   into the suggestion's sidebar entry are stored internally by Google and are not
- *   exposed by any public API — verified empirically. Use `bun margin inspect <url>`
- *   to confirm if you suspect a doc has discussion that's not making it through.
+ * - `comment`: Drive comment thread or reply. Author/timestamp from the API.
+ * - `suggestion_insert` / `suggestion_delete`: a tracked-change suggestion. Author/timestamp
+ *   aren't surfaced by `documents.get`; resolving via the Drive revisions API is deferred
+ *   (SPEC Phase 6). Reply threads on a suggestion are stored internally by Google and not
+ *   exposed by any public API (verified empirically). Use `bun margin inspect <url>` to confirm.
  */
 export type CanonicalCommentKind = "comment" | "suggestion_insert" | "suggestion_delete";
 
@@ -290,12 +243,7 @@ export const canonicalComment = sqliteTable(
     originUserId: text("origin_user_id").references(() => user.id),
     originUserEmail: text("origin_user_email"),
     originUserDisplayName: text("origin_user_display_name"),
-    /**
-     * Short SHA-256 of the author's Drive `photoLink` (when available). Used
-     * to disambiguate two reviewers sharing a display name — OOXML carries
-     * display name only (SPEC §9.8), so we hash the Drive-side photoLink as
-     * a stable per-user marker without persisting the raw URL.
-     */
+    // Short SHA-256 of Drive photoLink; disambiguates reviewers sharing a display name.
     originPhotoHash: text("origin_photo_hash"),
     originTimestamp: integer("origin_timestamp", { mode: "timestamp_ms" }).notNull(),
     kind: text("kind").$type<CanonicalCommentKind>().notNull().default("comment"),
@@ -329,13 +277,7 @@ export const commentProjection = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.canonicalCommentId, t.versionId] }),
-    // Two concurrent ingest paths (Drive webhook + extension sync + poll loop)
-    // can race the read-then-insert in `upsertCanonical`. The unique
-    // constraint turns the loser of the race into an observable conflict; the
-    // upsert path catches it and falls back to returning the existing row.
-    // SQLite allows multiple NULLs in a unique index, so projections without
-    // a `googleCommentId` (none today, but the column is nullable) don't
-    // collide.
+    // Lets upsertCanonical detect a concurrent-ingest race and fall back to the existing row.
     uniqueIndex("comment_projection_version_google_unique").on(
       t.versionId,
       t.googleCommentId,
@@ -382,12 +324,7 @@ export const reviewAssignment = sqliteTable(
   (t) => [primaryKey({ columns: [t.reviewRequestId, t.userId] })],
 );
 
-/**
- * Active Drive `files.watch` channel for a version's Google Doc. One row per
- * (version × active channel). Operational state (not part of SPEC §4's data model);
- * the doc-watcher reads it to renew expiring channels and to map an inbound
- * push notification's channel id back to the version it covers.
- */
+// Tracks active Drive files.watch channels so the watcher can renew and map push → version.
 export const driveWatchChannel = sqliteTable(
   "drive_watch_channel",
   {
@@ -397,7 +334,7 @@ export const driveWatchChannel = sqliteTable(
       .references(() => version.id, { onDelete: "cascade" }),
     channelId: text("channel_id").notNull().unique(),
     resourceId: text("resource_id").notNull(),
-    /** Random per-channel secret echoed back as `X-Goog-Channel-Token`. */
+    // Echoed back as X-Goog-Channel-Token.
     token: text("token"),
     address: text("address").notNull(),
     expiration: integer("expiration", { mode: "timestamp_ms" }),
@@ -409,14 +346,9 @@ export const driveWatchChannel = sqliteTable(
 );
 
 /**
- * Actions exposed by the magic-link review flow (SPEC §6.3, §12 Phase 4).
- * One token per (assignment, action) — the email body links four buttons
- * and each redeems to one of these. Tokens are single-use, scoped to the
- * exact action they were issued for.
- *
- * `accept_reconciliation` covers the cross-version "yes, this v1 comment
- * is still open on v2" confirmation in workflow §7.4 step 5; the others
- * are review_assignment state transitions.
+ * Magic-link review actions. The first three are review_assignment state transitions;
+ * `accept_reconciliation` covers the cross-version "yes, this v1 comment is still open
+ * on v2" confirmation (SPEC §7.4 step 5).
  */
 export type ReviewActionKind =
   | "mark_reviewed"
@@ -424,22 +356,13 @@ export type ReviewActionKind =
   | "request_changes"
   | "accept_reconciliation";
 
-/**
- * Magic-link token issued in assignment emails (SPEC §6.3 + §12 Phase 4).
- * Stored as a sha256 hash; the plaintext goes in the email link only. Each
- * row is single-use: redeeming sets `used_at` and refuses further use. The
- * route ignores expired tokens too.
- */
+// Magic-link token. Stored as sha256; single-use (used_at + expiresAt gate redemption).
 export const reviewActionToken = sqliteTable(
   "review_action_token",
   {
     id: text("id").primaryKey().$defaultFn(newId),
     tokenHash: text("token_hash").notNull().unique(),
-    /**
-     * Assignments are keyed on (review_request_id, user_id) — no single-
-     * column id — so we denormalize both halves here. `assigneeUserId`
-     * doubles as the actor for the audit log entry written on redeem.
-     */
+    // Denormalized (review_request_id, user_id) because assignment has no single-column id.
     reviewRequestId: text("review_request_id").notNull(),
     assigneeUserId: text("assignee_user_id")
       .notNull()

@@ -17,17 +17,8 @@ import {
   updateProjectSettings,
 } from "../utils/backend-client.ts";
 
-/**
- * MV3 service worker. Sole job is routing popup / side-panel messages to the
- * backend (via `utils/backend-client.ts`) and accepting the tab-based OAuth
- * bridge handoff. Pre-docx-ingest the SW also owned a capture queue + flush
- * loop fed by the docs.google.com content script; that pipeline is gone
- * (SPEC §9.8 — backend exports the doc as `.docx` and parses it server-side).
- *
- * State this SW touches: settings only (in chrome.storage.local). No queue,
- * no seen-set, no per-doc cache. The SW can spin up cold on every message
- * without losing anything.
- */
+// MV3 service worker. Routes popup / side-panel messages to the backend and accepts the
+// tab-based OAuth bridge handoff. Only state held is settings; safe to cold-start any time.
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
@@ -47,21 +38,16 @@ export default defineBackground(() => {
         .catch((err) => {
           console.error("[margin] message handler:", err);
           const msg = err instanceof Error ? err.message : String(err);
-          // Echo the original kind so callers route the error to the same
-          // discriminant arm they were waiting on.
+          // Echo the original kind so callers see the error on the discriminant they awaited.
           sendResponse(errorResponseFor(message, msg));
         });
       return true; // keep the message channel open for the async response
     },
   );
 
-  // Tab-based OAuth bridge — Chromium path. The `/api/auth/ext/success`
-  // page (served by the user's configured backend) runs
-  // `chrome.runtime.sendMessage(extId, { kind: "auth/token", token })`
-  // from page context. Anything outside the configured backend origin is
-  // ignored. Firefox doesn't expose `externally_connectable.matches` to
-  // pages (Bugzilla 1319168), so this listener never fires there — the
-  // `tabs.onUpdated` listener below handles Firefox via URL fragment.
+  // OAuth bridge, Chromium path: bridge page calls chrome.runtime.sendMessage from page context.
+  // We allow-list on backend origin. Firefox can't reach this listener (Bugzilla 1319168);
+  // see the tabs.onUpdated handler below for its fragment fallback.
   browser.runtime.onMessageExternal.addListener(
     (msg, sender, sendResponse: (r: { ok: boolean; error?: string }) => void) => {
       void handleExternal(msg, sender)
@@ -74,63 +60,45 @@ export default defineBackground(() => {
     },
   );
 
-  // Tab-based OAuth bridge — fragment fallback. The bridge page sets
-  // `location.hash = 'token=…'` when `chrome.runtime.sendMessage` isn't
-  // available (Firefox today, or any other browser where the
-  // externally_connectable bridge can't reach the SW). Match on URL
-  // origin + pathname so a token in a random tab's fragment never lands
-  // in `settings.sessionToken`.
+  // OAuth bridge fragment fallback. Gate on origin + pathname so a token in some unrelated
+  // tab's fragment never lands in settings.sessionToken.
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     const url = changeInfo.url ?? tab.url;
     if (!url) return;
     void handleAuthFragment(tabId, url);
   });
 
-  // Toolbar-icon routing. For Doc tabs whose project we've already
-  // ingested, we want the click to open the side-panel dashboard
-  // directly instead of the popup. Per-tab `action.setPopup({ popup:""})`
-  // makes `chrome.action.onClicked` fire on click; the default popup
-  // stays in place for everything else (non-Doc tabs, untracked Docs,
-  // signed-out state).
+  // Toolbar routing: per-tab `action.setPopup({ popup: "" })` makes onClicked fire (→ side panel)
+  // for tracked Docs; everything else keeps the default popup.
   browser.tabs.onActivated.addListener((info) => {
     void browser.tabs
       .get(info.tabId)
       .then((tab) => evaluateAction(info.tabId, tab.url))
       .catch(() => {
-        // Tab gone between activation and our get — nothing to do.
+        // Tab gone between activation and get — not actionable.
       });
   });
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    // URL changed (navigation), or the page finished loading. Title
-    // and favicon changes are skipped — popup state doesn't depend
-    // on them.
     if (changeInfo.url || changeInfo.status === "complete") {
       void evaluateAction(tabId, tab.url);
     }
   });
 
-  // The click hits onClicked only on tabs where we've cleared the
-  // popup. Open the side-panel/sidebar synchronously while we still
-  // hold the user gesture — Chrome's `sidePanel.open` and Firefox's
-  // `sidebarAction.open` both reject if called after an awaited
-  // promise loses the gesture.
+  // Open the side panel synchronously inside the click handler — Chrome's sidePanel.open and
+  // Firefox's sidebarAction.open both reject if the user gesture is lost after an await.
   browser.action.onClicked.addListener((tab) => {
     if (!tab || tab.id === undefined) return;
     openSidePanelForTab(tab);
   });
 
-  // Settings flips (sign-in lands `sessionToken`, sign-out clears it)
-  // can change every doc's tracked state. Clear the cache and re-
-  // evaluate every open Doc tab so the toolbar action follows.
+  // Sign-in/sign-out can change every doc's tracked state; invalidate and re-eval.
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !changes.settings) return;
     trackedCache.clear();
     void refreshAllDocTabs();
   });
 
-  // SW cold-start: catch up any Doc tabs the user already had open
-  // before the SW first booted, so the first click on the toolbar
-  // routes correctly without waiting for a tab event.
+  // Cold-start sweep so the first toolbar click on pre-existing Doc tabs routes correctly.
   void refreshAllDocTabs();
 });
 
@@ -154,22 +122,14 @@ async function isDocTracked(docId: string): Promise<boolean> {
   return tracked;
 }
 
-/**
- * Decide whether this tab's toolbar icon should open the popup or fire
- * `onClicked` (which we route to the side panel). Tracked Doc tabs get
- * `popup: ""`; everything else gets the default popup restored so the
- * onboarding / sign-in / untracked flows still work.
- */
 async function evaluateAction(tabId: number, url: string | undefined): Promise<void> {
   const docId = url ? parseDocIdFromUrl(url) : null;
   if (!docId) {
     await safeSetPopup(tabId, DEFAULT_POPUP_PATH);
     return;
   }
-  // Without settings, the doc-state call would just fail; don't bother
-  // (and don't cache "untracked" — the answer flips as soon as the
-  // user signs in, and we'd be stuck with stale `false` entries until
-  // the TTL expires).
+  // Don't probe when signed out — and don't cache the resulting "untracked", since the answer
+  // flips on sign-in and we'd be stuck with stale entries until the TTL expires.
   const settings = await getSettings();
   if (!settings) {
     await safeSetPopup(tabId, DEFAULT_POPUP_PATH);
@@ -183,8 +143,7 @@ async function safeSetPopup(tabId: number, popup: string): Promise<void> {
   try {
     await browser.action.setPopup({ tabId, popup });
   } catch (err) {
-    // Tab may have been closed between the lookup and the set — that's
-    // expected and not actionable.
+    // Tab closed between lookup and set; not actionable.
     console.warn("[margin] action.setPopup failed:", err);
   }
 }
@@ -203,11 +162,6 @@ async function refreshAllDocTabs(): Promise<void> {
   }
 }
 
-/**
- * Re-evaluate just the tabs whose URL contains this docId. Used after a
- * tracked-state flip (sync, register) so the toolbar action follows the
- * new state without waiting for the next tab switch.
- */
 async function refreshTabsForDoc(docId: string): Promise<void> {
   try {
     const tabs = await browser.tabs.query({ url: "https://docs.google.com/*" });
@@ -256,13 +210,6 @@ function isExternalAuthMessage(msg: unknown): msg is ExternalAuthMessage {
   return m.kind === "auth/token" && typeof m.token === "string" && m.token.length > 0;
 }
 
-/**
- * Normalise a URL down to its origin for the bridge-page allow-list. Both
- * the stored backend URL (`http://localhost:8787` or similar) and Chrome's
- * `sender.origin` (e.g. `http://localhost:8787`) should compare equal after
- * stripping path / trailing slashes. Returns null when the input isn't a
- * parseable absolute URL — the caller treats that as a no-match.
- */
 function originOf(url: string | null | undefined): string | null {
   if (!url) return null;
   try {
@@ -293,18 +240,9 @@ async function handleExternal(
   return { ok: true };
 }
 
-/**
- * Firefox-path companion to `handleExternal`: the bridge page parks the
- * session token in `location.hash` because `externally_connectable.matches`
- * isn't honored. We gate on origin + pathname (so a token in some unrelated
- * tab's fragment never makes it into settings) and then close the bridge
- * tab once the token's been persisted.
- *
- * Reading `tab.url` requires either the `tabs` permission or matching host
- * permissions; the user grants the backend origin via the Options page's
- * `permissions.request({ origins: [...] })` flow, so by the time this
- * listener has anything to do, the URL is visible.
- */
+// Firefox fragment-fallback companion to handleExternal. tab.url requires the tabs permission
+// or matching host permissions — the Options page's permissions.request flow grants the
+// backend origin, so by the time this fires the URL is visible.
 async function handleAuthFragment(tabId: number, url: string): Promise<void> {
   let parsed: URL;
   try {
@@ -361,8 +299,7 @@ function errorResponseFor(message: Message | unknown, error: string): MessageRes
     case "settings/update":
       return { kind: "settings/update", settings: null, error };
     default:
-      // Unknown/malformed inbound kind — caller will see `error` set and
-      // bail; the chosen discriminant doesn't matter for routing.
+      // Unknown inbound kind; caller bails on `error`, the discriminant doesn't matter.
       return { kind: "settings/get", settings: null, backendUrl: null, error };
   }
 }
@@ -386,11 +323,8 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
     }
     case "doc/state": {
       const state = await fetchDocState(message.docId);
-      // Piggyback on the popup/side-panel's own state queries to keep
-      // the toolbar-routing cache fresh without an extra round-trip,
-      // and re-evaluate the matching tab(s) on a state flip — the
-      // picker page registers a doc out-of-band, so the first time the
-      // popup runs `doc/state` after that is when we learn it.
+      // Piggyback on the popup's own state queries to keep the toolbar cache fresh — the picker
+      // page registers docs out-of-band, so this is when the SW first learns a new tracking.
       const tracked = !!(state && state.tracked);
       const prev = trackedCache.get(message.docId);
       trackedCache.set(message.docId, { tracked, ts: Date.now() });
@@ -410,9 +344,7 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
     }
     case "doc/register": {
       const result = await registerDoc(message.docUrlOrId);
-      // The popup path doesn't hit this anymore (the picker page POSTs
-      // /register-doc directly), but the message is still wired up for
-      // future surfaces. Refresh whatever tabs are open just in case.
+      // The popup path no longer hits this (picker POSTs register-doc directly); kept for future surfaces.
       if (result.kind === "registered") {
         trackedCache.delete(result.parentDocId);
         void refreshTabsForDoc(result.parentDocId);

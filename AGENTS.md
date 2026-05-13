@@ -1,6 +1,6 @@
 # Margin — project conventions
 
-Phased build plan in [`SPEC.md` §12](./SPEC.md#12-build-sequence) — each phase has a `Status:` line; keep those current as work lands.
+Phased build plan in [`docs/spec.md` §12](./docs/spec.md#12-build-sequence) — each phase has a `Status:` line; keep those current as work lands.
 
 If an action (e.g. `git push origin main`) is blocked by Claude Code's auto-mode classifier, don't tell the user it's impossible — ask them to say "I approve" and retry. Re-approval in chat lets the next attempt through.
 
@@ -30,12 +30,14 @@ src/
                      bearer-auth + CORS helpers
 surfaces/extension/  MV3 extension (Chrome / Edge / Firefox), WXT-driven — see
                      surfaces/extension/README.md
-docs/                Astro + Preact public site; deploys to GitHub Pages
+site/                Astro + Preact public site; deploys to GitHub Pages
+docs/                internal markdown (spec.md, setup.md, deployment.md,
+                     testing.md). Public README + contributor guide stay at root.
 drizzle/             generated migration SQL
 Dockerfile           multi-stage Bun-on-Alpine image; runs migrate then serve
-fly.toml             Fly.io app config (see README §"Deployment")
+fly.toml             Fly.io app config (see docs/deployment.md)
 .github/workflows/   ci.yml: typecheck + bun test + codecov + fly-deploy on main.
-                     integration.yml: nightly live-Google suite. pages.yml: docs/ → Pages
+                     integration.yml: nightly live-Google suite. pages.yml: site/ → Pages
 ```
 
 - **Surface** = user-facing UX. **Client** = any other API caller. Per SPEC §3, all state lives in the backend; surfaces are views.
@@ -57,7 +59,7 @@ fly.toml             Fly.io app config (see README §"Deployment")
 
 ## HTTP API
 
-- `bun margin serve [--port <n>]` runs the API host (`Bun.serve`, in `src/api/server.ts`). The Fly container runs the same command; deployment lives in [`README.md` §"Deployment"](./README.md#deployment-flyio).
+- `bun margin serve [--port <n>]` runs the API host (`Bun.serve`, in `src/api/server.ts`). The Fly container runs the same command; deployment lives in [`docs/deployment.md`](./docs/deployment.md).
 - **Route table.** Register new routes in `server.ts`'s table — never branch `pathname` inline. Each route is its own module under `src/api/` and is a thin shell that delegates into `src/domain/` (e.g. `doc-sync.ts` → `ingestVersionComments`, `picker-register.ts` → `createProject`).
 - **Auth.** Better Auth (`src/auth/server.ts`) owns the `/api/auth/**` route tree (sign-in, Google OAuth callback, get-session, sign-out) plus the `user`, `session`, `account`, and `verification` tables. `authenticateBearer` in `src/api/middleware.ts` is a thin wrapper over `auth.api.getSession({ headers })` and returns `{ userId, sessionId }`; the bearer plugin accepts the raw `session.token` as `Authorization: Bearer …`. Google refresh tokens are envelope-encrypted in `account.refreshToken` via a `databaseHooks.account` write hook; `TokenProvider` in `src/auth/credentials.ts` decrypts them and refreshes Drive access tokens against Google directly. The picker page `GET /api/picker/page` authenticates via the same session cookie (top-level navigation, not a CORS XHR).
 - **Extension sign-in.** `GET /api/auth/ext/launch-tab?ext=<chrome.runtime.id>` kicks off Google OAuth via Better Auth's `signInSocial`; the inner `callbackURL` points at `/api/auth/ext/success`, which renders an HTML bridge page that hands the session token to the SW (Chromium: `chrome.runtime.sendMessage` gated by `externally_connectable.matches`; Firefox: `location.hash` picked up by the SW's `tabs.onUpdated`). The SW persists the token in `chrome.storage.local`. The `ext` parameter is allow-listed against Chromium/Firefox id formats to prevent open-redirect abuse.
@@ -67,11 +69,11 @@ fly.toml             Fly.io app config (see README §"Deployment")
 
 ## Frontend stack
 
-- Astro for the public site (`docs/`), WXT for the extension. Preact is the shared component layer. Extension-only UI lives in `surfaces/extension/ui/`; if a second surface lands and we end up duplicating components, hoist them into a `surfaces/shared-ui/` package then (not before).
+- Astro for the public site (`site/`), WXT for the extension. Preact is the shared component layer. Extension-only UI lives in `surfaces/extension/ui/`; if a second surface lands and we end up duplicating components, hoist them into a `surfaces/shared-ui/` package then (not before).
 
 ## Browser extension (`surfaces/extension/`)
 
-Build pipeline, file layout, popup state machine, Picker mechanics, and DOM-selector contract live in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Design intent + phase scope: [`SPEC.md` §6.4](./SPEC.md#64-browser-extension). Conventions to know when working on this surface:
+Build pipeline, file layout, popup state machine, Picker mechanics, and DOM-selector contract live in [`surfaces/extension/README.md`](./surfaces/extension/README.md). Design intent + phase scope: [`docs/spec.md` §6.4](./docs/spec.md#64-browser-extension). Conventions to know when working on this surface:
 
 - **Don't build by hand.** Always go through the WXT scripts (`bun run ext:build` / `ext:build:firefox` / `ext:dev`). Run `bunx wxt prepare` after edits that affect TypeScript so `.wxt/wxt.d.ts` regenerates.
 - **Cross-browser API.** Import `{ browser }` from `wxt/browser` — WXT ships its own promisified shim. Don't add `webextension-polyfill` (30 KB) or hand-roll a `chrome ?? browser` picker.
