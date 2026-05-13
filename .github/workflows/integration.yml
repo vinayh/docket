@@ -13,6 +13,10 @@ on:
   schedule:
     - cron: "0 7 * * *"
 
+# Least-privilege GITHUB_TOKEN. Codecov uses its own CODECOV_TOKEN.
+permissions:
+  contents: read
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 

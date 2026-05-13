@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least-privilege GITHUB_TOKEN. Codecov uses its own CODECOV_TOKEN and flyctl
+# uses FLY_API_TOKEN, so the workflow's own token only needs to read the
+# checked-out source.
+permissions:
+  contents: read
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
