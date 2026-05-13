@@ -11,7 +11,6 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json bun.lock tsconfig.json ./
 COPY src ./src
 COPY drizzle ./drizzle
-COPY index.ts ./
 
 ENV NODE_ENV=production
 ENV PORT=8787

@@ -88,6 +88,8 @@ typings/
 .env
 .env.test
 
+CLAUDE.md
+
 # WXT (extension build)
 .wxt
 .output
