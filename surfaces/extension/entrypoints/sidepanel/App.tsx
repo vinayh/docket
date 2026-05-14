@@ -67,10 +67,24 @@ export function App() {
     };
     browser.tabs.onActivated.addListener(onActivated);
     browser.tabs.onUpdated.addListener(onUpdated);
+
+    // Lifecycle port: lets the SW track "is the panel open in this window?"
+    // synchronously inside the toolbar `action.onClicked` handler — the
+    // gesture chain doesn't survive an `await`, so the SW needs the answer
+    // already cached when the click fires. Disconnect on unmount also fires
+    // automatically when the user closes the panel.
+    let port: chrome.runtime.Port | null = null;
+    void browser.windows.getCurrent().then((win) => {
+      if (win.id === undefined) return;
+      port = browser.runtime.connect({ name: "margin-panel-lifecycle" });
+      port.postMessage({ kind: "panel/hello", windowId: win.id });
+    });
+
     return () => {
       browser.tabs.onActivated.removeListener(onActivated);
       browser.tabs.onUpdated.removeListener(onUpdated);
       if (bootTimer.current) clearTimeout(bootTimer.current);
+      port?.disconnect();
     };
   }, []);
 

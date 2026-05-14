@@ -145,6 +145,42 @@ describe("ingestSuggestions", () => {
     expect(rows[0]?.projectionStatus).toBe("clean");
   });
 
+  test("re-ingest with a rotated date but identical position dedupes", async () => {
+    // Drive's docx export stamps a fresh `w:date` on every export of an
+    // unchanged revision, so the idempotency key must ignore the timestamp.
+    // Regression for spec.md §14 — without this, every watcher poll inserts
+    // a duplicate canonical row per suggestion.
+    const { proj, ver } = await seedHarness();
+    const sug = suggestion({ id: "sug-1", date: "2026-01-01T00:00:00Z" });
+
+    const first = emptyResult(ver.id);
+    await ingestSuggestions({
+      projectId: proj.id,
+      versionId: ver.id,
+      suggestions: [sug],
+      authorIndex: emptyAuthorIndex,
+      result: first,
+    });
+    expect(first.inserted).toBe(1);
+
+    const second = emptyResult(ver.id);
+    await ingestSuggestions({
+      projectId: proj.id,
+      versionId: ver.id,
+      suggestions: [{ ...sug, id: "sug-2", date: "2026-05-14T12:34:56Z" }],
+      authorIndex: emptyAuthorIndex,
+      result: second,
+    });
+    expect(second.inserted).toBe(0);
+    expect(second.alreadyPresent).toBe(1);
+
+    const rows = await db
+      .select()
+      .from(canonicalComment)
+      .where(eq(canonicalComment.projectId, proj.id));
+    expect(rows).toHaveLength(1);
+  });
+
   test("changing position produces a fresh idempotency key (different row)", async () => {
     const { proj, ver } = await seedHarness();
     const r1 = emptyResult(ver.id);

@@ -115,7 +115,9 @@ export default defineConfig({
       side_panel: {
         default_path: "sidepanel.html",
       },
-      minimum_chrome_version: "114", // chrome.sidePanel API
+      // sidePanel.open landed in 114; sidePanel.close needed for the icon
+      // toggle landed in 116.
+      minimum_chrome_version: "116",
     }),
   }),
 });

@@ -87,10 +87,16 @@ export default defineBackground(() => {
     }
   });
 
-  // Open the side panel synchronously inside the click handler — Chrome's sidePanel.open and
-  // Firefox's sidebarAction.open both reject if the user gesture is lost after an await.
+  // Toggle the side panel synchronously inside the click handler — Chrome's sidePanel.open/close
+  // and Firefox's sidebarAction.open/close all reject if the user gesture is lost after an await.
+  // Open-state is pre-cached via the lifecycle port listener below so this can branch sync.
   browser.action.onClicked.addListener((tab) => {
     if (!tab || tab.id === undefined) return;
+    const windowId = tab.windowId;
+    if (windowId !== undefined && panelOpenWindowIds.has(windowId)) {
+      closeSidePanelForWindow(windowId);
+      return;
+    }
     openSidePanelForTab(tab);
   });
 
@@ -103,6 +109,46 @@ export default defineBackground(() => {
 
   // Cold-start sweep so the first toolbar click on pre-existing Doc tabs routes correctly.
   void refreshAllDocTabs();
+
+  // First-install: drop the user straight into Options so they configure the
+  // backend URL + sign in without having to hunt for chrome://extensions.
+  // Gated on `reason === "install"` so updates and reloads don't pop the tab.
+  browser.runtime.onInstalled.addListener((details) => {
+    if (details.reason !== "install") return;
+    try {
+      browser.runtime.openOptionsPage();
+    } catch (err) {
+      console.warn("[margin] openOptionsPage failed:", err);
+    }
+  });
+
+  // Per-window side-panel open tracking. The panel opens a long-lived port on
+  // mount; the port's disconnection event fires when the panel is closed
+  // (user closes it, navigates away, or the window goes away). We can't await
+  // a query inside `action.onClicked` without losing the user-gesture chain
+  // that Chrome's `sidePanel.open/close` requires, so the open-state has to
+  // be cached synchronously here.
+  browser.runtime.onConnect.addListener((port) => {
+    if (port.name !== PANEL_LIFECYCLE_PORT) return;
+    let windowId: number | undefined;
+    const onPortMessage = (msg: unknown): void => {
+      if (
+        msg &&
+        typeof msg === "object" &&
+        "kind" in msg &&
+        (msg as { kind: unknown }).kind === "panel/hello" &&
+        typeof (msg as { windowId?: unknown }).windowId === "number"
+      ) {
+        windowId = (msg as { windowId: number }).windowId;
+        panelOpenWindowIds.add(windowId);
+      }
+    };
+    port.onMessage.addListener(onPortMessage);
+    port.onDisconnect.addListener(() => {
+      port.onMessage.removeListener(onPortMessage);
+      if (windowId !== undefined) panelOpenWindowIds.delete(windowId);
+    });
+  });
 });
 
 // ---- toolbar-icon routing ------------------------------------------------
@@ -110,6 +156,9 @@ export default defineBackground(() => {
 const DEFAULT_POPUP_PATH = "popup.html";
 const TRACKED_CACHE_TTL_MS = 60_000;
 const trackedCache = new Map<string, { tracked: boolean; ts: number }>();
+// Shared with the side panel; renaming requires updating the panel's connect() call too.
+const PANEL_LIFECYCLE_PORT = "margin-panel-lifecycle";
+const panelOpenWindowIds = new Set<number>();
 
 async function isDocTracked(docId: string): Promise<boolean> {
   const hit = trackedCache.get(docId);
@@ -198,6 +247,29 @@ function openSidePanelForTab(tab: chrome.tabs.Tab): void {
   if (api.sidebarAction?.open) {
     api.sidebarAction.open().catch((err) => {
       console.warn("[margin] sidebarAction.open failed:", err);
+    });
+  }
+}
+
+function closeSidePanelForWindow(windowId: number): void {
+  // Mirror of openSidePanelForTab. Chrome's `sidePanel.close` is 116+;
+  // Firefox's `sidebarAction.close` has been around since 57. We optimistically
+  // drop the cached open-state so a third click reopens reliably even if the
+  // close call lost its gesture window.
+  panelOpenWindowIds.delete(windowId);
+  const api = browser as unknown as {
+    sidePanel?: { close: (opts: { windowId: number }) => Promise<void> };
+    sidebarAction?: { close: () => Promise<void> };
+  };
+  if (api.sidePanel?.close) {
+    api.sidePanel.close({ windowId }).catch((err) => {
+      console.warn("[margin] sidePanel.close failed:", err);
+    });
+    return;
+  }
+  if (api.sidebarAction?.close) {
+    api.sidebarAction.close().catch((err) => {
+      console.warn("[margin] sidebarAction.close failed:", err);
     });
   }
 }

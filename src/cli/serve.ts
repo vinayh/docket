@@ -1,7 +1,8 @@
 import { parseArgs } from "node:util";
 import * as v from "valibot";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { startServer } from "../api/server.ts";
-import { sqlite } from "../db/client.ts";
+import { db, sqlite } from "../db/client.ts";
 import { parseNumberArg } from "./util.ts";
 
 const USAGE = `\
@@ -22,6 +23,12 @@ export async function run(args: string[]): Promise<void> {
     v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(65535)),
     "--port",
   );
+
+  // Apply pending migrations before the server binds. The Dockerfile invokes
+  // `bun src/db/migrate.ts` ahead of `serve`; running it here too lets
+  // `bun margin serve` outside the container match that contract instead of
+  // surfacing schema drift as a 500 from `no such column: …`.
+  migrate(db, { migrationsFolder: "./drizzle" });
 
   const server = startServer(port !== undefined ? { port } : {});
   console.log(`margin api listening on http://${server.hostname}:${server.port}`);

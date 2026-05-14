@@ -24,6 +24,11 @@ export function Settings({ projectId, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<ProjectSettingsView | null>(null);
+  // The reviewer-emails textarea is stored as the raw string the user typed,
+  // not the parsed list — round-tripping through `parseEmails` on every
+  // keystroke discards empty lines, so the user can't press Enter to start a
+  // new email. Parsing happens once at save time.
+  const [reviewerEmailsRaw, setReviewerEmailsRaw] = useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +50,7 @@ export function Settings({ projectId, onClose }: Props) {
         }
         setState({ kind: "loaded", settings: r.settings });
         setForm(r.settings);
+        setReviewerEmailsRaw(r.settings.defaultReviewerEmails.join("\n"));
       } catch (err) {
         if (cancelled) return;
         setState({
@@ -63,7 +69,11 @@ export function Settings({ projectId, onClose }: Props) {
     setError(null);
     setSaving(true);
     try {
-      const patch = diffSettings(state.settings, form);
+      const next: ProjectSettingsView = {
+        ...form,
+        defaultReviewerEmails: parseEmails(reviewerEmailsRaw),
+      };
+      const patch = diffSettings(state.settings, next);
       if (Object.keys(patch).length === 0) {
         setSaving(false);
         return;
@@ -74,6 +84,7 @@ export function Settings({ projectId, onClose }: Props) {
       if (!r.settings) throw new Error("no settings returned");
       setState({ kind: "loaded", settings: r.settings });
       setForm(r.settings);
+      setReviewerEmailsRaw(r.settings.defaultReviewerEmails.join("\n"));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -99,7 +110,11 @@ export function Settings({ projectId, onClose }: Props) {
   }
   if (!form) return null;
 
-  const dirty = Object.keys(diffSettings(state.settings, form)).length > 0;
+  const formWithParsedEmails: ProjectSettingsView = {
+    ...form,
+    defaultReviewerEmails: parseEmails(reviewerEmailsRaw),
+  };
+  const dirty = Object.keys(diffSettings(state.settings, formWithParsedEmails)).length > 0;
 
   return (
     <section class="settings-view">
@@ -136,14 +151,9 @@ export function Settings({ projectId, onClose }: Props) {
           <label for="defaultReviewerEmails">Default reviewer emails</label>
           <textarea
             id="defaultReviewerEmails"
-            value={form.defaultReviewerEmails.join("\n")}
+            value={reviewerEmailsRaw}
             onInput={(ev) =>
-              setForm({
-                ...form,
-                defaultReviewerEmails: parseEmails(
-                  (ev.currentTarget as HTMLTextAreaElement).value,
-                ),
-              })
+              setReviewerEmailsRaw((ev.currentTarget as HTMLTextAreaElement).value)
             }
           />
           <small>One email per line. Pre-fills new review requests.</small>
@@ -184,7 +194,10 @@ export function Settings({ projectId, onClose }: Props) {
           <button
             type="button"
             disabled={saving || !dirty}
-            onClick={() => setForm(state.settings)}
+            onClick={() => {
+              setForm(state.settings);
+              setReviewerEmailsRaw(state.settings.defaultReviewerEmails.join("\n"));
+            }}
           >
             Reset
           </button>

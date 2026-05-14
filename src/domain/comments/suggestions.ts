@@ -67,8 +67,11 @@ function suggestionAnchor(s: DocxSuggestion): CommentAnchor {
 
 function suggestionIdempotencyKey(s: DocxSuggestion): string {
   // Suggestion ids rotate across exports; key on content + position so
-  // re-ingest of the same revision dedupes.
+  // re-ingest of the same revision dedupes. `s.date` is excluded because
+  // OOXML rewrites the suggestion timestamp on every export, which would
+  // otherwise make a static revision produce a fresh canonical row on every
+  // ingest.
   return `mgn:sug:${hashShort(
-    `${s.kind} ${s.author} ${s.date} ${s.region} ${s.regionId} ${s.paragraphIndex} ${s.offset} ${s.text}`,
+    `${s.kind} ${s.author} ${s.region} ${s.regionId} ${s.paragraphIndex} ${s.offset} ${s.text}`,
   )}`;
 }
