@@ -1,5 +1,9 @@
 import { browser } from "wxt/browser";
 import type { ActiveDocTab, TrackedState } from "../Popup.tsx";
+import {
+  openDashboard,
+  shouldUseNativeSidebar,
+} from "../../../utils/ui-surfaces.ts";
 
 interface Props {
   tab: ActiveDocTab;
@@ -33,7 +37,7 @@ export function Tracked({ tab, state, onSync }: Props) {
         <button id="sync" type="button" onClick={onSync}>
           Sync now
         </button>
-        <button type="button" onClick={() => void openSidePanel()}>
+        <button type="button" onClick={() => void openDashboardFromPopup()}>
           Open dashboard
         </button>
       </div>
@@ -42,33 +46,20 @@ export function Tracked({ tab, state, onSync }: Props) {
 }
 
 /**
- * Open the side-panel from the popup's project view. On Chromium calls
- * `chrome.sidePanel.open` with the current window; on Firefox falls back
- * to `browser.sidebarAction.open` (no per-window arg needed). Both APIs
- * must run synchronously inside the click handler — the popup itself
- * closes shortly after, but the panel opens in the parent window.
+ * Open the dashboard from the popup's project view. Real Chrome and Firefox
+ * get the native sidebar; everything else (Edge, Brave, Opera, Arc, the rest
+ * of the long Chromium-derivative tail) gets a detached popup window. The
+ * sidebar API call must run inside the user gesture, but the popup stays
+ * open across the awaits below so Chrome's gesture chain survives.
  */
-async function openSidePanel(): Promise<void> {
-  // `chrome.sidePanel` lands on Chromium MV3 ≥114; `sidebar_action` is
-  // Firefox's equivalent. wxt/browser doesn't unify the two surfaces, so
-  // we feature-detect off the runtime object. Either API must run inside
-  // the click handler — `sidePanel.open` rejects outside a user gesture.
-  const api = browser as unknown as {
-    sidePanel?: { open: (opts: { windowId: number }) => Promise<void> };
-    sidebarAction?: { open: () => Promise<void> };
-  };
-  if (api.sidePanel?.open) {
-    const win = await browser.windows.getCurrent();
-    if (win.id !== undefined) {
-      await api.sidePanel.open({ windowId: win.id });
-      window.close();
-      return;
-    }
-  }
-  if (api.sidebarAction?.open) {
-    await api.sidebarAction.open();
-    window.close();
-  }
+async function openDashboardFromPopup(): Promise<void> {
+  const useNativeSidebar = await shouldUseNativeSidebar();
+  const win = await browser.windows.getCurrent();
+  await openDashboard({
+    useNativeSidebar,
+    windowId: win.id,
+  });
+  window.close();
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

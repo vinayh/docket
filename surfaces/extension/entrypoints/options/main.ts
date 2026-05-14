@@ -1,6 +1,12 @@
 import { browser } from "wxt/browser";
+import { detectAndPersistBrowserQuirks } from "../../utils/browser-detect.ts";
 import type { Message, MessageResponse } from "../../utils/messages.ts";
 import { DEFAULT_BACKEND_URL } from "../../utils/types.ts";
+
+// Detect native-sidebar support (rules out Arc and other Chromium derivatives
+// that silently no-op `chrome.sidePanel`). Result is cached in
+// chrome.storage.local; the SW reads it sync at action-click time.
+void detectAndPersistBrowserQuirks();
 
 const form = document.getElementById("form") as HTMLFormElement;
 const backendUrlInput = document.getElementById("backendUrl") as HTMLInputElement;

@@ -4,6 +4,12 @@ import * as v from "valibot";
 import { MessageSchema, type Message, type MessageResponse } from "../utils/messages.ts";
 import { parseDocIdFromUrl } from "../utils/ids.ts";
 import { getBackendUrl, getSettings, patchSettings, setSettings } from "../utils/storage.ts";
+import { openDashboard, openOptions } from "../utils/ui-surfaces.ts";
+import {
+  BROWSER_QUIRKS_STORAGE_KEY,
+  detectNativeSidebarSupport,
+  getBrowserQuirks,
+} from "../utils/browser-detect.ts";
 import {
   createReviewRequest,
   createVersion,
@@ -87,9 +93,10 @@ export default defineBackground(() => {
     }
   });
 
-  // Toggle the side panel synchronously inside the click handler — Chrome's sidePanel.open/close
-  // and Firefox's sidebarAction.open/close all reject if the user gesture is lost after an await.
-  // Open-state is pre-cached via the lifecycle port listener below so this can branch sync.
+  // Toggle the native sidebar synchronously inside the click handler — sidePanel.open/close and
+  // sidebarAction.open/close all reject if the user gesture is lost across an await. The
+  // detached-window path the helper falls through to has no gesture requirement, and its
+  // repeat-click behavior (focus-existing) is handled inside the helper itself.
   browser.action.onClicked.addListener((tab) => {
     if (!tab || tab.id === undefined) return;
     const windowId = tab.windowId;
@@ -97,30 +104,33 @@ export default defineBackground(() => {
       closeSidePanelForWindow(windowId);
       return;
     }
-    openSidePanelForTab(tab);
+    openDashboardForTab(tab);
   });
 
-  // Sign-in/sign-out can change every doc's tracked state; invalidate and re-eval.
+  // Sign-in/sign-out can change every doc's tracked state; invalidate and re-eval. A change to
+  // browser-quirks (detection landed from a page context) flips whether we use the native sidebar
+  // vs a detached window, so re-prime the cache and re-evaluate per-tab routing.
   browser.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes.settings) return;
+    if (area !== "local") return;
+    if (!changes.settings && !changes[BROWSER_QUIRKS_STORAGE_KEY]) return;
     trackedCache.clear();
+    void primeSidebarCache();
     void refreshAllDocTabs();
   });
 
-  // Cold-start sweep so the first toolbar click on pre-existing Doc tabs routes correctly.
-  void refreshAllDocTabs();
-
-  // First-install: drop the user straight into Options so they configure the
-  // backend URL + sign in without having to hunt for chrome://extensions.
-  // Gated on `reason === "install"` so updates and reloads don't pop the tab.
+  // Auto-open Options on first install. Some Chromium derivatives (Arc) don't render the
+  // browser-action popup until the extension is set up, and `runtime.openOptionsPage()`
+  // doesn't always work in them either — so we go straight to a tab via `openOptions()`.
   browser.runtime.onInstalled.addListener((details) => {
     if (details.reason !== "install") return;
-    try {
-      browser.runtime.openOptionsPage();
-    } catch (err) {
-      console.warn("[margin] openOptionsPage failed:", err);
-    }
+    void openOptions().catch((err) => {
+      console.warn("[margin] could not auto-open Options on install:", err);
+    });
   });
+
+  // Cold-start sweep so the first toolbar click on pre-existing Doc tabs routes correctly.
+  void primeSidebarCache();
+  void refreshAllDocTabs();
 
   // Per-window side-panel open tracking. The panel opens a long-lived port on
   // mount; the port's disconnection event fires when the panel is closed
@@ -229,33 +239,37 @@ async function refreshTabsForDoc(docId: string): Promise<void> {
   }
 }
 
-function openSidePanelForTab(tab: chrome.tabs.Tab): void {
-  const api = browser as unknown as {
-    sidePanel?: {
-      open: (opts: { windowId?: number; tabId?: number }) => Promise<void>;
-    };
-    sidebarAction?: { open: () => Promise<void> };
-  };
-  if (api.sidePanel?.open) {
-    const opts: { windowId?: number; tabId?: number } =
-      tab.windowId !== undefined ? { windowId: tab.windowId } : { tabId: tab.id! };
-    api.sidePanel.open(opts).catch((err) => {
-      console.warn("[margin] sidePanel.open failed:", err);
-    });
-    return;
-  }
-  if (api.sidebarAction?.open) {
-    api.sidebarAction.open().catch((err) => {
-      console.warn("[margin] sidebarAction.open failed:", err);
-    });
-  }
+// Cached so action.onClicked can dispatch synchronously: sidePanel.open must run
+// inside the user gesture, and any `await` before that call drops the gesture.
+// Default is the SW's UA-only detection (no DOM here for the Arc CSS-vars
+// check); a page-context detection later overrides via storage onChanged.
+let cachedUseNativeSidebar: boolean = detectNativeSidebarSupport();
+
+async function primeSidebarCache(): Promise<void> {
+  const quirks = await getBrowserQuirks();
+  cachedUseNativeSidebar = quirks
+    ? quirks.nativeSidebarSupported
+    : detectNativeSidebarSupport();
+}
+
+function openDashboardForTab(tab: chrome.tabs.Tab): void {
+  // Don't await — sidePanel.open inside the helper has to stay synchronous
+  // within the user-gesture chain. The windows.create fallback has no
+  // gesture requirement, so settling later is fine for that path.
+  void openDashboard({
+    useNativeSidebar: cachedUseNativeSidebar,
+    windowId: tab.windowId,
+    tabId: tab.id,
+  }).catch((err) => {
+    console.warn("[margin] openDashboard failed:", err);
+  });
 }
 
 function closeSidePanelForWindow(windowId: number): void {
-  // Mirror of openSidePanelForTab. Chrome's `sidePanel.close` is 116+;
-  // Firefox's `sidebarAction.close` has been around since 57. We optimistically
-  // drop the cached open-state so a third click reopens reliably even if the
-  // close call lost its gesture window.
+  // Counterpart of the panel-open path inside openDashboard. Chrome's
+  // `sidePanel.close` is 116+; Firefox's `sidebarAction.close` has been around
+  // since 57. Drop the cached open-state optimistically so a third click
+  // reopens reliably even if the close call lost its gesture window.
   panelOpenWindowIds.delete(windowId);
   const api = browser as unknown as {
     sidePanel?: { close: (opts: { windowId: number }) => Promise<void> };

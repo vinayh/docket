@@ -87,15 +87,54 @@ the extension surface.
 ## Toolbar-icon routing
 
 For Doc tabs that already belong to a project, clicking the toolbar
-icon opens the **side-panel dashboard** directly instead of the popup.
-The SW watches `tabs.onActivated` / `tabs.onUpdated`, calls
-`doc/state` (cached briefly per `docId`), and toggles the per-tab
-popup: `action.setPopup({ tabId, popup: "" })` for tracked Docs (so
-`action.onClicked` fires and opens the side panel),
-`popup: "popup.html"` for everything else (non-Doc tabs, untracked
-Docs, signed-out state — the popup's existing state machine handles
-those). The cache is invalidated on settings change (sign-in /
-sign-out) and on `doc/sync` / `doc/register` flips.
+icon opens the **dashboard** directly instead of the popup. The SW
+watches `tabs.onActivated` / `tabs.onUpdated`, calls `doc/state`
+(cached briefly per `docId`), and toggles the per-tab popup:
+`action.setPopup({ tabId, popup: "" })` for tracked Docs (so
+`action.onClicked` fires and opens the dashboard), `popup:
+"popup.html"` for everything else (non-Doc tabs, untracked Docs,
+signed-out state — the popup's existing state machine handles those).
+The cache is invalidated on settings change (sign-in / sign-out) and
+on `doc/sync` / `doc/register` flips.
+
+"Dashboard" resolves at click time via `utils/ui-surfaces.ts`. The
+policy is conservative: the native sidebar (Chromium `chrome.sidePanel`
+/ Firefox `sidebar_action`) is only used when we're confident the host
+browser actually renders it. Everywhere else — Edge, Brave, Opera, Arc,
+the long tail of Chromium derivatives — `openDashboard` opens a detached
+popup window loading `sidepanel.html` instead. Repeat icon clicks focus
+the existing popup window rather than stacking duplicates.
+
+The native-sidebar gate is one boolean (`nativeSidebarSupported`) cached
+in the SW and refreshed on every relevant storage write. evaluateAction
+suppresses the per-tab popup on tracked Docs unconditionally — both the
+sidebar and detached-window paths handle a direct icon-click safely, so
+there's no detection-bootstrap gate to manage.
+
+`runtime.onInstalled` opens the Options page in a new tab on first install
+so users on browsers without a working `runtime.openOptionsPage()` (Arc)
+can still reach setup. All "Open Options" buttons in the UI also go
+through `tabs.create({ url: getURL("options.html") })` for the same
+reason.
+
+### Browser detection (`utils/browser-detect.ts`)
+
+`detectNativeSidebarSupport()` is the source of truth:
+
+- Firefox (UA string `Firefox/<n>`): true. The native sidebarAction works.
+- Real Google Chrome (`userAgentData.brands` includes `Google Chrome`,
+  with no Brave / Edge / Opera UA markers and — if a DOM is available —
+  no Arc `--arc-palette-*` CSS custom properties): true.
+- Everything else: false. The detached window is used.
+
+The SW can only run the UA half of the probe (no DOM, so no Arc CSS-vars
+check). Extension-page entrypoints (`entrypoints/popup/main.tsx`,
+`entrypoints/options/main.ts`) call `detectAndPersistBrowserQuirks()` on
+load, which runs the full probe and writes the boolean to
+`chrome.storage.local.browserQuirks` — idempotent, only writes on change.
+The SW's `storage.onChanged` listener picks the value up and reprimes
+`cachedUseNativeSidebar`. Add new exclusion probes here if more
+side-panel-less browsers come up.
 
 There is no static `host_permissions` for `docs.google.com` — the
 extension never injects into the Docs tab. The `tabs` API gives the popup

@@ -1,4 +1,4 @@
-import { browser } from "wxt/browser";
+import { openOptions } from "../utils/ui-surfaces.ts";
 
 /**
  * Title bar shared by the popup and the side panel. Same shape, same
@@ -9,10 +9,7 @@ export function Header() {
   return (
     <header>
       <strong>Margin</strong>
-      <button
-        type="button"
-        onClick={() => browser.runtime.openOptionsPage()}
-      >
+      <button type="button" onClick={() => void openOptions()}>
         Options
       </button>
     </header>

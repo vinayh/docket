@@ -1,4 +1,4 @@
-import { browser } from "wxt/browser";
+import { openOptions } from "../../../utils/ui-surfaces.ts";
 
 export function NoSettings() {
   return (
@@ -10,7 +10,7 @@ export function NoSettings() {
         <button
           type="button"
           class="primary"
-          onClick={() => browser.runtime.openOptionsPage()}
+          onClick={() => void openOptions()}
         >
           Open Options
         </button>
