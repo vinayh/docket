@@ -6,6 +6,16 @@ Structured review of Google Docs across drafts, audiences, and orgs. Snapshot a 
 
 See [`docs/spec.md`](./docs/spec.md) for the design and per-phase build status. [§12](./docs/spec.md#12-build-sequence) tracks what's shipped, in-flight, and ahead.
 
+## Example workflows
+
+- **Author shares a draft with execs while iterating.** Freeze a snapshot, send it for review, keep editing the live doc; when execs comment on the snapshot, their feedback lands in the right spot on the latest version.
+- **Researcher publishes a redacted version to an external partner.** Define a "redact sensitive bits" recipe once, generate a clean copy to share, and have any comments the partner leaves flow back to the original.
+- **Coordinating a multi-reviewer cycle across orgs.** Kick off a review in Slack with a deadline and reviewer list; everyone gets pinged in their own thread (or an email link if they're outside your Slack), and status rolls up in one place.
+- **Reconciling comments after a major rewrite.** When the doc shifts a lot, Margin flags the comments it isn't sure where to put anymore so you can place them by hand instead of losing them.
+- **Audience-specific drafts maintained over time.** Keep an "investor version" and a "board version" of the same doc; when the original changes, regenerate both without redoing your edits.
+- **Closing the loop on a review.** Mark a review done and all the feedback collected during it gets folded back into the master doc, with the review archived.
+- **Onboarding a new doc.** Open a doc Margin hasn't seen, click "Add to Margin," grant access to just that file, and you're set up to track it.
+
 ## What works, and what doesn't
 
 For the underlying Google-side constraints that drive these limits, see [`docs/spec.md` §9](./docs/spec.md#9-google-workspace-api-constraints).
