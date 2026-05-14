@@ -117,6 +117,7 @@ export async function handleAuthExtSuccess(req: Request): Promise<Response> {
         "default-src 'none'",
         `script-src 'sha256-${scriptHash}'`,
         "style-src 'unsafe-inline'",
+        "font-src 'self'",
         "frame-ancestors 'none'",
       ].join("; "),
     },

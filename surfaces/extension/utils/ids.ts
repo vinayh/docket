@@ -12,23 +12,25 @@ export function parseDocIdFromUrl(href: string): string | null {
   return m ? m[1]! : null;
 }
 
-/**
- * Strip the trailing locale-specific " - Google Docs" suffix from a tab
- * title, leaving just the doc name. The browser sets `tab.title` from
- * `document.title`, which Docs formats as `<DocName> - Google Docs` in
- * English and `<DocName> - <Localized Google Docs>` in other locales. We
- * split on the last " - " separator: if it leaves something non-empty
- * behind, that's the doc name; otherwise return the original.
- *
- * Pre-docx-ingest, this stripping was done by reading the title input
- * directly off the Docs DOM via a content script and caching it per docId.
- * The content script is gone; this helper covers the same locale-suffix
- * concern with a single regex.
- */
-export function cleanDocTitle(rawTitle: string | undefined | null): string {
+// TEMPORARY fallback used only when the backend can't supply the canonical
+// title — i.e. untracked docs (no `drive.file` grant yet, pre-Picker), and
+// legacy tracked rows that pre-date `project.name` / `version.name`. For
+// every other case, `DocState.title` from `/api/extension/doc-state` (sourced
+// from Drive `files.get`) is the source of truth.
+//
+// Heuristic: Docs formats `document.title` as `<DocName> - <Localized Google
+// Docs>`. The brand "Google" is never translated; only the surrounding
+// product noun is ("Docs" / "Documentos" / "ドキュメント" / "文档" /
+// "Документы" / …). So we strip the last ` - <suffix>` only when <suffix>
+// contains the literal word "Google" — locale-agnostic, and safe against
+// user titles like "Foo - Bar" that happen to contain a dash but no Docs
+// suffix. Still best-effort; a user title that itself ends with "… - Google
+// Something" would mis-strip.
+const DOCS_SUFFIX = /\s-\s[^-]*\bGoogle\b[^-]*$/i;
+
+export function cleanDocTitleFallback(rawTitle: string | undefined | null): string {
   if (!rawTitle) return "";
-  const idx = rawTitle.lastIndexOf(" - ");
-  if (idx <= 0) return rawTitle.trim();
-  const head = rawTitle.slice(0, idx).trim();
-  return head || rawTitle.trim();
+  const trimmed = rawTitle.trim();
+  const stripped = trimmed.replace(DOCS_SUFFIX, "").trim();
+  return stripped || trimmed;
 }

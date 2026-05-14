@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { browser } from "wxt/browser";
-import { cleanDocTitle, parseDocIdFromUrl } from "../../utils/ids.ts";
+import { cleanDocTitleFallback, parseDocIdFromUrl } from "../../utils/ids.ts";
 import type { DocState } from "../../utils/types.ts";
 import { Header } from "../../ui/Header.tsx";
 import { getSettingsStatus, sendMessage } from "../../ui/sendMessage.ts";
@@ -18,7 +18,9 @@ import { ErrorView } from "./views/ErrorView.tsx";
 
 export interface ActiveDocTab {
   docId: string;
-  // tab.title with the " - Google Docs" locale suffix stripped. Empty if title hasn't loaded yet.
+  // tab.title with the locale-specific " - Google Docs" suffix stripped via
+  // `cleanDocTitleFallback`. Best-effort and only used when the backend's
+  // canonical `DocState.title` isn't available (untracked / legacy rows).
   title: string;
 }
 
@@ -224,5 +226,5 @@ async function getActiveDocTab(): Promise<ActiveDocTab | null> {
   if (!tab?.url) return null;
   const docId = parseDocIdFromUrl(tab.url);
   if (!docId) return null;
-  return { docId, title: cleanDocTitle(tab.title) };
+  return { docId, title: cleanDocTitleFallback(tab.title) };
 }

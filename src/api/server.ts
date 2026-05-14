@@ -17,6 +17,7 @@ import { handleReviewRequestPost } from "./review-request.ts";
 import { handlePickerPage } from "./picker-page.ts";
 import { handleRegisterDocPost } from "./picker-register.ts";
 import { handleDriveWebhook } from "./drive-webhook.ts";
+import { handleFontRequest } from "./fonts.ts";
 import { corsRoute, secured, setActiveServer } from "./route-wrappers.ts";
 import { startBackgroundLoops } from "./background.ts";
 import { config } from "../config.ts";
@@ -84,6 +85,7 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       "/api/picker/page": { GET: secured(handlePickerPage) },
       "/api/picker/register-doc": corsRoute({ POST: handleRegisterDocPost }),
       "/r/:token": { GET: secured(handleReviewActionGet) },
+      "/fonts/:filename": { GET: secured(handleFontRequest) },
     },
     fetch() {
       return new Response("not found", { status: 404 });

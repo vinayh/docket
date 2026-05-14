@@ -93,6 +93,11 @@ export const project = sqliteTable(
   {
     id: text("id").primaryKey().$defaultFn(newId),
     parentDocId: text("parent_doc_id").notNull(),
+    // Drive `files.get` name at registration time. Nullable for pre-migration
+    // rows; refreshed on next doc-sync. Authoritative source for the doc
+    // title shown in the popup / side panel — the extension's tab-title
+    // fallback is locale-fragile.
+    name: text("name"),
     ownerUserId: text("owner_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -118,6 +123,9 @@ export const version = sqliteTable(
       .notNull()
       .references(() => project.id, { onDelete: "cascade" }),
     googleDocId: text("google_doc_id").notNull(),
+    // Drive `files.get` name for the version copy. Same nullable + fallback
+    // semantics as `project.name`. Typically `[Margin <label>] <parent name>`.
+    name: text("name"),
     parentVersionId: text("parent_version_id"),
     label: text("label").notNull(),
     createdByUserId: text("created_by_user_id")

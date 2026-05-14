@@ -103,10 +103,14 @@ read access to the active tab's URL + title without any extra permission.
 
 ## Doc title
 
-The popup reads `tab.title` via `chrome.tabs.query({ active: true })` and
-passes it through `cleanDocTitle()` in `utils/ids.ts`, which strips the
-trailing locale `" - Google Docs"` suffix Chrome puts on
-`document.title`. The cleaned name is the popup heading.
+For **tracked** docs the popup / side panel use `DocState.title` from
+`/api/extension/doc-state`, which is the canonical Drive name (`files.get`
+result, stored on `project.name` / `version.name` at register / create
+time). For **untracked** docs we have no `drive.file` grant yet, so the
+popup falls back to `cleanDocTitleFallback(tab.title)` in `utils/ids.ts` —
+a locale-agnostic strip that drops the trailing ` - <suffix>` only when
+the suffix contains the literal word "Google" (the brand is never
+localized). Pre-name-column legacy rows fall back to the same heuristic.
 
 ## Layout
 
@@ -134,7 +138,7 @@ surfaces/extension/
       style.css
     sidepanel/              Preact rich UI — dashboard, diff, reconciliation
   utils/
-    ids.ts                  docId parser + cleanDocTitle()
+    ids.ts                  docId parser + cleanDocTitleFallback()
     messages.ts             typed runtime messages
     storage.ts              typed chrome.storage wrappers (settings only)
     types.ts                shared wire types (DocState, ProjectDetail, …)

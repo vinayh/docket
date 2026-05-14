@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cleanDocTitle, parseDocIdFromUrl } from "./ids.ts";
+import { cleanDocTitleFallback, parseDocIdFromUrl } from "./ids.ts";
 
 describe("parseDocIdFromUrl", () => {
   test("extracts the id from a canonical /document/d/<id>/edit url", () => {
@@ -27,35 +27,44 @@ describe("parseDocIdFromUrl", () => {
   });
 });
 
-describe("cleanDocTitle", () => {
+describe("cleanDocTitleFallback", () => {
   test('strips a trailing " - Google Docs" suffix', () => {
-    expect(cleanDocTitle("My Doc - Google Docs")).toBe("My Doc");
+    expect(cleanDocTitleFallback("My Doc - Google Docs")).toBe("My Doc");
   });
 
-  test("strips localized variants — split is on the last ' - '", () => {
-    expect(cleanDocTitle("Mon Doc - Documents Google")).toBe("Mon Doc");
-    expect(cleanDocTitle("私のドキュメント - Google ドキュメント")).toBe(
+  test("strips localized variants — the brand 'Google' is the anchor", () => {
+    expect(cleanDocTitleFallback("Mon Doc - Documents Google")).toBe("Mon Doc");
+    expect(cleanDocTitleFallback("Mi Doc - Documentos de Google")).toBe("Mi Doc");
+    expect(cleanDocTitleFallback("Mein Doc - Google Dokumente")).toBe("Mein Doc");
+    expect(cleanDocTitleFallback("私のドキュメント - Google ドキュメント")).toBe(
       "私のドキュメント",
     );
+    expect(cleanDocTitleFallback("我的文件 - Google 文档")).toBe("我的文件");
+    expect(cleanDocTitleFallback("Мой документ - Google Документы")).toBe("Мой документ");
   });
 
-  test("a title containing ' - ' inside the name keeps everything before the LAST separator", () => {
-    expect(cleanDocTitle("Foo - Bar - Google Docs")).toBe("Foo - Bar");
+  test("strips only the Docs suffix, preserving in-name dashes", () => {
+    expect(cleanDocTitleFallback("Foo - Bar - Google Docs")).toBe("Foo - Bar");
   });
 
-  test("returns the original (trimmed) when there is no ' - ' separator", () => {
-    expect(cleanDocTitle("Untitled document")).toBe("Untitled document");
+  test("leaves a user title with a dash but no Docs suffix untouched", () => {
+    // Could happen mid-load, when another extension overrides the title,
+    // or if tab.title hasn't synced. Previous heuristic wrongly returned "Foo".
+    expect(cleanDocTitleFallback("Foo - Bar")).toBe("Foo - Bar");
+    expect(cleanDocTitleFallback("Q4 plan - draft")).toBe("Q4 plan - draft");
   });
 
-  test("falls back to the original when head is empty (e.g. ' - Suffix')", () => {
-    // lastIndexOf(' - ') returns 0; the guard `idx <= 0` falls through to the
-    // trimmed original.
-    expect(cleanDocTitle(" - Google Docs")).toBe("- Google Docs");
+  test("returns the original when there is no ' - ' separator", () => {
+    expect(cleanDocTitleFallback("Untitled document")).toBe("Untitled document");
+  });
+
+  test("falls back to the original when stripping would leave an empty name", () => {
+    expect(cleanDocTitleFallback(" - Google Docs")).toBe("- Google Docs");
   });
 
   test("empty / null / undefined → empty string", () => {
-    expect(cleanDocTitle("")).toBe("");
-    expect(cleanDocTitle(null)).toBe("");
-    expect(cleanDocTitle(undefined)).toBe("");
+    expect(cleanDocTitleFallback("")).toBe("");
+    expect(cleanDocTitleFallback(null)).toBe("");
+    expect(cleanDocTitleFallback(undefined)).toBe("");
   });
 });

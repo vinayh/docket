@@ -52,6 +52,7 @@ export async function createProject(opts: {
       .insert(project)
       .values({
         parentDocId,
+        name: file.name,
         ownerUserId: opts.ownerUserId,
         settings: opts.settings ?? {},
       })

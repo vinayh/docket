@@ -3,6 +3,7 @@ import {
   type RedeemOutcome,
 } from "../domain/review-action.ts";
 import type { ReviewActionKind } from "../db/schema.ts";
+import { renderStaticPageHtml } from "./html.ts";
 
 /**
  * GET /r/<token> — magic-link review action handler (SPEC §6.3 + §12
@@ -120,39 +121,21 @@ function actionBody(action: ReviewActionKind): string {
 
 function renderPage(page: PageState): Response {
   const copy = copyFor(page);
-  const html = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Margin — ${escapeHtml(copy.title)}</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <style>
-    :root { color-scheme: light dark; }
-    body { font: 15px/1.55 system-ui, sans-serif; max-width: 480px; margin: 6rem auto; padding: 0 1.5rem; color: #1f2328; }
-    h1 { font-size: 20px; margin: 0 0 0.75rem; }
-    p  { margin: 0.5rem 0; }
-    .tone-ok h1 { color: #0a7d2c; }
-    .tone-err h1 { color: #b00020; }
-    .footer { margin-top: 2rem; font-size: 12px; opacity: 0.7; }
-    @media (prefers-color-scheme: dark) {
-      body { color: #e6edf3; background: #0d1117; }
-      .tone-ok h1 { color: #46d164; }
-      .tone-err h1 { color: #ff7785; }
-    }
-  </style>
-</head>
-<body class="tone-${copy.tone}">
-  <h1>${escapeHtml(copy.title)}</h1>
-  <p>${escapeHtml(copy.body)}</p>
-  <p class="footer">Margin · review action handler</p>
-</body>
-</html>`;
+  const tone = copy.tone === "ok" ? "ok" : "error";
+  const html = renderStaticPageHtml(
+    `Margin — ${escapeHtml(copy.title)}`,
+    `<h1>${escapeHtml(copy.title)}</h1>
+<p data-tone="${tone}">${escapeHtml(copy.body)}</p>
+<p class="footer">Margin · review action handler</p>`,
+  );
   return new Response(html, {
     status: page.status,
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
       "referrer-policy": "no-referrer",
+      "content-security-policy":
+        "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'",
     },
   });
 }

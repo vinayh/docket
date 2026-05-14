@@ -13,9 +13,14 @@ export type DocState =
       tracked: true;
       docId: string;
       role: "parent" | "version";
+      // Authoritative Drive name. Prefer this over tab.title for tracked docs.
+      // Null only for legacy rows pre-dating the `project.name` / `version.name`
+      // columns — fall back to cleanDocTitleFallback(tab.title) in that case.
+      title: string | null;
       project: {
         id: string;
         parentDocId: string;
+        name: string | null;
         ownerEmail: string | null;
         createdAt: number;
       };
@@ -23,6 +28,7 @@ export type DocState =
         id: string;
         label: string;
         googleDocId: string;
+        name: string | null;
         status: "active" | "archived";
         createdAt: number;
       } | null;

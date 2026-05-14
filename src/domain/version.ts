@@ -49,6 +49,7 @@ export async function createVersion(opts: {
     .values({
       projectId: proj.id,
       googleDocId: copy.id,
+      name: copy.name,
       parentVersionId,
       label,
       createdByUserId: opts.createdByUserId,

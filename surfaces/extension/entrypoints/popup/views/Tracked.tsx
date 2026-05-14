@@ -8,7 +8,9 @@ interface Props {
 }
 
 export function Tracked({ tab, state, onSync }: Props) {
-  const heading = tab.title || "Google Doc";
+  // state.title is the canonical Drive name; tab.title is the locale-stripped
+  // fallback for rows that pre-date the name column.
+  const heading = state.title || tab.title || "Google Doc";
   const versionLabel = state.version?.label ?? "no versions yet";
   const role = state.role === "parent" ? "Parent" : `Version ${versionLabel}`;
   const ownerLine = state.project.ownerEmail ?? "owner unknown";

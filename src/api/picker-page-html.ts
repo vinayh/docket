@@ -1,17 +1,10 @@
-import { renderHashedScriptHtml } from "./html.ts";
+import { renderHashedScriptHtml, renderStaticPageHtml } from "./html.ts";
 
 /**
  * HTML rendering for the backend-hosted Drive Picker page. Lives in its own
  * module so `picker-page.ts` stays a thin route handler (auth resolve →
  * compose script → return response).
  */
-
-const PICKER_STYLE = `<style>
-  body { font: 14px/1.4 system-ui, sans-serif; margin: 4rem auto; max-width: 36rem; color: #222; padding: 0 1rem; }
-  h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
-  p { margin: .25rem 0; color: #444; }
-  p[data-tone="error"] { color: #b35900; }
-</style>`;
 
 export interface PickerScriptInputs {
   apiKey: string;
@@ -115,48 +108,23 @@ export function renderPickerHtml(script: string): string {
     bodyMarkup: `<h1>Margin</h1>\n<p id="status">Loading Picker…</p>`,
     externalScriptSrcs: ["https://apis.google.com/js/api.js"],
     inlineScript: script,
-    styleCss: PICKER_STYLE,
   });
 }
 
 export function renderNotSignedInHtml(): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Margin — Sign in first</title>
-<style>
-  body { font: 14px/1.4 system-ui, sans-serif; margin: 4rem auto; max-width: 28rem; color: #222; padding: 0 1rem; }
-  h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
-  p { margin: .25rem 0; color: #444; }
-</style>
-</head>
-<body>
-<h1>Margin</h1>
-<p>You need to sign in before picking a Doc. Open the Margin extension and click <em>Sign in with Google</em>, then re-launch the Picker.</p>
-</body>
-</html>`;
+  return renderStaticPageHtml(
+    "Margin — Sign in first",
+    `<h1>Margin</h1>
+<p>You need to sign in before picking a Doc. Open the Margin extension and click <em>Sign in with Google</em>, then re-launch the Picker.</p>`,
+  );
 }
 
 export function renderNotConfiguredHtml(): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Margin — Picker not configured</title>
-<style>
-  body { font: 14px/1.4 system-ui, sans-serif; margin: 4rem auto; max-width: 28rem; color: #222; padding: 0 1rem; }
-  h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
-  p { margin: .25rem 0; color: #444; }
-</style>
-</head>
-<body>
-<h1>Margin</h1>
-<p>The Drive Picker is not configured on this server. The operator needs to set <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_API_KEY</code>, and <code>GOOGLE_PROJECT_NUMBER</code>.</p>
-</body>
-</html>`;
+  return renderStaticPageHtml(
+    "Margin — Picker not configured",
+    `<h1>Margin</h1>
+<p>The Drive Picker is not configured on this server. The operator needs to set <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_API_KEY</code>, and <code>GOOGLE_PROJECT_NUMBER</code>.</p>`,
+  );
 }
 
 export function renderTokenErrorHtml(message: string): string {
@@ -165,25 +133,12 @@ export function renderTokenErrorHtml(message: string): string {
     ">": "&gt;",
     "&": "&amp;",
   }[c] ?? c));
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Margin — Token error</title>
-<style>
-  body { font: 14px/1.4 system-ui, sans-serif; margin: 4rem auto; max-width: 28rem; color: #222; padding: 0 1rem; }
-  h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
-  p { margin: .25rem 0; color: #444; }
-  code { background: #f6f8fa; padding: 0 .3rem; border-radius: 3px; }
-</style>
-</head>
-<body>
-<h1>Margin</h1>
+  return renderStaticPageHtml(
+    "Margin — Token error",
+    `<h1>Margin</h1>
 <p>Could not mint a Drive access token. Try signing out from the extension's Options page and signing in again.</p>
-<p><code>${safe}</code></p>
-</body>
-</html>`;
+<p><code>${safe}</code></p>`,
+  );
 }
 
 export function htmlErrorResponse(body: string, status: number): Response {
@@ -194,7 +149,7 @@ export function htmlErrorResponse(body: string, status: number): Response {
       "cache-control": "no-store",
       "x-robots-tag": "noindex, nofollow",
       "content-security-policy":
-        "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+        "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'",
     },
   });
 }

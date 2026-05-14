@@ -98,6 +98,9 @@ CLAUDE.md
 # Warmed once with the test Google account; see .mcp.json for how it's wired.
 .margin-test-chrome/
 
+# Throwaway scratchpad for screenshots, traces, and other transient artifacts.
+.scratch/
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 

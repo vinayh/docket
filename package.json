@@ -17,6 +17,9 @@
     "ext:zip:firefox": "cd surfaces/extension && wxt zip -b firefox"
   },
   "devDependencies": {
+    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@fontsource/bagel-fat-one": "^5.2.7",
     "@preact/preset-vite": "^2.10.5",
     "@types/bun": "latest",
     "@types/chrome": "^0.1.42",

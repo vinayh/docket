@@ -60,6 +60,7 @@ export async function handlePickerPage(req: Request): Promise<Response> {
         "default-src 'none'",
         `script-src 'sha256-${scriptHash}' https://apis.google.com`,
         "style-src 'unsafe-inline'",
+        "font-src 'self'",
         "connect-src 'self' https://apis.google.com https://www.googleapis.com https://content.googleapis.com",
         "frame-src https://docs.google.com https://content.googleapis.com",
         "img-src 'self' data: https:",

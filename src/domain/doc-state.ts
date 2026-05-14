@@ -29,9 +29,15 @@ export type DocStateResponse =
       tracked: true;
       docId: string;
       role: "parent" | "version";
+      // Authoritative Drive name for the doc the user is currently viewing —
+      // `version.name` when role=version, else `project.name`. Null only for
+      // pre-name-column rows; the extension falls back to the tab-title
+      // heuristic in that case.
+      title: string | null;
       project: {
         id: string;
         parentDocId: string;
+        name: string | null;
         ownerEmail: string | null;
         createdAt: number;
       };
@@ -39,6 +45,7 @@ export type DocStateResponse =
         id: string;
         label: string;
         googleDocId: string;
+        name: string | null;
         status: "active" | "archived";
         createdAt: number;
       } | null;
@@ -71,6 +78,7 @@ export async function getDocState(opts: {
       projectId: projectRow.id,
       ownerUserId: projectRow.ownerUserId,
       parentDocId: projectRow.parentDocId,
+      projectName: projectRow.name,
       projectCreatedAt: projectRow.createdAt,
       // For a parent, "current version" = most recently created active version.
       // Falls back to most recent of any status when no active versions exist.
@@ -84,6 +92,7 @@ export async function getDocState(opts: {
         v: version,
         ownerUserId: project.ownerUserId,
         parentDocId: project.parentDocId,
+        projectName: project.name,
         projectCreatedAt: project.createdAt,
       })
       .from(version)
@@ -104,6 +113,7 @@ export async function getDocState(opts: {
       projectId: versionRow.v.projectId,
       ownerUserId: versionRow.ownerUserId,
       parentDocId: versionRow.parentDocId,
+      projectName: versionRow.projectName,
       projectCreatedAt: versionRow.projectCreatedAt,
       preferredVersionId: versionRow.v.id,
     });
@@ -118,6 +128,7 @@ interface BuildArgs {
   projectId: string;
   ownerUserId: string;
   parentDocId: string;
+  projectName: string | null;
   projectCreatedAt: Date;
   /** When set, scope `version` + `lastSyncedAt` to that version row. */
   preferredVersionId: string | null;
@@ -131,14 +142,17 @@ async function buildTrackedState(
   const commentCount = await countComments(args.projectId);
   const openReviewCount = await countOpenReviews(args.projectId);
   const ownerEmail = await userEmailById(args.ownerUserId);
+  const title = args.role === "version" ? (ver?.name ?? null) : args.projectName;
 
   return {
     tracked: true,
     docId: args.docId,
     role: args.role,
+    title,
     project: {
       id: args.projectId,
       parentDocId: args.parentDocId,
+      name: args.projectName,
       ownerEmail,
       createdAt: args.projectCreatedAt.getTime(),
     },
@@ -147,6 +161,7 @@ async function buildTrackedState(
           id: ver.id,
           label: ver.label,
           googleDocId: ver.googleDocId,
+          name: ver.name,
           status: ver.status,
           createdAt: ver.createdAt.getTime(),
         }

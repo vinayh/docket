@@ -79,12 +79,14 @@ export async function seedUser(opts?: {
 export async function seedProject(opts: {
   ownerUserId: string;
   parentDocId?: string;
+  name?: string | null;
 }): Promise<typeof project.$inferSelect> {
   const inserted = await db
     .insert(project)
     .values({
       ownerUserId: opts.ownerUserId,
       parentDocId: opts.parentDocId ?? `doc-${crypto.randomUUID()}`,
+      name: opts.name ?? null,
       settings: {},
     })
     .returning();
@@ -96,6 +98,7 @@ export async function seedVersion(opts: {
   createdByUserId: string;
   label?: string;
   googleDocId?: string;
+  name?: string | null;
   parentVersionId?: string | null;
 }): Promise<typeof version.$inferSelect> {
   // Default to a unique label per call so tests that seed multiple versions
@@ -106,6 +109,7 @@ export async function seedVersion(opts: {
     .values({
       projectId: opts.projectId,
       googleDocId: opts.googleDocId ?? `doc-${crypto.randomUUID()}`,
+      name: opts.name ?? null,
       label: opts.label ?? `v-${crypto.randomUUID().slice(0, 8)}`,
       createdByUserId: opts.createdByUserId,
       parentVersionId: opts.parentVersionId ?? null,

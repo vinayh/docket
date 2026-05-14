@@ -128,6 +128,53 @@ describe("handleDocStatePost lookup", () => {
     expect(body.version.id).toBe(ver.id);
   });
 
+  test("title is project.name when role=parent, version.name when role=version", async () => {
+    const u = await seedUser();
+    const proj = await seedProject({
+      ownerUserId: u.id,
+      parentDocId: "doc-parent",
+      name: "My Q4 Plan",
+    });
+    await seedVersion({
+      projectId: proj.id,
+      createdByUserId: u.id,
+      googleDocId: "doc-version",
+      name: "[Margin v1] My Q4 Plan",
+    });
+    const { token } = await issueTestSession({ userId: u.id });
+
+    const parentBody = (await (
+      await handleDocStatePost(
+        postState({ docId: "doc-parent" }, { auth: `Bearer ${token}` }),
+      )
+    ).json()) as { title: string | null; project: { name: string | null } };
+    expect(parentBody.title).toBe("My Q4 Plan");
+    expect(parentBody.project.name).toBe("My Q4 Plan");
+
+    const versionBody = (await (
+      await handleDocStatePost(
+        postState({ docId: "doc-version" }, { auth: `Bearer ${token}` }),
+      )
+    ).json()) as {
+      title: string | null;
+      version: { name: string | null } | null;
+    };
+    expect(versionBody.title).toBe("[Margin v1] My Q4 Plan");
+    expect(versionBody.version?.name).toBe("[Margin v1] My Q4 Plan");
+  });
+
+  test("title is null for legacy rows without a name", async () => {
+    const u = await seedUser();
+    await seedProject({ ownerUserId: u.id, parentDocId: "doc-legacy" });
+    const { token } = await issueTestSession({ userId: u.id });
+    const body = (await (
+      await handleDocStatePost(
+        postState({ docId: "doc-legacy" }, { auth: `Bearer ${token}` }),
+      )
+    ).json()) as { title: string | null };
+    expect(body.title).toBeNull();
+  });
+
   test("does not leak another user's project — returns tracked:false", async () => {
     // User A owns the project; user B asks about it. Per SPEC §8, projects
     // belong to a tenant; cross-user reads aren't authorized at this layer.

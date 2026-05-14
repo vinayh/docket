@@ -1,0 +1,88 @@
+/*
+ * Shared design tokens for popup / options / side panel. Mirrors
+ * site/src/styles/global.css so the extension reads as one product with
+ * the marketing site. Light-only (the site is light-only); no
+ * prefers-color-scheme branch.
+ */
+
+@import "@fontsource/bagel-fat-one/latin.css";
+
+/* Hand-rolled latin-only @font-face for the variable fonts. The package's
+ * `index.css` declares every subset (cyrillic, greek, vietnamese, …); each
+ * @font-face references its own woff2 file and the bundler ships them all.
+ * The browser only fetches the matching subset at runtime via unicode-range,
+ * so the runtime cost is fine, but the *install-time* extension package is
+ * ~140 kB lighter when we skip the non-latin variants we don't need.
+ */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "JetBrains Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  color-scheme: light;
+
+  --color-cream: #faf6ec;
+  --color-cream-2: #f0ebdc;
+  --color-ink: #15140f;
+  --color-ink-2: #2a2823;
+  --color-muted: #5d5a4f;
+  --color-rule: #d8d2c2;
+  --color-accent: #fff15c;
+  --color-accent-2: #ffd84a;
+
+  --color-good: #2f6f3a;
+  --color-good-bg: #d6e4cc;
+  --color-bad: #8a3a13;
+  --color-bad-bg: #ecd5c2;
+  --color-warn: #7a4100;
+  --color-warn-bg: #f0dcb5;
+
+  --font-display: "Bagel Fat One", "Recoleta", "Fraunces", ui-serif, serif;
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace,
+    "SF Mono", Menlo, monospace;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-ink);
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+  line-height: 0.95;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Site's yellow highlighter band — short underline-ish swatch behind text. */
+.hl {
+  background: linear-gradient(180deg, transparent 55%, var(--color-accent) 55%);
+  padding: 0 0.15em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
