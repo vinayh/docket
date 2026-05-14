@@ -377,8 +377,8 @@ function ReviewRow({
   issued: ReviewRequestResult | null;
 }) {
   const [expanded, setExpanded] = useState(issued !== null);
-  const linkByUser = new Map(
-    issued?.assignees.map((a) => [a.userId, a.links] as const) ?? [],
+  const issuedByUser = new Map(
+    issued?.assignees.map((a) => [a.userId, a] as const) ?? [],
   );
 
   return (
@@ -415,15 +415,29 @@ function ReviewRow({
                       · responded {formatDate(a.respondedAt)}
                     </span>
                   ) : null}
-                  {linkByUser.has(a.userId) ? (
-                    <ul class="review-magic-links">
-                      {linkByUser.get(a.userId)!.map((l) => (
-                        <li key={l.action}>
-                          <code class="muted">{ACTION_LABEL[l.action]}: </code>
-                          <code>{l.url}</code>
-                        </li>
-                      ))}
-                    </ul>
+                  {issuedByUser.has(a.userId) ? (
+                    <>
+                      {issuedByUser.get(a.userId)!.shareError ? (
+                        <p class="muted error review-share-error">
+                          Drive share failed:{" "}
+                          {issuedByUser.get(a.userId)!.shareError}
+                        </p>
+                      ) : null}
+                      {issuedByUser.get(a.userId)!.emailError ? (
+                        <p class="muted error review-share-error">
+                          Email send failed:{" "}
+                          {issuedByUser.get(a.userId)!.emailError}
+                        </p>
+                      ) : null}
+                      <ul class="review-magic-links">
+                        {issuedByUser.get(a.userId)!.links.map((l) => (
+                          <li key={l.action}>
+                            <code class="muted">{ACTION_LABEL[l.action]}: </code>
+                            <code>{l.url}</code>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
                   ) : null}
                 </li>
               ))}

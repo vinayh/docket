@@ -11,9 +11,10 @@ import {
 import { tokenProviderForUser } from "../auth/credentials.ts";
 import { createPermission } from "../google/drive.ts";
 import { config } from "../config.ts";
+import { getEmailTransport, type EmailTransport } from "../notify/email.ts";
 import { requireProject } from "./project.ts";
 import { loadOwnedVersion } from "./version.ts";
-import { getOrCreateUserByEmail } from "./user.ts";
+import { getOrCreateUserByEmail, userEmailById } from "./user.ts";
 import { issueReviewActionToken } from "./review-action.ts";
 
 export type ReviewRequest = typeof reviewRequest.$inferSelect;
@@ -28,6 +29,13 @@ export interface AssigneeMagicLinks {
   email: string;
   userId: string;
   links: { action: ReviewActionKind; url: string; expiresAt: number }[];
+  // Non-null when Drive `permissions.create` failed for this assignee — the
+  // magic links are still issued (the reviewer can act on them) but they
+  // won't have direct doc access until the share is retried.
+  shareError: string | null;
+  // Non-null when the configured email transport failed. The links are still
+  // valid and visible in the side panel — the owner can copy them manually.
+  emailError: string | null;
 }
 
 export interface CreateReviewRequestResult {
@@ -55,6 +63,9 @@ export async function createReviewRequest(opts: {
   assigneeEmails: string[];
   deadline?: Date | null;
   actions?: ReviewActionKind[];
+  // Test seam — defaults to the env-configured transport (log-only unless
+  // MARGIN_EMAIL_TRANSPORT is set).
+  emailTransport?: EmailTransport;
 }): Promise<CreateReviewRequestResult> {
   const ver = await loadOwnedVersion(opts.versionId, opts.ownerUserId);
   if (!ver) throw new ReviewRequestNotFoundError(opts.versionId);
@@ -131,11 +142,37 @@ export async function createReviewRequest(opts: {
       });
     }
 
-    out.push({ email: u.email, userId: u.id, links });
+    out.push({ email: u.email, userId: u.id, links, shareError, emailError: null });
 
     if (shareError) {
       console.warn(
         `[review] continuing despite share failure for ${u.email}; magic links still issued`,
+      );
+    }
+  }
+
+  // Notify assignees. Failures are recorded per-assignee — the magic links are
+  // still valid and visible in the side panel, so a broken transport doesn't
+  // wedge the review cycle.
+  const transport = opts.emailTransport ?? getEmailTransport();
+  const requesterEmail = await userEmailById(opts.ownerUserId);
+  for (const assignee of out) {
+    if (assignee.links.length === 0) continue;
+    try {
+      await transport.send({
+        to: assignee.email,
+        subject: renderReviewEmailSubject(requesterEmail),
+        text: renderReviewEmailBody({
+          requesterEmail,
+          googleDocId: ver.googleDocId,
+          deadline: opts.deadline ?? null,
+          links: assignee.links,
+        }),
+      });
+    } catch (err) {
+      assignee.emailError = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[review] email transport failed for ${assignee.email}: ${assignee.emailError}`,
       );
     }
   }
@@ -168,6 +205,45 @@ export class ReviewRequestBadRequestError extends Error {
     super(message);
     this.name = "ReviewRequestBadRequestError";
   }
+}
+
+function renderReviewEmailSubject(requesterEmail: string | null): string {
+  return requesterEmail
+    ? `${requesterEmail} requested your review`
+    : "You have a new review request";
+}
+
+function renderReviewEmailBody(opts: {
+  requesterEmail: string | null;
+  googleDocId: string;
+  deadline: Date | null;
+  links: AssigneeMagicLinks["links"];
+}): string {
+  const ACTION_LABEL: Record<ReviewActionKind, string> = {
+    mark_reviewed: "Mark reviewed",
+    request_changes: "Request changes",
+    decline: "Decline",
+    accept_reconciliation: "Accept reconciliation",
+  };
+  const docUrl = `https://docs.google.com/document/d/${encodeURIComponent(opts.googleDocId)}/edit`;
+  const lines: string[] = [];
+  lines.push(
+    opts.requesterEmail
+      ? `${opts.requesterEmail} has requested your review on a Google Doc.`
+      : "You have been added as a reviewer on a Google Doc.",
+  );
+  lines.push("");
+  lines.push(`Open the doc: ${docUrl}`);
+  lines.push("");
+  if (opts.deadline) {
+    lines.push(`Deadline: ${opts.deadline.toISOString()}`);
+    lines.push("");
+  }
+  lines.push("When you're done, click one of these (each link is single-use):");
+  for (const l of opts.links) {
+    lines.push(`  ${ACTION_LABEL[l.action]}: ${l.url}`);
+  }
+  return lines.join("\n");
 }
 
 function uniqLower(input: string[]): string[] {

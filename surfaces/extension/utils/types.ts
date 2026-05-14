@@ -116,6 +116,11 @@ export interface ReviewRequestResult {
     email: string;
     userId: string;
     links: { action: ReviewActionKind; url: string; expiresAt: number }[];
+    // Non-null when Drive `permissions.create` failed for this assignee.
+    // Magic links are still valid; the reviewer just lacks direct doc access.
+    shareError: string | null;
+    // Non-null when the configured email transport failed.
+    emailError: string | null;
   }[];
 }
 

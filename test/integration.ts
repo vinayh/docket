@@ -23,8 +23,9 @@ export const hasIntegrationCreds = missingVars().length === 0;
 export const integrationTest = (
   name: string,
   body: () => void | Promise<void>,
+  timeoutMs?: number,
 ) => {
-  if (hasIntegrationCreds) return test(name, body);
+  if (hasIntegrationCreds) return test(name, body, timeoutMs);
   const missing = missingVars().join(", ");
-  return test.skip(`${name} (skipped: missing ${missing})`, body);
+  return test.skip(`${name} (skipped: missing ${missing})`, body, timeoutMs);
 };

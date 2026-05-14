@@ -140,6 +140,8 @@ describe("createReviewRequest", () => {
     ]);
     // Default action set: mark_reviewed, request_changes, decline.
     for (const a of result.assignees) {
+      expect(a.shareError).toBeNull();
+      expect(a.emailError).toBeNull();
       expect(a.links.map((l) => l.action).sort()).toEqual([
         "decline",
         "mark_reviewed",
@@ -218,12 +220,77 @@ describe("createReviewRequest", () => {
       assigneeEmails: ["alice@example.com"],
     });
     expect(result.assignees[0]!.links).toHaveLength(3);
+    expect(result.assignees[0]!.shareError).not.toBeNull();
+    expect(result.assignees[0]!.shareError).toContain("500");
 
     const tokenRows = await db
       .select()
       .from(reviewActionToken)
       .where(eq(reviewActionToken.reviewRequestId, result.reviewRequestId));
     expect(tokenRows).toHaveLength(3);
+  });
+
+  test("invokes email transport once per assignee with magic links", async () => {
+    const owner = await seedUser({ email: "owner3@example.com" });
+    await seedDriveCredential(owner.id);
+    const proj = await seedProject({ ownerUserId: owner.id });
+    const ver = await seedVersion({
+      projectId: proj.id,
+      createdByUserId: owner.id,
+      googleDocId: "doc-v1",
+    });
+
+    stubGoogle();
+    const sent: { to: string; subject: string; text: string }[] = [];
+    const result = await createReviewRequest({
+      versionId: ver.id,
+      ownerUserId: owner.id,
+      assigneeEmails: ["alice@example.com", "bob@example.com"],
+      emailTransport: {
+        async send(msg) {
+          sent.push(msg);
+        },
+      },
+    });
+
+    expect(sent).toHaveLength(2);
+    expect(sent.map((m) => m.to).sort()).toEqual([
+      "alice@example.com",
+      "bob@example.com",
+    ]);
+    for (const m of sent) {
+      expect(m.subject).toContain("owner3@example.com");
+      expect(m.text).toContain("/r/mra_");
+      expect(m.text).toContain("docs.google.com/document/d/doc-v1");
+    }
+    for (const a of result.assignees) expect(a.emailError).toBeNull();
+  });
+
+  test("records emailError when transport throws; magic links still issued", async () => {
+    const owner = await seedUser({ email: "owner4@example.com" });
+    await seedDriveCredential(owner.id);
+    const proj = await seedProject({ ownerUserId: owner.id });
+    const ver = await seedVersion({
+      projectId: proj.id,
+      createdByUserId: owner.id,
+      googleDocId: "doc-v1",
+    });
+
+    stubGoogle();
+    const result = await createReviewRequest({
+      versionId: ver.id,
+      ownerUserId: owner.id,
+      assigneeEmails: ["alice@example.com"],
+      emailTransport: {
+        async send() {
+          throw new Error("smtp 421");
+        },
+      },
+    });
+
+    expect(result.assignees[0]!.emailError).toBe("smtp 421");
+    expect(result.assignees[0]!.links).toHaveLength(3);
+    expect(result.assignees[0]!.shareError).toBeNull();
   });
 });
 

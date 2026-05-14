@@ -32,7 +32,9 @@ jobs:
       - run: bun run typecheck
 
       - name: Run integration tests with coverage
-        run: bun test test/smoke.integration.test.ts --coverage --coverage-reporter=lcov --coverage-dir=coverage
+        # Bun picks up every *.integration.test.ts file under test/ — new
+        # integration files don't need to be listed here individually.
+        run: bun test 'test/*.integration.test.ts' --coverage --coverage-reporter=lcov --coverage-dir=coverage
         env:
           GOOGLE_CI_REFRESH_TOKEN: ${{ secrets.GOOGLE_CI_REFRESH_TOKEN }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}

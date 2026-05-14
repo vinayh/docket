@@ -123,4 +123,24 @@ export const config = {
       envValue("MARGIN_TEST_USER_EMAIL"),
     );
   },
+  email: {
+    // null = no transport configured (default), fall back to LogEmailTransport.
+    // "resend" = use the Resend HTTP API; requires resendApiKey + from below.
+    get transport(): "resend" | null {
+      const raw = envValue("MARGIN_EMAIL_TRANSPORT");
+      if (!raw) return null;
+      if (raw === "resend") return "resend";
+      throw new Error(
+        `invalid env var MARGIN_EMAIL_TRANSPORT: expected "resend", got ${raw}`,
+      );
+    },
+    get resendApiKey() {
+      return parseEnv("RESEND_API_KEY", RequiredStringSchema, envValue("RESEND_API_KEY"));
+    },
+    // Verified sender (e.g. "Margin <no-reply@yourdomain.com>"). Required when
+    // transport=resend; Resend rejects sends without it.
+    get from() {
+      return parseEnv("MARGIN_EMAIL_FROM", RequiredStringSchema, envValue("MARGIN_EMAIL_FROM"));
+    },
+  },
 };
