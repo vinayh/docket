@@ -62,7 +62,7 @@ describe("startServer route table", () => {
     const server = startServer({ port: 0, backgroundLoops: false });
     try {
       const res = await fetch(
-        `http://${server.hostname}:${server.port}/r/mra_unknown`,
+        `http://${server.hostname}:${server.port}/r/mra_unknown?action=mark_reviewed`,
       );
       // Unknown tokens render the "Link not recognized" page at 404. The
       // test exists to verify Bun.serve's `:token` parameter route matches

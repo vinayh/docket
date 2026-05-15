@@ -176,8 +176,16 @@ describe("review cycle (live Google)", () => {
       const markReviewedUrl = result.assignees[0]!.links.find(
         (l) => l.action === "mark_reviewed",
       )!.url;
-      const tokenSegment = markReviewedUrl.split("/r/").at(-1)!;
-      const redemption = await redeemReviewActionToken(tokenSegment);
+      // URL is `<base>/r/<token>?action=mark_reviewed`; strip the path tail
+      // and the query string to recover the raw token.
+      const tokenSegment = markReviewedUrl
+        .split("/r/")
+        .at(-1)!
+        .split("?")[0]!;
+      const redemption = await redeemReviewActionToken(
+        tokenSegment,
+        "mark_reviewed",
+      );
       expect(redemption.ok).toBe(true);
       if (redemption.ok) {
         expect(redemption.assignmentStatus).toBe("reviewed");

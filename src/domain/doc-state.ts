@@ -72,6 +72,21 @@ export async function getDocState(opts: {
   )[0];
 
   if (projectRow) {
+    // Parent doc is registered as the "main" version (see createProject).
+    // Resolve it directly so the parent-role response carries main's stats
+    // (comment count, last sync) rather than falling back to the
+    // most-recently-created snapshot — matches what the user actually sees
+    // in the open tab.
+    const mainRows = await db
+      .select()
+      .from(version)
+      .where(
+        and(
+          eq(version.projectId, projectRow.id),
+          eq(version.label, "main"),
+        ),
+      )
+      .limit(1);
     return buildTrackedState({
       docId: opts.docId,
       role: "parent",
@@ -80,9 +95,7 @@ export async function getDocState(opts: {
       parentDocId: projectRow.parentDocId,
       projectName: projectRow.name,
       projectCreatedAt: projectRow.createdAt,
-      // For a parent, "current version" = most recently created active version.
-      // Falls back to most recent of any status when no active versions exist.
-      preferredVersionId: null,
+      preferredVersionId: mainRows[0]?.id ?? null,
     });
   }
 

@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import {
   auditLog,
@@ -9,8 +9,10 @@ import {
 } from "../db/schema.ts";
 import { paragraphHash } from "./anchor.ts";
 
-// Magic-link review actions. Tokens are single-use: redeem applies the state change and
-// marks used_at atomically. Plaintext is mra_<base64url(32 bytes)>; DB stores sha256(plaintext).
+// Magic-link review actions. One token per (review_request_id, assignee_user_id);
+// reusable until expiry. The action is supplied at redeem time so a reviewer
+// can change their response by clicking a different action link. Plaintext is
+// mra_<base64url(32 bytes)>; DB stores sha256(plaintext).
 export const REVIEW_ACTION_TOKEN_PREFIX = "mra_";
 const RANDOM_BYTES = 32;
 const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -22,10 +24,15 @@ export interface IssuedReviewActionToken {
   expiresAt: Date;
 }
 
+/**
+ * Mint (or re-use) the single token for this assignee. Calling twice for the
+ * same (reviewRequestId, assigneeUserId) returns the existing row's
+ * `expiresAt`; the plaintext can only be returned on first mint because we
+ * only store its hash.
+ */
 export async function issueReviewActionToken(opts: {
   reviewRequestId: string;
   assigneeUserId: string;
-  action: ReviewActionKind;
   ttlMs?: number;
 }): Promise<IssuedReviewActionToken> {
   const random = crypto.getRandomValues(new Uint8Array(RANDOM_BYTES));
@@ -37,24 +44,56 @@ export async function issueReviewActionToken(opts: {
       tokenHash: paragraphHash(token),
       reviewRequestId: opts.reviewRequestId,
       assigneeUserId: opts.assigneeUserId,
-      action: opts.action,
       expiresAt,
     })
+    .onConflictDoNothing({
+      target: [
+        reviewActionToken.reviewRequestId,
+        reviewActionToken.assigneeUserId,
+      ],
+    })
     .returning({ id: reviewActionToken.id });
-  return { token, tokenId: inserted[0]!.id, expiresAt };
+
+  if (inserted[0]) {
+    return { token, tokenId: inserted[0].id, expiresAt };
+  }
+
+  // A token already existed for this assignee. We can't surface its plaintext
+  // (only the hash is stored), so callers re-issuing must accept they only
+  // get a fresh URL on the first mint.
+  throw new ReviewActionTokenAlreadyIssuedError(
+    opts.reviewRequestId,
+    opts.assigneeUserId,
+  );
+}
+
+export class ReviewActionTokenAlreadyIssuedError extends Error {
+  readonly reviewRequestId: string;
+  readonly assigneeUserId: string;
+  constructor(reviewRequestId: string, assigneeUserId: string) {
+    super(
+      `review action token already issued for (${reviewRequestId}, ${assigneeUserId})`,
+    );
+    this.name = "ReviewActionTokenAlreadyIssuedError";
+    this.reviewRequestId = reviewRequestId;
+    this.assigneeUserId = assigneeUserId;
+  }
 }
 
 export type RedeemOutcome =
   | { ok: true; action: ReviewActionKind; assignmentStatus: ReviewAssignmentStatus }
-  | { ok: false; reason: "invalid" | "expired" | "already_used" | "assignment_missing" };
+  | { ok: false; reason: "invalid" | "expired" | "assignment_missing" };
 
 export async function redeemReviewActionToken(
   plaintext: string,
+  action: ReviewActionKind,
 ): Promise<RedeemOutcome> {
   if (!plaintext || !plaintext.startsWith(REVIEW_ACTION_TOKEN_PREFIX)) {
     return { ok: false, reason: "invalid" };
   }
-  // Atomic check-then-mark: without this, two concurrent redemptions double-fire the side effects.
+  // The redeem is multi-use, but each redemption still needs to be atomic so
+  // two concurrent clicks don't double-fire the audit log or race the state
+  // transition.
   return db.transaction((tx): RedeemOutcome => {
     const rows = tx
       .select()
@@ -64,21 +103,12 @@ export async function redeemReviewActionToken(
       .all();
     const row = rows[0];
     if (!row) return { ok: false, reason: "invalid" };
-    if (row.usedAt) return { ok: false, reason: "already_used" };
     if (row.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
 
-    // Conditional claim: 0 affected rows means a parallel redeem won; bail out.
-    const claimed = tx
-      .update(reviewActionToken)
-      .set({ usedAt: new Date() })
-      .where(
-        and(eq(reviewActionToken.id, row.id), isNull(reviewActionToken.usedAt)),
-      )
-      .returning({ id: reviewActionToken.id })
-      .all();
-    if (claimed.length === 0) {
-      return { ok: false, reason: "already_used" };
-    }
+    tx.update(reviewActionToken)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(reviewActionToken.id, row.id))
+      .run();
 
     const assignmentRows = tx
       .select()
@@ -94,7 +124,7 @@ export async function redeemReviewActionToken(
     const assignment = assignmentRows[0] ?? null;
     if (!assignment) return { ok: false, reason: "assignment_missing" };
 
-    const nextStatus = nextAssignmentStatus(row.action, assignment.status);
+    const nextStatus = nextAssignmentStatus(action, assignment.status);
 
     // Always set responded_at, even when status doesn't change (accept_reconciliation case).
     tx.update(reviewAssignment)
@@ -113,14 +143,14 @@ export async function redeemReviewActionToken(
 
     tx.insert(auditLog).values({
       actorUserId: row.assigneeUserId,
-      action: `review_action.${row.action}`,
+      action: `review_action.${action}`,
       targetType: "review_assignment",
       targetId: `${assignment.reviewRequestId}:${assignment.userId}`,
       before: { status: assignment.status },
       after: { status: nextStatus },
     }).run();
 
-    return { ok: true, action: row.action, assignmentStatus: nextStatus };
+    return { ok: true, action, assignmentStatus: nextStatus };
   });
 }
 
@@ -146,6 +176,20 @@ function nextAssignmentStatus(
   }
 }
 
+const KNOWN_ACTIONS: ReadonlySet<ReviewActionKind> = new Set([
+  "mark_reviewed",
+  "decline",
+  "request_changes",
+  "accept_reconciliation",
+]);
+
+export function parseReviewActionKind(raw: string | null): ReviewActionKind | null {
+  if (!raw) return null;
+  return KNOWN_ACTIONS.has(raw as ReviewActionKind)
+    ? (raw as ReviewActionKind)
+    : null;
+}
+
 function toBase64Url(bytes: Uint8Array): string {
   return Buffer.from(bytes)
     .toString("base64")
@@ -153,4 +197,3 @@ function toBase64Url(bytes: Uint8Array): string {
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
 }
-

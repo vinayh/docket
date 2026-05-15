@@ -147,8 +147,15 @@ describe("createReviewRequest", () => {
         "mark_reviewed",
         "request_changes",
       ]);
+      // All three links share a single token (one row per assignee) and vary
+      // only in the ?action= query string.
+      const tokens = new Set(
+        a.links.map((l) => l.url.replace(/\?action=.*/, "")),
+      );
+      expect(tokens.size).toBe(1);
       for (const l of a.links) {
-        expect(l.url).toMatch(/\/r\/mra_/);
+        expect(l.url).toMatch(/\/r\/mra_.+\?action=/);
+        expect(l.url).toContain(`?action=${l.action}`);
         expect(l.expiresAt).toBeGreaterThan(Date.now());
       }
     }
@@ -172,8 +179,8 @@ describe("createReviewRequest", () => {
       .select()
       .from(reviewActionToken)
       .where(eq(reviewActionToken.reviewRequestId, result.reviewRequestId));
-    // 2 assignees × 3 actions each.
-    expect(tokenRows).toHaveLength(6);
+    // One token per assignee; action passed at redeem time via ?action=.
+    expect(tokenRows).toHaveLength(2);
 
     const audit = await db
       .select()
@@ -227,7 +234,7 @@ describe("createReviewRequest", () => {
       .select()
       .from(reviewActionToken)
       .where(eq(reviewActionToken.reviewRequestId, result.reviewRequestId));
-    expect(tokenRows).toHaveLength(3);
+    expect(tokenRows).toHaveLength(1);
   });
 
   test("invokes email transport once per assignee with magic links", async () => {
@@ -290,6 +297,12 @@ describe("createReviewRequest", () => {
 
     expect(result.assignees[0]!.emailError).toBe("smtp 421");
     expect(result.assignees[0]!.links).toHaveLength(3);
+    // One DB row backs the three per-action URLs.
+    const tokenRows = await db
+      .select()
+      .from(reviewActionToken)
+      .where(eq(reviewActionToken.reviewRequestId, result.reviewRequestId));
+    expect(tokenRows).toHaveLength(1);
     expect(result.assignees[0]!.shareError).toBeNull();
   });
 });

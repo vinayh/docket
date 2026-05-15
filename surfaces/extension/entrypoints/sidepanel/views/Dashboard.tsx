@@ -77,10 +77,10 @@ export function Dashboard({
 
   return (
     <>
-      <p class="title">Project</p>
+      <p class="title">{current.project.name ?? "Untitled project"}</p>
       <p class="subtitle">
         <a href={parentUrl} target="_blank" rel="noreferrer">
-          {current.project.parentDocId}
+          Open parent doc
         </a>
       </p>
       <p class="muted">Owner: {current.project.ownerEmail ?? "unknown"}</p>

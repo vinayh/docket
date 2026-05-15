@@ -9,9 +9,11 @@
  *   - `moz-extension://<uuid>`  — Firefox MV3 extension origin
  *   - `http://localhost[:<port>]` — local dev (options page test, curl, etc.)
  *
- * Anything else: we omit `Access-Control-Allow-Origin` entirely. The
- * browser will block the response per spec; servers that want to debug
- * arbitrary origins should hit the endpoint without a browser in the loop.
+ * Requests carrying an `Origin` that isn't on the allow-list are rejected
+ * server-side with 403 — defense in depth, since browser-only enforcement
+ * leaves bearer-holding curl free to exfiltrate. Requests with no `Origin`
+ * header (curl, CI, cron) pass through; bearer-token confidentiality is
+ * still the access boundary there.
  */
 const ALLOWED_HEADERS = "authorization, content-type";
 const EXPOSED_HEADERS = "x-margin-rate-limit-remaining";
@@ -40,7 +42,28 @@ export function corsHeaders(req: Request): Record<string, string> {
   return { ...base, "access-control-allow-origin": origin };
 }
 
+/**
+ * Returns a 403 Response when the request has an `Origin` header that
+ * doesn't match the allow-list; otherwise null. Lets non-browser callers
+ * (no `Origin`) through.
+ */
+export function disallowedOriginResponse(req: Request): Response | null {
+  const origin = req.headers.get("origin");
+  if (!origin || isAllowedOrigin(origin)) return null;
+  const headers = new Headers({
+    "content-type": "application/json",
+    vary: "Origin",
+  });
+  applySecurityHeaders(headers);
+  return new Response(
+    JSON.stringify({ error: "origin_not_allowed" }),
+    { status: 403, headers },
+  );
+}
+
 export function preflight(req: Request): Response {
+  const blocked = disallowedOriginResponse(req);
+  if (blocked) return blocked;
   const headers = new Headers(corsHeaders(req));
   applySecurityHeaders(headers);
   return new Response(null, { status: 204, headers });

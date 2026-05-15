@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { cleanDb, seedProject, seedUser } from "../../test/db.ts";
 import { setFetch } from "../../test/fetch.ts";
 import { db } from "../db/client.ts";
-import { account, project } from "../db/schema.ts";
+import { account, project, version } from "../db/schema.ts";
 import { encryptWithMaster } from "../auth/encryption.ts";
 import type { DriveFile } from "../google/drive.ts";
 import {
@@ -37,7 +37,7 @@ function stubDriveGetFile(byId: Record<string, Partial<DriveFile>>): {
   calls: { url: string }[];
 } {
   const calls: { url: string }[] = [];
-  setFetch(async (input) => {
+  setFetch(async (input, init) => {
     const url = String(input);
     calls.push({ url });
     if (url.includes("oauth2.googleapis.com/token")) {
@@ -46,6 +46,33 @@ function stubDriveGetFile(byId: Record<string, Partial<DriveFile>>): {
           access_token: "access-test",
           expires_in: 3600,
           token_type: "Bearer",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    // documents.get for the v1 snapshot hash. createProject treats failure as
+    // non-fatal, so a canned empty doc keeps the warning out of test output.
+    const docM = /docs\.googleapis\.com\/v1\/documents\/([^/?]+)/.exec(url);
+    if (docM) {
+      const documentId = decodeURIComponent(docM[1]!);
+      return new Response(
+        JSON.stringify({ documentId, title: documentId, body: { content: [] } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    // files.watch for the best-effort v1 watch subscription. Return a canned
+    // channel so the noise stays out of test logs.
+    const watchM = /\/drive\/v3\/files\/([^/]+)\/watch/.exec(url);
+    if (watchM && init?.method === "POST") {
+      const body = init.body ? JSON.parse(String(init.body)) : null;
+      return new Response(
+        JSON.stringify({
+          kind: "api#channel",
+          id: (body as { id?: string })?.id ?? crypto.randomUUID(),
+          resourceId: `resource-${crypto.randomUUID()}`,
+          resourceUri: `https://example.com/${decodeURIComponent(watchM[1]!)}`,
+          token: (body as { token?: string })?.token,
+          expiration: String(Date.now() + 86_400_000),
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
@@ -134,7 +161,7 @@ describe("DuplicateProjectError", () => {
 });
 
 describe("createProject", () => {
-  test("happy path: inserts a project row and returns it", async () => {
+  test("happy path: inserts a project row + v1 version row and returns project", async () => {
     const u = await seedUser();
     await seedDriveCredential(u.id);
     stubDriveGetFile({
@@ -158,6 +185,19 @@ describe("createProject", () => {
       .from(project)
       .where(eq(project.id, proj.id));
     expect(rows).toHaveLength(1);
+
+    // "main" version row was inserted with the parent doc id; subsequent
+    // createVersion calls auto-link off this and assign v1, v2, …
+    // (pickNextLabel skips non-`v\d+` labels).
+    const versionRows = await db
+      .select()
+      .from(version)
+      .where(eq(version.projectId, proj.id));
+    expect(versionRows).toHaveLength(1);
+    expect(versionRows[0]!.label).toBe("main");
+    expect(versionRows[0]!.googleDocId).toBe("1aB-cD_0123456789zZyXwVu");
+    expect(versionRows[0]!.parentVersionId).toBeNull();
+    expect(versionRows[0]!.name).toBe("My Doc");
   });
 
   test("pre-check short-circuits before any Drive call when the project already exists for this owner", async () => {
@@ -246,54 +286,46 @@ describe("createProject", () => {
     expect(a.parentDocId).toBe(b.parentDocId);
   });
 
-  test("race: pre-check passes but a concurrent insert wins → DuplicateProjectError from the unique-index catch", async () => {
-    // The pre-check returns null because we haven't seeded the row yet. The
-    // Drive stub then runs and we seed the project to simulate a concurrent
-    // ingest that committed between the SELECT and the INSERT. The INSERT
-    // throws on the unique index and the catch branch loads the winner.
+  test("same owner re-registering the same parent doc is allowed (no DB-enforced uniqueness)", async () => {
+    // Project identity is decoupled from parent_doc_id (so users can swap the
+    // parent later), so two projects sharing a parent doc for the same owner
+    // is permitted. The pre-check still surfaces DuplicateProjectError when
+    // the existing row is visible — but here we bypass it by seeding mid-flight,
+    // mirroring the race-condition timing from the old test.
     const u = await seedUser();
     await seedDriveCredential(u.id);
     let pendingSeed = true;
-    setFetch(async (input) => {
+    stubDriveGetFile({
+      "race-doc-1aB-cD_0123456789": {
+        name: "Doc",
+        mimeType: GOOGLE_DOC_MIME,
+      },
+    });
+    // Wrap the existing stub to seed the duplicate row mid-flight, right
+    // before the first Drive getFile resolves.
+    const inner = globalThis.fetch;
+    setFetch(async (input, init) => {
       const url = String(input);
-      if (url.includes("oauth2.googleapis.com/token")) {
-        return new Response(
-          JSON.stringify({
-            access_token: "access-test",
-            expires_in: 3600,
-            token_type: "Bearer",
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+      if (pendingSeed && url.includes("/drive/v3/files/race-doc-")) {
+        await seedProject({
+          ownerUserId: u.id,
+          parentDocId: "race-doc-1aB-cD_0123456789",
+        });
+        pendingSeed = false;
       }
-      if (url.includes("/drive/v3/files/")) {
-        // Seed the duplicate row mid-flight, after the pre-check has run but
-        // before the INSERT. The next DB write will hit the unique index.
-        if (pendingSeed) {
-          await seedProject({
-            ownerUserId: u.id,
-            parentDocId: "race-doc-1aB-cD_0123456789",
-          });
-          pendingSeed = false;
-        }
-        return new Response(
-          JSON.stringify({
-            id: "race-doc-1aB-cD_0123456789",
-            name: "Doc",
-            mimeType: GOOGLE_DOC_MIME,
-            trashed: false,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      throw new Error(`unexpected fetch: ${url}`);
+      return inner(input as Request, init);
     });
 
-    await expect(
-      createProject({
-        ownerUserId: u.id,
-        parentDocUrlOrId: "race-doc-1aB-cD_0123456789",
-      }),
-    ).rejects.toBeInstanceOf(DuplicateProjectError);
+    const created = await createProject({
+      ownerUserId: u.id,
+      parentDocUrlOrId: "race-doc-1aB-cD_0123456789",
+    });
+    expect(created.parentDocId).toBe("race-doc-1aB-cD_0123456789");
+    // Both rows now exist; that's acceptable post-decoupling.
+    const allRows = await db
+      .select()
+      .from(project)
+      .where(eq(project.parentDocId, "race-doc-1aB-cD_0123456789"));
+    expect(allRows).toHaveLength(2);
   });
 });

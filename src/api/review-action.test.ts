@@ -33,25 +33,52 @@ async function seedAssignmentWorld() {
 
 describe("handleReviewActionGet", () => {
   test("404 for an unknown token", async () => {
-    const res = await handleReviewActionGet(get("/r/mra_unknown"));
+    const res = await handleReviewActionGet(get("/r/mra_unknown?action=mark_reviewed"));
     expect(res.status).toBe(404);
     expect(res.headers.get("content-type")).toContain("text/html");
   });
 
   test("404 for a path that doesn't carry a token", async () => {
-    const res = await handleReviewActionGet(get("/r/"));
+    const res = await handleReviewActionGet(get("/r/?action=mark_reviewed"));
     expect(res.status).toBe(404);
   });
 
-  test("mark_reviewed transitions the assignment + 404s on second click", async () => {
+  test("renders chooser page (200) when ?action= is absent", async () => {
     const world = await seedAssignmentWorld();
     const { token } = await issueReviewActionToken({
       reviewRequestId: world.rr.id,
       assigneeUserId: world.reviewer.id,
-      action: "mark_reviewed",
+    });
+    const res = await handleReviewActionGet(get(`/r/${token}`));
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("Choose a review action");
+    expect(body).toContain("action=mark_reviewed");
+    expect(body).toContain("action=decline");
+  });
+
+  test("renders chooser with 400 when ?action= is unrecognized", async () => {
+    const world = await seedAssignmentWorld();
+    const { token } = await issueReviewActionToken({
+      reviewRequestId: world.rr.id,
+      assigneeUserId: world.reviewer.id,
+    });
+    const res = await handleReviewActionGet(get(`/r/${token}?action=bogus`));
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain("bogus");
+  });
+
+  test("mark_reviewed transitions assignment; replay is idempotent", async () => {
+    const world = await seedAssignmentWorld();
+    const { token } = await issueReviewActionToken({
+      reviewRequestId: world.rr.id,
+      assigneeUserId: world.reviewer.id,
     });
 
-    const first = await handleReviewActionGet(get(`/r/${token}`));
+    const first = await handleReviewActionGet(
+      get(`/r/${token}?action=mark_reviewed`),
+    );
     expect(first.status).toBe(200);
 
     const after = await db
@@ -62,8 +89,47 @@ describe("handleReviewActionGet", () => {
     expect(after[0]!.status).toBe("reviewed");
     expect(after[0]!.respondedAt).not.toBeNull();
 
-    const replay = await handleReviewActionGet(get(`/r/${token}`));
-    expect(replay.status).toBe(404);
+    // Re-click: still 200 (multi-use), assignment stays reviewed.
+    const replay = await handleReviewActionGet(
+      get(`/r/${token}?action=mark_reviewed`),
+    );
+    expect(replay.status).toBe(200);
+    const stillReviewed = await db
+      .select()
+      .from(reviewAssignment)
+      .where(eq(reviewAssignment.userId, world.reviewer.id))
+      .limit(1);
+    expect(stillReviewed[0]!.status).toBe("reviewed");
+  });
+
+  test("reviewer can change response by clicking a different action", async () => {
+    const world = await seedAssignmentWorld();
+    const { token } = await issueReviewActionToken({
+      reviewRequestId: world.rr.id,
+      assigneeUserId: world.reviewer.id,
+    });
+
+    await handleReviewActionGet(get(`/r/${token}?action=mark_reviewed`));
+    expect(
+      (
+        await db
+          .select()
+          .from(reviewAssignment)
+          .where(eq(reviewAssignment.userId, world.reviewer.id))
+          .limit(1)
+      )[0]!.status,
+    ).toBe("reviewed");
+
+    const flipped = await handleReviewActionGet(
+      get(`/r/${token}?action=request_changes`),
+    );
+    expect(flipped.status).toBe(200);
+    const after = await db
+      .select()
+      .from(reviewAssignment)
+      .where(eq(reviewAssignment.userId, world.reviewer.id))
+      .limit(1);
+    expect(after[0]!.status).toBe("changes_requested");
   });
 
   test("decline marks the assignment declined", async () => {
@@ -71,9 +137,8 @@ describe("handleReviewActionGet", () => {
     const { token } = await issueReviewActionToken({
       reviewRequestId: world.rr.id,
       assigneeUserId: world.reviewer.id,
-      action: "decline",
     });
-    const res = await handleReviewActionGet(get(`/r/${token}`));
+    const res = await handleReviewActionGet(get(`/r/${token}?action=decline`));
     expect(res.status).toBe(200);
     const after = await db
       .select()
@@ -88,10 +153,11 @@ describe("handleReviewActionGet", () => {
     const { token } = await issueReviewActionToken({
       reviewRequestId: world.rr.id,
       assigneeUserId: world.reviewer.id,
-      action: "mark_reviewed",
       ttlMs: -1, // already expired
     });
-    const res = await handleReviewActionGet(get(`/r/${token}`));
+    const res = await handleReviewActionGet(
+      get(`/r/${token}?action=mark_reviewed`),
+    );
     expect(res.status).toBe(404);
   });
 });

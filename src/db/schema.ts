@@ -107,10 +107,11 @@ export const project = sqliteTable(
       .$defaultFn(() => ({})),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
   },
-  (t) => [
-    // createProject relies on this to translate a race into DuplicateProjectError.
-    uniqueIndex("project_doc_owner_unique").on(t.parentDocId, t.ownerUserId),
-  ],
+  // Note: project identity is intentionally NOT bound to parent_doc_id — the
+  // parent doc URL can be swapped over a project's lifetime. createProject's
+  // "this doc is already tracked" pre-check is enforced at the application
+  // layer (DuplicateProjectError) so the picker UX can still surface it.
+  (_t) => [],
 );
 
 export type VersionStatus = "active" | "archived";
@@ -364,7 +365,10 @@ export type ReviewActionKind =
   | "request_changes"
   | "accept_reconciliation";
 
-// Magic-link token. Stored as sha256; single-use (used_at + expiresAt gate redemption).
+// Magic-link token. Stored as sha256. One row per (reviewRequestId, assigneeUserId);
+// reusable until expiry — the action is passed as a query param at redeem time, so
+// reviewers can change their response (e.g. mark_reviewed → request_changes) without
+// the requester re-issuing a link.
 export const reviewActionToken = sqliteTable(
   "review_action_token",
   {
@@ -377,13 +381,13 @@ export const reviewActionToken = sqliteTable(
     assigneeUserId: text("assignee_user_id")
       .notNull()
       .references(() => user.id),
-    action: text("action").$type<ReviewActionKind>().notNull(),
     issuedAt: integer("issued_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
     expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
-    usedAt: integer("used_at", { mode: "timestamp_ms" }),
+    // Set on every successful redeem; null until first use.
+    lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
   },
   (t) => [
-    index("review_action_token_assignment_idx").on(
+    uniqueIndex("review_action_token_assignment_idx").on(
       t.reviewRequestId,
       t.assigneeUserId,
     ),

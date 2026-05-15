@@ -1,5 +1,5 @@
 import { config } from "../config.ts";
-import { preflight, withCors, withSecurity } from "./cors.ts";
+import { disallowedOriginResponse, preflight, withCors, withSecurity } from "./cors.ts";
 import { authenticateBearer, internalError } from "./middleware.ts";
 import { checkRateLimit, clientIp } from "./rate-limit.ts";
 
@@ -34,6 +34,8 @@ export function corsRoute(handlers: MethodHandlers): MethodHandlers {
     Handler,
   ][]) {
     out[method] = async (req: Request) => {
+      const blocked = disallowedOriginResponse(req);
+      if (blocked) return blocked;
       let res: Response;
       let remaining: number | null = null;
       try {

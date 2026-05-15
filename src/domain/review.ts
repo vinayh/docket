@@ -125,22 +125,18 @@ export async function createReviewRequest(opts: {
       );
     }
 
-    const links: AssigneeMagicLinks["links"] = [];
-    for (const action of actions) {
-      const issued = await issueReviewActionToken({
-        reviewRequestId,
-        assigneeUserId: u.id,
-        action,
-      });
-      const url = baseUrl
-        ? `${baseUrl.replace(/\/+$/, "")}/r/${issued.token}`
-        : `/r/${issued.token}`;
-      links.push({
-        action,
-        url,
-        expiresAt: issued.expiresAt.getTime(),
-      });
-    }
+    const issued = await issueReviewActionToken({
+      reviewRequestId,
+      assigneeUserId: u.id,
+    });
+    const baseUrlForToken = baseUrl
+      ? `${baseUrl.replace(/\/+$/, "")}/r/${issued.token}`
+      : `/r/${issued.token}`;
+    const links: AssigneeMagicLinks["links"] = actions.map((action) => ({
+      action,
+      url: `${baseUrlForToken}?action=${action}`,
+      expiresAt: issued.expiresAt.getTime(),
+    }));
 
     out.push({ email: u.email, userId: u.id, links, shareError, emailError: null });
 
@@ -239,11 +235,20 @@ function renderReviewEmailBody(opts: {
     lines.push(`Deadline: ${opts.deadline.toISOString()}`);
     lines.push("");
   }
-  lines.push("When you're done, click one of these (each link is single-use):");
+  lines.push(
+    "When you're done, click one of these — each link records your latest response,",
+  );
+  lines.push(`so you can change it until ${expiresAtIso(opts.links)}:`);
   for (const l of opts.links) {
     lines.push(`  ${ACTION_LABEL[l.action]}: ${l.url}`);
   }
   return lines.join("\n");
+}
+
+function expiresAtIso(links: AssigneeMagicLinks["links"]): string {
+  const first = links[0];
+  if (!first) return "the request expires";
+  return new Date(first.expiresAt).toISOString();
 }
 
 function uniqLower(input: string[]): string[] {

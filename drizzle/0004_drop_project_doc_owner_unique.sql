@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS `project_doc_owner_unique`;

@@ -31,12 +31,12 @@ Three layers:
 
 ## 4. Data model
 
-15 tables (`src/db/schema.ts`):
+16 tables (`src/db/schema.ts`):
 
 | Table | Purpose |
 |---|---|
-| `project` | parent_doc_id, owner_user_id, settings (default reviewers, default overlay) |
-| `version` | google_doc_id, parent_version_id, label, snapshot_content_hash, status |
+| `project` | parent_doc_id, owner_user_id, name (Drive title at register time), settings (default reviewers, default overlay). Project identity is **not** bound to parent_doc_id — the parent can be swapped over a project's lifetime. `createProject`'s "already tracked" pre-check is an application-layer hint, not a DB constraint. |
+| `version` | google_doc_id, parent_version_id, label, name (Drive title), snapshot_content_hash, status. Every project starts with a `label = "main"` row whose `google_doc_id` is the parent doc; subsequent snapshots are v1, v2, … (`pickNextLabel` skips non-`v\d+` labels). |
 | `overlay` | name, ordered ops (JSON), project |
 | `overlay_operation` | type, anchor (quoted text + context), payload, confidence_threshold |
 | `derivative` | version_id, overlay_id, google_doc_id, audience_label |
@@ -49,7 +49,7 @@ Three layers:
 | `session` | Better Auth session: token (sent as `Authorization: Bearer …` from the extension), userId, expiry |
 | `verification` | Better Auth's identifier/value table (unused today; required by the adapter) |
 | `drive_watch_channel` | per-version Drive `files.watch` channel + token (renew + dedup state) |
-| `review_action_token` | single-use magic-link tokens issued for review-assignment emails |
+| `review_action_token` | magic-link tokens for review-assignment emails. One row per `(review_request_id, assignee_user_id)`; multi-use until `expires_at`. Action passed at redeem time via `?action=…`. |
 | `audit_log` | actor, action, target, before/after for sensitive ops |
 
 The anchor schema is rich enough to resolve to on-screen coordinates without Google's APIs (§9.1).
@@ -92,7 +92,7 @@ Deliberately minimal — the rich UI is in the extension.
 
 - **`/api/auth/**`** — Better Auth's catch-all (sign-in, Google OAuth callback, get-session, sign-out). Extension sign-in opens `/api/auth/ext/launch-tab?ext=<chrome.runtime.id>` in a normal browser tab; after Google → Better Auth's social callback, `/api/auth/ext/success` hands the session token to the SW (Chromium: `chrome.runtime.sendMessage` gated by `externally_connectable.matches`; Firefox: `location.hash` picked up by `tabs.onUpdated`).
 - **`/api/picker/page`** — backend-hosted Drive Picker. Cookie-authenticated top-level navigation; mints a Drive access token, runs the Picker, POSTs to `/api/picker/register-doc` same-origin on pick, and closes itself.
-- **Magic-link handlers** — `/r/<token>` style, one-click state changes for external reviewers; rendered confirmation page. Distinct from Better Auth sessions: review-action tokens authorize a specific state transition (single-use, scoped to one assignment), not an authenticated session.
+- **Magic-link handlers** — `/r/<token>?action=<kind>` style, one-click state changes for external reviewers; rendered confirmation page (chooser page when `action` is missing or unrecognized). Distinct from Better Auth sessions: review-action tokens authorize state transitions scoped to one assignment, not an authenticated session. Multi-use until `expires_at` so reviewers can change their response by clicking a different action link.
 - **Public landing page** — marketing/explainer with install CTAs.
 
 Project dashboards, diff viewer, reconciliation UI, overlay editor, settings live in the extension (§6.4), not on the web.
@@ -151,7 +151,7 @@ Same as 7.1, with:
 | Role | Mechanism |
 |---|---|
 | Doc owner | Better Auth Google provider, scope `drive.file` (per-file, §9.2); refresh token envelope-encrypted in `account.refresh_token` |
-| Participant | Better Auth Google provider (identity-only) / SSO (SAML, OIDC, future) / single-use `review_action_token` for email-only reviewers |
+| Participant | Better Auth Google provider (identity-only) / SSO (SAML, OIDC, future) / `review_action_token` magic links for email-only reviewers (scoped to one assignment, multi-use until expiry) |
 | Slack identity | Slack OAuth (future Better Auth `genericOAuth` provider) + email match against `user.email` |
 
 **Authorization model.** Project-scoped roles: owner / collaborator / reviewer / observer. External reviewers added per-review-request, scoped to that version.
@@ -280,7 +280,7 @@ New backend routes:
 - `POST /api/extension/doc-sync` — "Sync now" — re-runs `ingestVersionComments` on the relevant version and returns refreshed state.
 - `GET /api/picker/page` — backend-hosted Drive Picker (cookie-auth, top-level navigation).
 - `POST /api/picker/register-doc` — resolves caller (cookie or bearer) → `createProject(ownerUserId, parentDocUrlOrId)`.
-- CORS allow-list extended to chromium / firefox extension origins on `/api/extension/*` and `/api/picker/register-doc`.
+- CORS allow-list covers chromium / firefox extension origins + localhost on `/api/extension/*` and `/api/picker/register-doc`. Requests carrying a non-allow-listed `Origin` are rejected server-side with 403 (`disallowedOriginResponse` in `src/api/cors.ts`); requests with no `Origin` header (curl / CI / cron) pass through, since bearer-token confidentiality is the access boundary there.
 
 Popup state machine + OAuth/Picker mechanics live in [`surfaces/extension/README.md`](../surfaces/extension/README.md). The popup never holds the session token — everything routes through the SW.
 
@@ -305,7 +305,7 @@ Shipped in Phase 4 round 2:
 
 - **Comment reconciliation actions.** `POST /api/extension/comment-action` for `accept_projection`, `reanchor`, `mark_resolved`, `mark_wontfix`, `reopen`. Side-panel action menu on each row applies results in place. Audit-logged via `audit_log` rows tagged `canonical_comment.*` / `comment_projection.*`.
 - **Settings.** `POST /api/extension/settings` (load + patch) over `project.settings`. Side-panel Settings view covers notification prefs, default reviewer emails, Slack workspace linking (free-form placeholder until Phase 5 wires the bot). Patches are diff-applied; `audit_log` records the before/after JSON.
-- **Magic-link `/r/<token>` handlers.** New `review_action_token` table (`tokenHash`, `reviewRequestId`, `assigneeUserId`, `action`, `issuedAt`, `expiresAt`, `usedAt`). `GET /r/<token>` on the secured (non-CORS) side of the API renders an HTML confirmation and transitions the matching `review_assignment.status`. Single-use; expired/used tokens render a friendly error page. Actions: `mark_reviewed`, `decline`, `request_changes`, `accept_reconciliation`.
+- **Magic-link `/r/<token>` handlers.** `review_action_token` table keyed by `(reviewRequestId, assigneeUserId)`; columns `tokenHash`, `issuedAt`, `expiresAt`, `lastUsedAt`. `GET /r/<token>?action=<kind>` on the secured (non-CORS) side of the API renders an HTML confirmation and transitions the matching `review_assignment.status`; missing or unknown `action` renders a chooser page listing the four buttons. Multi-use until `expiresAt` — reviewers can change their response by re-clicking a different action. Expired tokens render a friendly error page. Actions: `mark_reviewed`, `decline`, `request_changes`, `accept_reconciliation`.
 
 The overlay applier + domain helpers stay shipped (§5, `src/domain/overlay.ts`); the editor surface is stretch (§13.3).
 
@@ -385,20 +385,3 @@ Extension side-panel chat with the canonical store wired in as live context (via
 - **"Explain this comment in context"** — pulls parent suggestion + surrounding paragraph + cross-version replies into a single summary.
 
 Privacy: LLM only sees what the calling user can already see. Doc body fetched fresh per turn through Margin's `drive.file`-scoped credentials. Provider choice (Claude / OpenAI / local) in extension settings; default "ask before sending."
-
-## 14. QA backlog
-
-Surfaced during the manual QA pass on 2026-05-14 against `docs/extension-qa.md`. Implementation plan for the open items lives at [`qa-backlog-plan.md`](./qa-backlog-plan.md).
-
-- **Parent doc as version**: treat `project.parent_doc_id` as the project's v1 (top of the versions list). Today comments on the parent doc are silently dropped and picker-register leaves the project with zero versions (`src/domain/{project,version,doc-state}.ts`, Dashboard versions table).
-- **Decouple project identity from `parent_doc_id`, render `project.name`**: drop the `(parent_doc_id, owner_user_id)` uniqueness so the parent can be swapped later; replace the literal "Project" + raw doc id in the side-panel header with `current.project.name` (`src/db/schema.ts`, `src/domain/project.ts`, `surfaces/extension/entrypoints/sidepanel/views/Dashboard.tsx:80-85`).
-- ~~**Suggestion dedup**~~ **Done** (2026-05-14): dropped `s.date` from `suggestionIdempotencyKey` in `src/domain/comments/suggestions.ts`; OOXML stamps a fresh `w:date` on every export so the timestamp was forcing a new `canonical_comment` row on every watcher poll. Regression test in `suggestions.test.ts`.
-- **Multi-use review tokens with action via query param**: one token per `(request, reviewer)`, reused, action passed as `?action=...`. Lets reviewers change responses repeatedly until expiry and removes the lost-link problem (`src/domain/review-action.ts`, `src/api/review-action.ts`, `src/domain/review.ts`).
-- ~~**Side panel doesn't re-bind on tab switch**~~ Already addressed in Phase 4.5 (commit `141e304`, before the QA pass landed): the side-panel React app registers its own `tabs.onActivated` + `tabs.onUpdated` listeners (`surfaces/extension/entrypoints/sidepanel/App.tsx:52-74`) — debounced re-boot rather than an SW-pushed refetch, but equivalent in effect.
-- ~~**Toolbar icon doesn't toggle the side panel**~~ **Done** (2026-05-14): SW now tracks per-window open-state through a `margin-panel-lifecycle` `runtime.connect` port that the side panel opens on mount; `action.onClicked` branches to `sidePanel.close` / `sidebarAction.close` when the window is in the open set, else opens as before. Bumped `minimum_chrome_version` to 116 for `sidePanel.close` (`surfaces/extension/entrypoints/background.ts`, `sidepanel/App.tsx`, `wxt.config.ts`).
-- ~~**`bun margin serve` doesn't auto-migrate**~~ **Done** (2026-05-14): `src/cli/serve.ts` now calls `migrate(db, …)` before binding the port, matching the Dockerfile's `migrate.ts && serve` contract. Tests are unaffected because they reach `startServer` directly, not through the CLI.
-- ~~**Options auto-open on first install missing**~~ **Done** (2026-05-14): `runtime.onInstalled` listener in `surfaces/extension/entrypoints/background.ts` calls `openOptionsPage()` on `reason === "install"`.
-- ~~**Reviewer-emails textarea swallows Enter**~~ **Done** (2026-05-14): `Settings.tsx` now stores the textarea contents as a raw string in component state; `parseEmails` runs once at save time. The dirty-check still works because it parses the raw string before diffing.
-- ~~**Dashboard actions overflow at narrow widths**~~ Already addressed by the cream-theme pass (commit `48aa5e1`, after the QA pass): `.row-actions { flex-wrap: wrap }` in `surfaces/extension/entrypoints/sidepanel/style.css:336-340`. Overflow menu still the better long-term fix, but no longer clipping.
-- **CORS policy needs an explicit decision**: disallowed-origin POSTs return 200 with no `Access-Control-Allow-Origin` (browser-only rejection); bearer-holding curl still reads data. Either reject server-side with 403 or update `docs/extension-qa.md` §13.1 wording (`src/api/cors.ts`).
-- ~~**Side panel ↔ site theme refactor**: adopt the public site's design tokens (`site/src/styles/global.css`) in the extension side panel. Triggers the `surfaces/shared-ui/` consolidation per AGENTS.md.~~ **Done** (2026-05-14): tokens live at `surfaces/extension/ui/tokens.css` (cream/ink/accent palette, Bagel Fat One / Inter / JetBrains Mono, latin-only `@font-face`); side panel + popup + options stylesheets and the four backend HTML pages (success / picker / picker errors / magic-link review action) all consume them. Bagel Fat One served from `/fonts/bagel-fat-one.woff2` so backend pages match the brand mark; CSP gains `font-src 'self'`. `surfaces/shared-ui/` consolidation deferred until a third surface duplicates components.

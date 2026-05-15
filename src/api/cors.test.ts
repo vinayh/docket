@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { corsHeaders, isAllowedOrigin, preflight, withCors } from "./cors.ts";
+import {
+  corsHeaders,
+  disallowedOriginResponse,
+  isAllowedOrigin,
+  preflight,
+  withCors,
+} from "./cors.ts";
 
 function reqWithOrigin(origin: string | null): Request {
   const headers = new Headers();
@@ -62,6 +68,25 @@ describe("corsHeaders", () => {
   });
 });
 
+describe("disallowedOriginResponse", () => {
+  test("returns null for allow-listed origins", () => {
+    expect(
+      disallowedOriginResponse(reqWithOrigin(`chrome-extension://${CHROME_ID}`)),
+    ).toBeNull();
+  });
+
+  test("returns null when no Origin header is set (curl/CI)", () => {
+    expect(disallowedOriginResponse(reqWithOrigin(null))).toBeNull();
+  });
+
+  test("returns 403 for disallowed Origin headers", () => {
+    const res = disallowedOriginResponse(reqWithOrigin("https://evil.example.com"));
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(403);
+    expect(res!.headers.get("access-control-allow-origin")).toBeNull();
+  });
+});
+
 describe("preflight + withCors", () => {
   test("preflight is 204 with allowed methods + headers", () => {
     const res = preflight(reqWithOrigin(`chrome-extension://${CHROME_ID}`));
@@ -71,6 +96,12 @@ describe("preflight + withCors", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe(
       `chrome-extension://${CHROME_ID}`,
     );
+  });
+
+  test("preflight rejects disallowed Origin with 403", () => {
+    const res = preflight(reqWithOrigin("https://evil.example.com"));
+    expect(res.status).toBe(403);
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
 
   test("withCors merges headers without dropping existing ones", () => {

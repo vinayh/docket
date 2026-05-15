@@ -163,10 +163,16 @@ Firefox (`dist/firefox-mv3`) and Edge.
 ## 13. CORS + cross-user isolation
 
 1. From a non-extension origin (`curl -H 'Origin: https://evil.example'
-   …`) hit `/api/extension/doc-state` → expect CORS rejection.
-2. Preflight `OPTIONS` from the extension origin → 204 with correct
-   `Access-Control-Allow-*` headers.
-3. As user A, get a `docId` for one of A's projects. As user B, call
+   …`) hit `/api/extension/doc-state` → expect **403
+   `origin_not_allowed`** (server-side reject; the response never reaches
+   a browser caller and the body is never produced).
+2. Same call with no `Origin` header (plain `curl` + bearer) → request
+   passes; bearer-token confidentiality is the access boundary for
+   non-browser traffic.
+3. Preflight `OPTIONS` from the extension origin → 204 with correct
+   `Access-Control-Allow-*` headers. Preflight from a disallowed origin
+   → 403.
+4. As user A, get a `docId` for one of A's projects. As user B, call
    `doc-state` with that `docId` → expect not-found / unauthorized,
    never A's data.
 
