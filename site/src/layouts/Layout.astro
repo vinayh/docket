@@ -1,6 +1,6 @@
 ---
 import "../styles/global.css";
-import bagelFontUrl from "@fontsource/bagel-fat-one/files/bagel-fat-one-latin-400-normal.woff2?url";
+import { Font } from "astro:assets";
 
 interface Props {
   title?: string;
@@ -31,13 +31,9 @@ const canonical = new URL(Astro.url.pathname, Astro.site).toString();
     <meta property="og:url" content={canonical} />
     <meta name="twitter:card" content="summary_large_image" />
 
-    <link
-      rel="preload"
-      as="font"
-      type="font/woff2"
-      href={bagelFontUrl}
-      crossorigin
-    />
+    <Font cssVariable="--font-display" preload={[{ subset: "latin" }]} />
+    <Font cssVariable="--font-sans" />
+    <Font cssVariable="--font-mono" />
   </head>
   <body class="min-h-dvh">
     <slot />
