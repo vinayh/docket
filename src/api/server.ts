@@ -2,7 +2,7 @@ import {
   handleAuthExtLaunchTab,
   handleAuthExtSuccess,
   handleAuthRequest,
-} from "./auth-handler.ts";
+} from "./auth-handler.tsx";
 import { handleDocStatePost } from "./doc-state.ts";
 import { handleDocSyncPost } from "./doc-sync.ts";
 import { handleProjectDetailPost } from "./project-detail.ts";
@@ -12,12 +12,13 @@ import { handleVersionDiffPost } from "./version-diff.ts";
 import { handleVersionCommentsPost } from "./version-comments.ts";
 import { handleCommentActionPost } from "./comment-action.ts";
 import { handleSettingsPost } from "./settings.ts";
-import { handleReviewActionGet } from "./review-action.ts";
+import { handleReviewActionGet } from "./review-action.tsx";
 import { handleReviewRequestPost } from "./review-request.ts";
-import { handlePickerPage } from "./picker-page.ts";
+import { handlePickerPage } from "./picker-page.tsx";
 import { handleRegisterDocPost } from "./picker-register.ts";
 import { handleDriveWebhook } from "./drive-webhook.ts";
 import { handleFontRequest } from "./fonts.ts";
+import { handleStaticAsset } from "./static.ts";
 import { corsRoute, secured, setActiveServer } from "./route-wrappers.ts";
 import { startBackgroundLoops } from "./background.ts";
 import { config } from "../config.ts";
@@ -86,6 +87,7 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       "/api/picker/register-doc": corsRoute({ POST: handleRegisterDocPost }),
       "/r/:token": { GET: secured(handleReviewActionGet) },
       "/fonts/:filename": { GET: secured(handleFontRequest) },
+      "/static/:filename": { GET: secured(handleStaticAsset) },
     },
     fetch() {
       return new Response("not found", { status: 404 });

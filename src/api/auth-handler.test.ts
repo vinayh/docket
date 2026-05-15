@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   handleAuthExtLaunchTab,
   handleAuthExtSuccess,
-} from "./auth-handler.ts";
+} from "./auth-handler.tsx";
 import { cleanDb, seedUser } from "../../test/db.ts";
 import { issueTestSession } from "../../test/session.ts";
 
@@ -73,7 +73,7 @@ describe("handleAuthExtSuccess", () => {
     expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
 
     const csp = res.headers.get("content-security-policy") ?? "";
-    expect(csp).toContain("script-src 'sha256-");
+    expect(csp).toContain("script-src 'nonce-");
     expect(csp).toContain("frame-ancestors 'none'");
 
     const html = await res.text();

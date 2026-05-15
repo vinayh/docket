@@ -4,7 +4,8 @@ import { session as sessionTable } from "../db/schema.ts";
 import { eq } from "drizzle-orm";
 import { badRequest } from "./middleware.ts";
 import { config } from "../config.ts";
-import { renderHashedScriptHtml, sha256Base64 } from "./html.ts";
+import { nonce, renderPage } from "./render.ts";
+import { AuthExtSuccessPage } from "./pages/AuthExtSuccessPage.tsx";
 
 export function handleAuthRequest(req: Request): Response | Promise<Response> {
   return auth.handler(req);
@@ -75,7 +76,7 @@ export async function handleAuthExtLaunchTab(req: Request): Promise<Response> {
  *  - Firefox / fallback: park the token in `location.hash` for the SW's tabs.onUpdated to pick up.
  *
  * Security posture: token-bearing response is `no-store`/noindex, the inline `<script>` is
- * gated by a per-response SHA-256 CSP hash (no `unsafe-inline`), `frame-ancestors 'none'`.
+ * gated by a per-response nonce (no `unsafe-inline`), `frame-ancestors 'none'`.
  */
 export async function handleAuthExtSuccess(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -99,63 +100,15 @@ export async function handleAuthExtSuccess(req: Request): Promise<Response> {
     return new Response("session row missing", { status: 500 });
   }
 
-  const script = buildBridgeScript(ext, token);
-  const scriptHash = await sha256Base64(script);
-  const html = renderHashedScriptHtml({
-    title: "Margin — Signed in",
-    bodyMarkup: `<h1>Margin</h1>\n<p id="status">Finishing sign-in…</p>`,
-    inlineScript: script,
+  const n = nonce();
+  return renderPage(<AuthExtSuccessPage extId={ext} token={token} nonce={n} />, {
+    csp: [
+      "default-src 'none'",
+      `script-src 'nonce-${n}'`,
+      "style-src 'self'",
+      "font-src 'self'",
+      "frame-ancestors 'none'",
+    ].join("; "),
   });
-
-  return new Response(html, {
-    status: 200,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-      "x-robots-tag": "noindex, nofollow",
-      "content-security-policy": [
-        "default-src 'none'",
-        `script-src 'sha256-${scriptHash}'`,
-        "style-src 'unsafe-inline'",
-        "font-src 'self'",
-        "frame-ancestors 'none'",
-      ].join("; "),
-    },
-  });
-}
-
-function buildBridgeScript(extId: string, token: string): string {
-  // JSON.stringify keeps the inline values un-escaping out of the <script> context.
-  // Firefox doesn't expose chrome.runtime on regular pages (Bugzilla 1319168), so the
-  // sendMessage branch only runs on Chromium; everything else falls back to location.hash.
-  const extJson = JSON.stringify(extId);
-  const tokenJson = JSON.stringify(token);
-  return [
-    "(function () {",
-    `  var extId = ${extJson};`,
-    `  var token = ${tokenJson};`,
-    "  var statusEl = document.getElementById('status');",
-    "  function setText(t) { if (statusEl) statusEl.textContent = t; }",
-    "  function closeTab() { try { window.close(); } catch (_) {} }",
-    "  var done = false;",
-    "  function fallbackToFragment() {",
-    "    if (done) return; done = true;",
-    "    try { location.hash = 'token=' + encodeURIComponent(token); } catch (_) {}",
-    "    setText('Signed in. You can close this tab.');",
-    "  }",
-    "  var hasSendMessage = (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.sendMessage === 'function');",
-    "  if (!hasSendMessage) { fallbackToFragment(); return; }",
-    // 1.5s gives a sleeping SW time to wake; on timeout we fall through to the hash path.
-    "  var timer = setTimeout(fallbackToFragment, 1500);",
-    "  try {",
-    "    chrome.runtime.sendMessage(extId, { kind: 'auth/token', token: token }, function (r) {",
-    "      clearTimeout(timer);",
-    "      if (done) return;",
-    "      if (r && r.ok) { done = true; setText('Signed in. You can close this tab.'); setTimeout(closeTab, 400); }",
-    "      else { fallbackToFragment(); }",
-    "    });",
-    "  } catch (_) { clearTimeout(timer); fallbackToFragment(); }",
-    "})();",
-  ].join("\n");
 }
 

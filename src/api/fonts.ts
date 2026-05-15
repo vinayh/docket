@@ -5,33 +5,24 @@
  * here so those pages can render the brand mark in Bagel Fat One without
  * widening their CSP to `font-src https://fonts.gstatic.com`.
  *
- * Long-cache + immutable: filenames are content-stable per @fontsource
- * release, and we publish a new server build to roll the version anyway.
+ * The woff2 is vendored at `src/api/assets/bagel-fat-one.woff2` so the prod
+ * image doesn't have to carry the `@fontsource/bagel-fat-one` package — the
+ * runtime needs exactly one file, not a node_modules package.
+ *
+ * Long-cache + immutable: contents are stable per server build; we publish
+ * a new image to roll the version anyway.
  */
 
-import { existsSync } from "node:fs";
-
-const FONT_FILES: Record<string, string> = {
-  "bagel-fat-one.woff2": resolveFontPath(
-    "@fontsource/bagel-fat-one/files/bagel-fat-one-latin-400-normal.woff2",
-  ),
+const FONT_FILES: Record<string, URL> = {
+  "bagel-fat-one.woff2": new URL("./assets/bagel-fat-one.woff2", import.meta.url),
 };
-
-function resolveFontPath(specifier: string): string {
-  const resolved = Bun.resolveSync(specifier, process.cwd());
-  if (!existsSync(resolved)) {
-    throw new Error(`font asset missing on disk: ${resolved}`);
-  }
-  return resolved;
-}
 
 export async function handleFontRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const name = url.pathname.replace(/^\/fonts\//, "");
-  const path = FONT_FILES[name];
-  if (!path) return new Response("not found", { status: 404 });
-  const file = Bun.file(path);
-  return new Response(file, {
+  const fileUrl = FONT_FILES[name];
+  if (!fileUrl) return new Response("not found", { status: 404 });
+  return new Response(Bun.file(fileUrl), {
     status: 200,
     headers: {
       "content-type": "font/woff2",

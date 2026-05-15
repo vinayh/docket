@@ -4,7 +4,7 @@ import { cleanDb, seedProject, seedUser, seedVersion, seedReviewRequest } from "
 import { db } from "../db/client.ts";
 import { reviewAssignment } from "../db/schema.ts";
 import { issueReviewActionToken } from "../domain/review-action.ts";
-import { handleReviewActionGet } from "./review-action.ts";
+import { handleReviewActionGet } from "./review-action.tsx";
 
 beforeEach(cleanDb);
 

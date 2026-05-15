@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { handlePickerPage } from "./picker-page.ts";
+import { handlePickerPage } from "./picker-page.tsx";
 import { cleanDb, seedUser } from "../../test/db.ts";
 import { issueTestSession } from "../../test/session.ts";
 

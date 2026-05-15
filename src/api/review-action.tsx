@@ -4,7 +4,12 @@ import {
   type RedeemOutcome,
 } from "../domain/review-action.ts";
 import type { ReviewActionKind } from "../db/schema.ts";
-import { renderStaticPageHtml } from "./html.ts";
+import { renderPage } from "./render.ts";
+import { ReviewActionPage } from "./pages/ReviewActionPage.tsx";
+import {
+  ReviewActionChooserPage,
+  type ChooserAction,
+} from "./pages/ReviewActionChooserPage.tsx";
 
 /**
  * GET /r/<token>?action=<kind> — magic-link review action handler
@@ -27,7 +32,7 @@ import { renderStaticPageHtml } from "./html.ts";
 export async function handleReviewActionGet(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const token = extractToken(url.pathname);
-  if (!token) return renderPage({ status: 404, kind: "missing" });
+  if (!token) return renderResult({ status: 404, kind: "missing" });
 
   const action = parseReviewActionKind(url.searchParams.get("action"));
   if (!action) {
@@ -35,7 +40,7 @@ export async function handleReviewActionGet(req: Request): Promise<Response> {
   }
 
   const outcome = await redeemReviewActionToken(token, action);
-  return renderPage(toPage(outcome));
+  return renderResult(toPage(outcome));
 }
 
 function extractToken(pathname: string): string | null {
@@ -123,28 +128,18 @@ function actionBody(action: ReviewActionKind): string {
   }
 }
 
-function renderPage(page: PageState): Response {
+const STATIC_CSP =
+  "default-src 'none'; style-src 'self'; font-src 'self'; frame-ancestors 'none'";
+
+function renderResult(page: PageState): Response {
   const copy = copyFor(page);
-  const tone = copy.tone === "ok" ? "ok" : "error";
-  const html = renderStaticPageHtml(
-    `Margin — ${escapeHtml(copy.title)}`,
-    `<h1>${escapeHtml(copy.title)}</h1>
-<p data-tone="${tone}">${escapeHtml(copy.body)}</p>
-<p class="footer">Margin · review action handler</p>`,
+  return renderPage(
+    <ReviewActionPage title={copy.title} body={copy.body} tone={copy.tone} />,
+    { csp: STATIC_CSP, status: page.status },
   );
-  return new Response(html, {
-    status: page.status,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-      "referrer-policy": "no-referrer",
-      "content-security-policy":
-        "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'",
-    },
-  });
 }
 
-const CHOOSER_ACTIONS: { kind: ReviewActionKind; label: string }[] = [
+const CHOOSER_ACTIONS: readonly ChooserAction[] = [
   { kind: "mark_reviewed", label: "Mark reviewed" },
   { kind: "request_changes", label: "Request changes" },
   { kind: "decline", label: "Decline" },
@@ -153,37 +148,12 @@ const CHOOSER_ACTIONS: { kind: ReviewActionKind; label: string }[] = [
 
 function renderChooser(token: string, rawParam: string | null): Response {
   const status = rawParam ? 400 : 200;
-  const intro = rawParam
-    ? `The <code>action</code> query parameter <code>${escapeHtml(rawParam)}</code> isn't a recognized review action. Pick one below:`
-    : "Pick the action you'd like to record. You can change your response later by re-clicking a different link.";
-  const links = CHOOSER_ACTIONS.map(({ kind, label }) => {
-    const url = `/r/${encodeURIComponent(token)}?action=${kind}`;
-    return `<p><a href="${url}">${escapeHtml(label)}</a></p>`;
-  }).join("\n");
-  const html = renderStaticPageHtml(
-    "Margin — choose a review action",
-    `<h1>Choose a review action</h1>
-<p>${intro}</p>
-${links}
-<p class="footer">Margin · review action handler</p>`,
+  return renderPage(
+    <ReviewActionChooserPage
+      token={token}
+      rejectedAction={rawParam ?? undefined}
+      actions={CHOOSER_ACTIONS}
+    />,
+    { csp: STATIC_CSP, status },
   );
-  return new Response(html, {
-    status,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-      "referrer-policy": "no-referrer",
-      "content-security-policy":
-        "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'",
-    },
-  });
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }

@@ -1,0 +1,22 @@
+/* Tailwind entry for the backend HTML pages (oauth bridge, picker shell,
+ * picker errors, magic-link review). Compiled by `bunx tailwindcss` to
+ * `dist/backend.css` at Docker build time and served by `GET /static/:filename`.
+ *
+ * Tailwind v4 auto-detects content paths; we add explicit @source for the
+ * page component files so the JIT scanner picks them up regardless of the
+ * caller's working directory. */
+
+@import "tailwindcss";
+@import "../../../tokens.css";
+
+@source "../pages/**/*.tsx";
+
+/* Bagel Fat One brand mark, self-hosted from the api at /fonts/bagel-fat-one.woff2.
+ * font-src 'self' on the page CSP allows this. */
+@font-face {
+  font-family: "Bagel Fat One";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/bagel-fat-one.woff2") format("woff2");
+}

@@ -1,22 +1,5 @@
 @import "tailwindcss";
-
-@theme {
-  --color-cream: #faf6ec;
-  --color-cream-2: #f0ebdc;
-  --color-ink: #15140f;
-  --color-ink-2: #2a2823;
-  --color-muted: #5d5a4f;
-  --color-rule: #d8d2c2;
-  --color-accent: #fff15c;
-  --color-accent-2: #ffd84a;
-  --color-term-bg: #0e0e0c;
-  --color-term-fg: #e7e3d6;
-  --color-term-prompt: #c8e07f;
-
-  --font-display: "Bagel Fat One", "Recoleta", "Fraunces", ui-serif, serif;
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-}
+@import "../../../tokens.css";
 
 html {
   background: var(--color-cream);

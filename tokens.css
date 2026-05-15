@@ -1,0 +1,32 @@
+/* Margin design tokens. Imported by `site/src/styles/global.css` (Astro)
+ * and `src/api/styles/input.css` (backend Tailwind build). Single source
+ * of truth for colors + font families.
+ *
+ * The extension's `surfaces/extension/ui/tokens.css` mirrors these values
+ * as plain CSS variables — keep them in sync when adjusting the palette.
+ */
+
+@theme {
+  --color-cream: #faf6ec;
+  --color-cream-2: #f0ebdc;
+  --color-ink: #15140f;
+  --color-ink-2: #2a2823;
+  --color-muted: #5d5a4f;
+  --color-rule: #d8d2c2;
+  --color-accent: #fff15c;
+  --color-accent-2: #ffd84a;
+  --color-term-bg: #0e0e0c;
+  --color-term-fg: #e7e3d6;
+  --color-term-prompt: #c8e07f;
+
+  --color-good: #2f6f3a;
+  --color-good-bg: #d6e4cc;
+  --color-bad: #8a3a13;
+  --color-bad-bg: #ecd5c2;
+  --color-warn: #7a4100;
+  --color-warn-bg: #f0dcb5;
+
+  --font-display: "Bagel Fat One", "Recoleta", "Fraunces", ui-serif, serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}

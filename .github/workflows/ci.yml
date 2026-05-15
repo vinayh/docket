@@ -39,8 +39,38 @@ jobs:
           flags: unit
           fail_ci_if_error: false
 
+  # Gate against the failure mode that took prod down once already:
+  # a runtime import resolves a package that lives in `devDependencies`,
+  # so `bun install --production` (run by the Dockerfile) silently drops
+  # it and the prod image crash-loops.
+  # - `bun build --target=bun` walks every static import from the entry;
+  #   missing packages fail the build.
+  # - `bun --eval` evaluates the api server's module tree under the
+  #   prod-only install, catching module-init-time crashes (e.g. a
+  #   `Bun.resolveSync` against a devDep) that a static bundle wouldn't
+  #   surface.
+  prod-resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile --production
+      - run: bun build src/cli/index.ts --target=bun --outdir /tmp/build
+      - name: Module-init smoke under prod-only install
+        # Dummy secrets satisfy module-init validators in src/config.ts.
+        # We're not running the server, just walking the import tree.
+        env:
+          BETTER_AUTH_SECRET: "00000000000000000000000000000000"
+          MARGIN_MASTER_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          MARGIN_DB_PATH: /tmp/margin-init-check.db
+          GOOGLE_CLIENT_ID: fake-ci
+          GOOGLE_CLIENT_SECRET: fake-ci
+        run: bun --eval 'await import("./src/api/server.ts"); console.log("module tree imports OK");'
+
   deploy:
-    needs: test
+    needs: [test, prod-resolve]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     concurrency:
