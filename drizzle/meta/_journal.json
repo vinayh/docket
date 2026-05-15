@@ -15,6 +15,13 @@
       "when": 1778756158771,
       "tag": "0001_chilly_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1778844974186,
+      "tag": "0002_overrated_scourge",
+      "breakpoints": true
     }
   ]
 }

@@ -202,19 +202,31 @@ async function replaceWatchChannel(oldRow: DriveWatchChannel): Promise<void> {
     expirationMs,
   });
 
-  db.transaction((tx) => {
-    tx.delete(driveWatchChannel).where(eq(driveWatchChannel.id, oldRow.id)).run();
-    tx.insert(driveWatchChannel)
-      .values({
-        versionId: oldRow.versionId,
-        channelId: channel.id,
-        resourceId: channel.resourceId,
-        token: newToken,
-        address: oldRow.address,
-        expiration: parseExpiration(channel.expiration, expirationMs),
-      })
-      .run();
-  });
+  // If the DB swap fails after watchFile succeeded, the new channel is live on Google's side
+  // with no row tracking it — best-effort stop it so we don't get orphaned webhook fanout.
+  try {
+    db.transaction((tx) => {
+      tx.delete(driveWatchChannel).where(eq(driveWatchChannel.id, oldRow.id)).run();
+      tx.insert(driveWatchChannel)
+        .values({
+          versionId: oldRow.versionId,
+          channelId: channel.id,
+          resourceId: channel.resourceId,
+          token: newToken,
+          address: oldRow.address,
+          expiration: parseExpiration(channel.expiration, expirationMs),
+        })
+        .run();
+    });
+  } catch (err) {
+    await stopChannel(tp, { id: channel.id, resourceId: channel.resourceId }).catch((stopErr) => {
+      const msg = stopErr instanceof Error ? stopErr.message : String(stopErr);
+      console.warn(
+        `renew: failed to stop orphan new channel ${channel.id} after DB swap failure: ${msg}`,
+      );
+    });
+    throw err;
+  }
 
   // Best-effort stop the old channel; Google idempotently 200/404s repeats.
   try {

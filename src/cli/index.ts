@@ -29,12 +29,13 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
 };
 
 const [name, ...rest] = process.argv.slice(2);
+const isHelp = name === "--help" || name === "-h";
 
-if (!name || name === "--help" || name === "-h" || !commands[name]) {
+if (!name || isHelp || !commands[name]) {
   const known = Object.keys(commands).join(" | ");
   console.error(`usage: bun margin <${known}> [...args]`);
   // Unknown command is a usage error (exit 2 per Unix convention); --help is exit 0.
-  process.exit(name && !commands[name] ? 2 : 0);
+  process.exit(name && !isHelp ? 2 : 0);
 }
 
 try {

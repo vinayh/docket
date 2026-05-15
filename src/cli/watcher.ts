@@ -20,8 +20,8 @@ usage:
   bun margin watcher simulate <channel-id> [--state update] [--token <t>]
 
 Per SPEC §9.3 the address must be an HTTPS endpoint with a domain verified in
-Google Search Console. The Phase-2 HTTP API will own that endpoint; for now
-\`simulate\` lets you exercise the handler locally.`;
+Google Search Console. The HTTP API serves \`/webhooks/drive\`; \`simulate\`
+lets you exercise the handler locally without a public address.`;
 
 export const run = (args: string[]) =>
   dispatchSubcommands(args, USAGE, {

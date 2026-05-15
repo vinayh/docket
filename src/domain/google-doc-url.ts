@@ -3,9 +3,9 @@
  * typically 44 chars. We require at least 20 — same lower bound for both the
  * embedded-in-URL form and the bare-id form so the parser accepts an id iff
  * it would also accept the same id pasted directly. Mirrored verbatim in
- * `surfaces/extension/src/content/ids.ts` (the extension can't import from
- * the backend); the cross-surface test in `google-doc-url.test.ts` guards
- * the equivalence.
+ * `surfaces/extension/utils/ids.ts` (the extension can't import from the
+ * backend); the cross-surface test in `google-doc-url.test.ts` guards the
+ * equivalence.
  */
 const URL_PATTERN = /\/document\/d\/([A-Za-z0-9_-]{20,})/;
 const ID_PATTERN = /^[A-Za-z0-9_-]{20,}$/;

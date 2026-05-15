@@ -99,6 +99,25 @@ export async function uploadFileMultipart(
   });
 }
 
+/**
+ * Soft-delete a Drive file (sets `trashed=true`). Used to clean up orphan
+ * version copies left behind when a concurrent createVersion wins a label
+ * race; we trash rather than `files.delete` so the user can recover the
+ * file from Drive's trash if anything went wrong.
+ */
+export async function trashFile(tp: TokenProvider, fileId: string): Promise<void> {
+  const url = new URL(`${DRIVE_BASE}/files/${encodeURIComponent(fileId)}`);
+  url.searchParams.set("supportsAllDrives", "true");
+  const res = await authedFetch(tp, url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trashed: true }),
+  });
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`trashFile failed: ${res.status} ${await res.text()}`);
+  }
+}
+
 export async function copyFile(
   tp: TokenProvider,
   fileId: string,

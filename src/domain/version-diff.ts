@@ -1,5 +1,5 @@
-import { tokenProviderForUser } from "../auth/credentials.ts";
 import { getDocument, type Document, type TextRun } from "../google/docs.ts";
+import { tokenProviderForProject } from "./project.ts";
 import { loadOwnedVersion } from "./version.ts";
 
 // Pre-summarized payload for the side-panel structured diff (frontend runs a two-pass jsdiff).
@@ -51,7 +51,7 @@ export async function getVersionDiffPayload(opts: {
   // Refuse cross-project diffs — they'd let a caller probe for the existence of unrelated versions.
   if (from.projectId !== to.projectId) return null;
 
-  const tp = tokenProviderForUser(opts.userId);
+  const tp = await tokenProviderForProject(from.projectId);
   const [fromDoc, toDoc] = await Promise.all([
     getDocument(tp, from.googleDocId),
     getDocument(tp, to.googleDocId),

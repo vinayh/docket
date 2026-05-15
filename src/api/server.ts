@@ -28,7 +28,7 @@ export interface ServeOptions {
 }
 
 /**
- * Phase-2 HTTP API host. Public routes: `/healthz`, the magic-link review
+ * HTTP API host. Public routes: `/healthz`, the magic-link review
  * handler `/r/<token>`, the backend-hosted Drive Picker page
  * `/api/picker/page` (cookie-authenticated), and Better Auth's catch-all
  * `/api/auth/**` (sign-in, social-provider callback, session lookup,

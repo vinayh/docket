@@ -371,7 +371,9 @@ export const reviewActionToken = sqliteTable(
     id: text("id").primaryKey().$defaultFn(newId),
     tokenHash: text("token_hash").notNull().unique(),
     // Denormalized (review_request_id, user_id) because assignment has no single-column id.
-    reviewRequestId: text("review_request_id").notNull(),
+    reviewRequestId: text("review_request_id")
+      .notNull()
+      .references(() => reviewRequest.id, { onDelete: "cascade" }),
     assigneeUserId: text("assignee_user_id")
       .notNull()
       .references(() => user.id),

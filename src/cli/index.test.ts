@@ -47,14 +47,11 @@ describe("dispatcher", () => {
     expect(r.stderr).toContain("usage:");
   });
 
-  test("--help and -h reach the same banner", async () => {
-    // Note: index.ts has a small bug where `--help` falls into the
-    // `name && !commands[name]` branch and exits 2 even though the comment
-    // says it should be 0. Test the actual current behavior; promote to 0
-    // when that's fixed.
+  test("--help and -h reach the same banner with exit 0", async () => {
     const a = await runCli(["--help"]);
     const b = await runCli(["-h"]);
-    expect(a.exitCode).toBe(b.exitCode);
+    expect(a.exitCode).toBe(0);
+    expect(b.exitCode).toBe(0);
     expect(a.stderr).toContain("usage:");
     expect(b.stderr).toContain("usage:");
   });

@@ -1,8 +1,8 @@
 import { desc, eq } from "drizzle-orm";
-import { db } from "../db/client.ts";
+import { db, isUniqueConstraintError } from "../db/client.ts";
 import { project, version } from "../db/schema.ts";
 import { tokenProviderForUser } from "../auth/credentials.ts";
-import { copyFile, getFile } from "../google/drive.ts";
+import { copyFile, getFile, trashFile } from "../google/drive.ts";
 import { extractPlainText, getDocument } from "../google/docs.ts";
 import { config } from "../config.ts";
 import { requireProject } from "./project.ts";
@@ -10,6 +10,8 @@ import { subscribeVersionWatch } from "./watcher.ts";
 import { paragraphHash } from "./anchor.ts";
 
 export type Version = typeof version.$inferSelect;
+
+const MAX_AUTO_LABEL_ATTEMPTS = 5;
 
 export async function createVersion(opts: {
   projectId: string;
@@ -21,8 +23,6 @@ export async function createVersion(opts: {
   const proj = await requireProject(opts.projectId);
   const tp = tokenProviderForUser(proj.ownerUserId);
   const parentFile = await getFile(tp, proj.parentDocId, { fields: "id,name" });
-
-  const label = opts.label ?? (await nextAutoLabel(proj.id));
 
   let parentVersionId: string | null;
   if (opts.parentVersionId === undefined) {
@@ -37,35 +37,96 @@ export async function createVersion(opts: {
     parentVersionId = opts.parentVersionId;
   }
 
-  const copy = await copyFile(tp, proj.parentDocId, {
-    name: `[Margin ${label}] ${parentFile.name}`,
-  });
-
-  const doc = await getDocument(tp, copy.id);
-  const snapshotContentHash = paragraphHash(extractPlainText(doc));
-
-  const inserted = await db
-    .insert(version)
-    .values({
-      projectId: proj.id,
-      googleDocId: copy.id,
-      name: copy.name,
+  // User-supplied label: surface UNIQUE conflict directly — caller picked the value.
+  // Auto-label: retry to absorb concurrent createVersion races. Each retry costs one Drive
+  // copy; orphans from prior attempts are best-effort trashed.
+  if (opts.label !== undefined) {
+    const ver = await copyAndInsertVersion({
+      tp,
+      proj,
+      parentFile,
       parentVersionId,
-      label,
+      label: opts.label,
       createdByUserId: opts.createdByUserId,
-      snapshotContentHash,
-      status: "active",
-    })
-    .returning();
-  const ver = inserted[0]!;
+    });
+    autoSubscribeWatch(ver.id).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`auto-subscribe failed for version ${ver.id}: ${msg}`);
+    });
+    return ver;
+  }
 
-  // Best-effort: polling is the failure-mode safety net. Never block version creation on this.
-  autoSubscribeWatch(ver.id).catch((err) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`auto-subscribe failed for version ${ver.id}: ${msg}`);
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_AUTO_LABEL_ATTEMPTS; attempt++) {
+    const label = await nextAutoLabel(proj.id);
+    try {
+      const ver = await copyAndInsertVersion({
+        tp,
+        proj,
+        parentFile,
+        parentVersionId,
+        label,
+        createdByUserId: opts.createdByUserId,
+      });
+      autoSubscribeWatch(ver.id).catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`auto-subscribe failed for version ${ver.id}: ${msg}`);
+      });
+      return ver;
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err;
+      // The orphan Drive copy from this attempt was already trashed inside copyAndInsertVersion
+      // before the throw. Loop to re-pick the label.
+      lastErr = err;
+    }
+  }
+  throw lastErr ?? new Error("createVersion: exhausted label retries");
+}
+
+async function copyAndInsertVersion(opts: {
+  tp: ReturnType<typeof tokenProviderForUser>;
+  proj: { id: string; parentDocId: string };
+  parentFile: { name: string };
+  parentVersionId: string | null;
+  label: string;
+  createdByUserId: string;
+}): Promise<Version> {
+  const copy = await copyFile(opts.tp, opts.proj.parentDocId, {
+    name: `[Margin ${opts.label}] ${opts.parentFile.name}`,
   });
 
-  return ver;
+  let snapshotContentHash: string;
+  try {
+    const doc = await getDocument(opts.tp, copy.id);
+    snapshotContentHash = paragraphHash(extractPlainText(doc));
+  } catch (err) {
+    await trashFile(opts.tp, copy.id).catch(() => {});
+    throw err;
+  }
+
+  try {
+    const inserted = await db
+      .insert(version)
+      .values({
+        projectId: opts.proj.id,
+        googleDocId: copy.id,
+        name: copy.name,
+        parentVersionId: opts.parentVersionId,
+        label: opts.label,
+        createdByUserId: opts.createdByUserId,
+        snapshotContentHash,
+        status: "active",
+      })
+      .returning();
+    return inserted[0]!;
+  } catch (err) {
+    // INSERT failed (label-race UNIQUE or otherwise) — the Drive copy is now orphaned.
+    await trashFile(opts.tp, copy.id).catch((trashErr) => {
+      const msg = trashErr instanceof Error ? trashErr.message : String(trashErr);
+      console.warn(`createVersion: failed to trash orphan copy ${copy.id}: ${msg}`);
+    });
+    throw err;
+  }
 }
 
 async function autoSubscribeWatch(versionId: string): Promise<void> {

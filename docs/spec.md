@@ -388,7 +388,7 @@ Privacy: LLM only sees what the calling user can already see. Doc body fetched f
 
 ## 14. QA backlog
 
-Surfaced during the manual QA pass on 2026-05-14 against `docs/extension-qa.md`. Not prioritized.
+Surfaced during the manual QA pass on 2026-05-14 against `docs/extension-qa.md`. Implementation plan for the open items lives at [`qa-backlog-plan.md`](./qa-backlog-plan.md).
 
 - **Parent doc as version**: treat `project.parent_doc_id` as the project's v1 (top of the versions list). Today comments on the parent doc are silently dropped and picker-register leaves the project with zero versions (`src/domain/{project,version,doc-state}.ts`, Dashboard versions table).
 - **Decouple project identity from `parent_doc_id`, render `project.name`**: drop the `(parent_doc_id, owner_user_id)` uniqueness so the parent can be swapped later; replace the literal "Project" + raw doc id in the side-panel header with `current.project.name` (`src/db/schema.ts`, `src/domain/project.ts`, `surfaces/extension/entrypoints/sidepanel/views/Dashboard.tsx:80-85`).

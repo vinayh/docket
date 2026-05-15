@@ -48,11 +48,6 @@ export interface DocxAnnotations {
   suggestions: DocxSuggestion[];
 }
 
-const COMMENT_MIME =
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
-void COMMENT_MIME; // referenced only for grep traceability from drive.ts
-
 export function parseDocx(bytes: Uint8Array): DocxAnnotations {
   const entries = unzipSync(bytes);
   const docXml = readEntry(entries, "word/document.xml");
