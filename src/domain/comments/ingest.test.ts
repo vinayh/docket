@@ -67,7 +67,11 @@ function stubGoogle(byDocId: Record<string, FixtureOpts>): void {
       const id = decodeURIComponent(exportMatch[1]!);
       const fx = byDocId[id];
       if (!fx) return new Response("nope", { status: 404 });
-      return new Response(fx.docxBytes, {
+      // TS 6 narrows Uint8Array to `Uint8Array<ArrayBufferLike>` (the union
+      // covering SharedArrayBuffer), which Response's BodyInit overloads
+      // refuse. `fflate.zipSync` always returns an ArrayBuffer-backed view
+      // — assert the narrower type at this boundary.
+      return new Response(fx.docxBytes as Uint8Array<ArrayBuffer>, {
         status: 200,
         headers: {
           "content-type":
