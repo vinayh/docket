@@ -1,5 +1,6 @@
 import { defineConfig } from "wxt";
 import preact from "@preact/preset-vite";
+import tailwindcss from "@tailwindcss/vite";
 
 /**
  * WXT config. Replaces the hand-rolled `build.ts` + dual `manifest.*.json`
@@ -28,7 +29,7 @@ export default defineConfig({
   // repo-wide, but only the popup/sidepanel files import anything
   // Preact-shaped, so the others are unaffected.
   vite: () => ({
-    plugins: [preact()],
+    plugins: [preact(), tailwindcss()],
   }),
   manifest: ({ browser }) => ({
     name: "Margin",

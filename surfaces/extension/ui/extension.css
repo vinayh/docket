@@ -1,0 +1,198 @@
+/**
+ * Shared Tailwind v4 entry for the extension's popup / sidepanel / options.
+ * Each per-entrypoint `style.css` `@import`s this file. Tokens come from
+ * the repo-root `tokens.css` `@theme` block so the site, backend, and
+ * extension stay in lockstep on colors and fonts.
+ *
+ * Bagel Fat One ships a `./latin.css` entry; the variable Inter +
+ * JetBrains Mono packages don't, and their `wght.css` would reference
+ * every unicode-range slice. Hand-rolling the latin @font-face keeps the
+ * bundled woff2s to one per family.
+ */
+
+@import "tailwindcss";
+@import "../../../tokens.css";
+@import "@fontsource/bagel-fat-one/latin.css";
+
+/* font-family matches `--font-sans` / `--font-mono` in tokens.css so the
+ * Tailwind `font-sans` / `font-mono` utilities pick up the variable woff2. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Tailwind v4 auto-detects content; @source pins the scan paths so the
+ * extension build is deterministic regardless of cwd. Globs are relative
+ * to this file. */
+@source "../entrypoints/**/*.{tsx,ts,html}";
+@source "./*.tsx";
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  html {
+    background: var(--color-cream);
+    color: var(--color-ink);
+  }
+  body {
+    font-family: var(--font-sans);
+    color: var(--color-ink);
+    background: var(--color-cream);
+    margin: 0;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  a {
+    color: var(--color-ink);
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    text-decoration-color: var(--color-accent);
+  }
+  a:hover {
+    text-decoration-color: var(--color-ink);
+  }
+  button {
+    font: inherit;
+    font-weight: 500;
+    padding: 0.35rem 0.7rem;
+    border-radius: 4px;
+    border: 1px solid var(--color-ink);
+    background: transparent;
+    color: var(--color-ink);
+    cursor: pointer;
+    transition: background 80ms ease;
+  }
+  button:hover:not(:disabled) {
+    background: rgba(21, 20, 15, 0.06);
+  }
+  button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+@layer components {
+  .muted {
+    color: var(--color-muted);
+    margin: 0;
+  }
+  .error {
+    color: var(--color-bad);
+  }
+  .ok {
+    color: var(--color-good);
+  }
+  .actions {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  button.primary {
+    background: var(--color-ink);
+    border-color: var(--color-ink);
+    color: var(--color-cream);
+  }
+  button.primary:hover:not(:disabled) {
+    background: var(--color-ink-2);
+  }
+
+  /* Doc / view title (popup-flavored default — 15px, truncating). The
+   * sidepanel overrides font-size / line-height / letter-spacing /
+   * white-space in `sidepanel/style.css` for its 22px variant. */
+  .title {
+    @apply font-display font-normal m-0 mb-[0.15rem] text-[15px] tracking-[-0.005em] leading-[1.15] truncate text-ink;
+  }
+  .subtitle {
+    @apply text-muted font-mono text-[11px] m-0 mb-[0.6rem];
+  }
+
+  /* Popup stats grid (Tracked view's 2x2 metrics block). Tokens come
+   * straight from @theme; the few non-standard pixel values use Tailwind
+   * arbitrary syntax for fidelity. */
+  .stats {
+    @apply grid grid-cols-2 gap-y-2 gap-x-[0.9rem] m-0 mb-[0.7rem] pt-[0.4rem] border-t border-rule;
+  }
+  .stat-label {
+    @apply text-muted font-mono text-[10px] uppercase tracking-[0.06em] m-0 mb-[0.1rem];
+  }
+  .stat-value {
+    @apply m-0 tabular-nums text-ink;
+  }
+
+  /* Banner block (popup-only today; styled here so the same affordance
+   * remains available if the sidepanel ever needs a notice-card). */
+  .banner {
+    @apply px-[0.65rem] py-[0.55rem] m-0 mb-[0.7rem] border border-rule rounded-md bg-cream-2;
+  }
+
+  /* Status pills used by Comments.tsx + Dashboard.tsx with dynamic
+   * `status-badge status-${value}` class concatenation. The variant set
+   * is exhaustive — when a new status lands, add a rule here. */
+  .status-badge {
+    display: inline-block;
+    padding: 0.05rem 0.45rem;
+    border-radius: 99px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--color-cream-2);
+    color: var(--color-ink-2);
+    border: 1px solid var(--color-rule);
+  }
+  .status-badge.status-clean,
+  .status-badge.status-assignment-reviewed {
+    background: var(--color-good-bg);
+    color: var(--color-good);
+    border-color: var(--color-good);
+  }
+  .status-badge.status-fuzzy {
+    background: var(--color-accent);
+    color: var(--color-ink);
+    border-color: var(--color-accent-2);
+  }
+  .status-badge.status-orphaned,
+  .status-badge.status-assignment-declined {
+    background: var(--color-bad-bg);
+    color: var(--color-bad);
+    border-color: var(--color-bad);
+  }
+  .status-badge.status-assignment-changes_requested {
+    background: var(--color-warn-bg);
+    color: var(--color-warn);
+    border-color: var(--color-warn);
+  }
+  .status-badge.status-manually_resolved,
+  .status-badge.status-assignment-pending,
+  .status-badge.status-comment-addressed,
+  .status-badge.status-comment-wontfix,
+  .status-badge.status-comment-superseded {
+    background: var(--color-cream-2);
+    color: var(--color-muted);
+    border-color: var(--color-rule);
+  }
+}

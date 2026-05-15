@@ -1,32 +1,17 @@
-@import "../../ui/tokens.css";
+@import "../../ui/extension.css";
 
-* {
-  box-sizing: border-box;
-}
+/* Sidepanel-specific rules: full-height body, larger header/title sizing
+ * than the popup, a:visited handling, plus all the bespoke component
+ * classes (`.diff-*`, `.comment-*`, `.review-*`, `.settings-*`, etc.).
+ * Shared bits (button defaults, `.muted` / `.error` / `.actions`, status
+ * badges, font + color tokens) come from extension.css. */
 
 body {
-  font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.5;
-  color: var(--color-ink);
-  background: var(--color-cream);
-  margin: 0;
   min-height: 100vh;
-  font-feature-settings: "ss01", "cv11";
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
 }
 
-a {
-  color: var(--color-ink);
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-  text-decoration-color: var(--color-accent);
-}
-a:hover {
-  text-decoration-color: var(--color-ink);
-}
 a:visited {
   color: var(--color-ink);
 }
@@ -52,62 +37,25 @@ main {
   padding: 0.9rem;
 }
 
-button {
-  font: inherit;
-  font-weight: 500;
-  padding: 0.35rem 0.7rem;
-  border-radius: 4px;
-  border: 1px solid var(--color-ink);
-  background: transparent;
-  color: var(--color-ink);
-  cursor: pointer;
-  transition: background 80ms ease;
-}
-button:hover:not(:disabled) {
-  background: rgba(21, 20, 15, 0.06);
-}
-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-button.primary {
-  background: var(--color-ink);
-  border-color: var(--color-ink);
-  color: var(--color-cream);
-}
-button.primary:hover:not(:disabled) {
-  background: var(--color-ink-2);
-}
-
-.muted {
-  color: var(--color-muted);
-  margin: 0;
-}
-.error {
-  color: var(--color-bad);
-}
-
+/* `.title` / `.subtitle` come from extension.css with popup-flavored
+ * defaults (15px title, truncating). Sidepanel overrides only the
+ * properties that differ — bigger font, looser line-height, no
+ * truncation, and subtitle allows arbitrary-position wraps for long
+ * doc names + paths. */
 .title {
-  font-family: var(--font-display);
-  font-weight: 400;
-  margin: 0 0 0.15rem;
   font-size: 22px;
   letter-spacing: -0.01em;
   line-height: 1.05;
-  color: var(--color-ink);
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 .subtitle {
-  color: var(--color-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  margin: 0 0 0.6rem;
   overflow-wrap: anywhere;
 }
 
+/* `.actions` base layout lives in extension.css; sidepanel adds top margin. */
 .actions {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
   margin: 0.6rem 0 0;
 }
 

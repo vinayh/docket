@@ -1,18 +1,13 @@
-@import "../../ui/tokens.css";
+@import "../../ui/extension.css";
 
-* {
-  box-sizing: border-box;
-}
+/* Options page-specific rules: bigger buttons, centered max-width layout,
+ * h1/p typography, form/input/code styling. Shared button defaults from
+ * extension.css are overridden here with larger padding; the
+ * `button[type="submit"]` rule matches the popup's `.primary` variant. */
 
 body {
-  font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.55;
-  color: var(--color-ink);
-  background: var(--color-cream);
-  margin: 0;
-  font-feature-settings: "ss01", "cv11";
-  -webkit-font-smoothing: antialiased;
 }
 
 main {
@@ -34,17 +29,6 @@ h1 {
 p {
   color: var(--color-ink-2);
   margin: 0 0 1rem;
-}
-
-a {
-  color: var(--color-ink);
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-  text-decoration-color: var(--color-accent);
-}
-a:hover {
-  text-decoration-color: var(--color-ink);
 }
 
 form {
@@ -94,23 +78,10 @@ code {
   color: var(--color-ink-2);
 }
 
+/* Options buttons are larger than popup/sidepanel buttons. Override the
+ * shared base padding; submit gets the inked "primary" treatment. */
 button {
-  font: inherit;
-  font-weight: 500;
   padding: 0.5rem 1rem;
-  border-radius: 4px;
-  border: 1px solid var(--color-ink);
-  background: transparent;
-  color: var(--color-ink);
-  cursor: pointer;
-  transition: background 80ms ease;
-}
-button:hover:not(:disabled) {
-  background: rgba(21, 20, 15, 0.06);
-}
-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 button[type="submit"] {
   background: var(--color-ink);
