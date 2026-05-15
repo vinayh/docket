@@ -1,4 +1,4 @@
-name: app
+name: app-integration
 
 # Live-Google integration tests. Runs separately from CI:
 #   - workflow_dispatch: manual trigger from the Actions tab

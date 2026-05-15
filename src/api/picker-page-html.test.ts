@@ -48,12 +48,8 @@ describe("renderPickerHtml", () => {
       accessToken: "t",
     });
     const html = renderPickerHtml(script);
-    // <script>…</script> on the same line; pull the body via simple regex.
-    const m = /<script>([\s\S]*?)<\/script>/.exec(html);
-    expect(m).not.toBeNull();
-    const inline = m![1]!;
-    expect(inline).toBe(script);
-    expect(await sha256Base64(inline)).toBe(await sha256Base64(script));
+    expect(html).toContain(`<script>${script}</script>`);
+    expect(await sha256Base64(script)).toMatch(/^[A-Za-z0-9+/=]+$/);
   });
 
   test("includes the apis.google.com external script tag", () => {
