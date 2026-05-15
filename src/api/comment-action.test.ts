@@ -8,6 +8,7 @@ import {
   seedVersion,
 } from "../../test/db.ts";
 import { issueTestSession } from "../../test/session.ts";
+import { postJsonRequest } from "../../test/fetch.ts";
 import { handleCommentActionPost } from "./comment-action.ts";
 import { db } from "../db/client.ts";
 import { canonicalComment, commentProjection } from "../db/schema.ts";
@@ -15,15 +16,8 @@ import { eq } from "drizzle-orm";
 
 beforeEach(cleanDb);
 
-function post(body: unknown, opts?: { auth?: string }): Request {
-  const headers = new Headers({ "content-type": "application/json" });
-  if (opts?.auth !== undefined) headers.set("authorization", opts.auth);
-  return new Request("http://localhost/api/extension/comment-action", {
-    method: "POST",
-    headers,
-    body: typeof body === "string" ? body : JSON.stringify(body),
-  });
-}
+const post = (body: unknown, opts?: { auth?: string }) =>
+  postJsonRequest("/api/extension/comment-action", body, opts);
 
 async function seedActionWorld() {
   const owner = await seedUser({ email: "owner@example.com" });

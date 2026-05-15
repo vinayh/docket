@@ -1,31 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { cleanDb, seedUser } from "../../test/db.ts";
+import { runCli } from "../../test/cli.ts";
 import { db } from "../db/client.ts";
 import { project, version } from "../db/schema.ts";
-
-interface CliResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
-
-async function runCli(
-  args: string[],
-  env: Record<string, string | undefined> = {},
-): Promise<CliResult> {
-  const proc = Bun.spawn(["bun", "src/cli/index.ts", ...args], {
-    env: { ...Bun.env, ...env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { stdout, stderr, exitCode };
-}
 
 const ALLOW = { MARGIN_ALLOW_E2E_SEED: "1" };
 

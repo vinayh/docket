@@ -473,7 +473,12 @@ function walkAuxiliary(
     const tree = parseXml(xml);
     const regionId = regionIdFor(region, path);
     if (region === "footnote") {
-      const wrap = firstChild(tree, region === "footnote" ? "w:footnotes" : "w:endnotes");
+      // endnotes.xml has <w:endnotes>; footnotes.xml has <w:footnotes>.
+      // Same child schema (w:footnote/w:endnote), so the inner loop is shared.
+      const wrap = firstChild(
+        tree,
+        path === "word/endnotes.xml" ? "w:endnotes" : "w:footnotes",
+      );
       if (!wrap) continue;
       for (const node of wrap) {
         const t = tagOf(node);

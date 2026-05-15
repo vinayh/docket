@@ -111,7 +111,10 @@ export const project = sqliteTable(
   // parent doc URL can be swapped over a project's lifetime. createProject's
   // "this doc is already tracked" pre-check is enforced at the application
   // layer (DuplicateProjectError) so the picker UX can still surface it.
-  (_t) => [],
+  (t) => [
+    index("project_parent_doc_idx").on(t.parentDocId),
+    index("project_owner_idx").on(t.ownerUserId),
+  ],
 );
 
 export type VersionStatus = "active" | "archived";
@@ -138,6 +141,7 @@ export const version = sqliteTable(
   },
   (t) => [
     index("version_project_idx").on(t.projectId),
+    index("version_google_doc_idx").on(t.googleDocId),
     // Pairs with nextAutoLabel's MAX+1 so a race surfaces as a conflict instead of dup labels.
     uniqueIndex("version_project_label_unique").on(t.projectId, t.label),
     foreignKey({ columns: [t.parentVersionId], foreignColumns: [t.id] }),
@@ -330,7 +334,10 @@ export const reviewAssignment = sqliteTable(
       .default("pending"),
     respondedAt: integer("responded_at", { mode: "timestamp_ms" }),
   },
-  (t) => [primaryKey({ columns: [t.reviewRequestId, t.userId] })],
+  (t) => [
+    primaryKey({ columns: [t.reviewRequestId, t.userId] }),
+    index("review_assignment_user_idx").on(t.userId),
+  ],
 );
 
 // Tracks active Drive files.watch channels so the watcher can renew and map push → version.

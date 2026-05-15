@@ -1,19 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { cleanDb, seedProject, seedUser, seedVersion } from "../../test/db.ts";
 import { issueTestSession } from "../../test/session.ts";
+import { postJsonRequest } from "../../test/fetch.ts";
 import { handleReviewRequestPost } from "./review-request.ts";
 
 beforeEach(cleanDb);
 
-function post(body: unknown, opts?: { auth?: string }): Request {
-  const headers = new Headers({ "content-type": "application/json" });
-  if (opts?.auth !== undefined) headers.set("authorization", opts.auth);
-  return new Request("http://localhost/api/extension/review/request", {
-    method: "POST",
-    headers,
-    body: typeof body === "string" ? body : JSON.stringify(body),
-  });
-}
+const post = (body: unknown, opts?: { auth?: string }) =>
+  postJsonRequest("/api/extension/review/request", body, opts);
 
 describe("handleReviewRequestPost", () => {
   test("401 without Authorization", async () => {

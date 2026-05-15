@@ -19,6 +19,13 @@ export async function authedFetch(
   url: string | URL,
   init: RequestInit = {},
 ): Promise<Response> {
+  // The 401 retry re-uses `init` verbatim, so `init.body` must be replayable.
+  // Strings, Uint8Array, ArrayBuffer, FormData, URLSearchParams, Blob are
+  // fine; a ReadableStream would be consumed by the first send and the retry
+  // would silently transmit an empty body.
+  if (init.body instanceof ReadableStream) {
+    throw new TypeError("authedFetch: init.body must be replayable, got ReadableStream");
+  }
   const send = (token: string) => {
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${token}`);

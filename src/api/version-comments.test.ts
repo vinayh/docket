@@ -8,19 +8,13 @@ import {
   seedVersion,
 } from "../../test/db.ts";
 import { issueTestSession } from "../../test/session.ts";
+import { postJsonRequest } from "../../test/fetch.ts";
 import { handleVersionCommentsPost } from "./version-comments.ts";
 
 beforeEach(cleanDb);
 
-function postVersionComments(body: unknown, opts?: { auth?: string }): Request {
-  const headers = new Headers({ "content-type": "application/json" });
-  if (opts?.auth !== undefined) headers.set("authorization", opts.auth);
-  return new Request("http://localhost/api/extension/version-comments", {
-    method: "POST",
-    headers,
-    body: typeof body === "string" ? body : JSON.stringify(body),
-  });
-}
+const postVersionComments = (body: unknown, opts?: { auth?: string }) =>
+  postJsonRequest("/api/extension/version-comments", body, opts);
 
 describe("handleVersionCommentsPost validation", () => {
   test("401 without bearer", async () => {

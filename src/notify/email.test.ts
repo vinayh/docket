@@ -54,6 +54,35 @@ describe("ResendEmailTransport", () => {
   });
 });
 
+describe("LogEmailTransport", () => {
+  test("redacts review-action URLs in logged body, preserving action label", async () => {
+    const logs: string[] = [];
+    const realLog = console.log;
+    console.log = (...args: unknown[]) => {
+      logs.push(args.map(String).join(" "));
+    };
+    try {
+      await new LogEmailTransport().send({
+        to: "alice@example.com",
+        subject: "hi",
+        text: [
+          "Open: https://margin.pub/r/mra_abc123?action=mark_reviewed",
+          "Decline: https://margin.pub/r/mra_abc123?action=decline",
+          "Relative: /r/mra_xyz789",
+        ].join("\n"),
+      });
+    } finally {
+      console.log = realLog;
+    }
+    const joined = logs.join("\n");
+    expect(joined).not.toContain("mra_abc123");
+    expect(joined).not.toContain("mra_xyz789");
+    expect(joined).toContain("<redacted review URL action=mark_reviewed>");
+    expect(joined).toContain("<redacted review URL action=decline>");
+    expect(joined).toContain("<redacted review URL>");
+  });
+});
+
 describe("getEmailTransport", () => {
   test("defaults to LogEmailTransport when MARGIN_EMAIL_TRANSPORT is unset", () => {
     const t = getEmailTransport();

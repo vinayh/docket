@@ -63,6 +63,15 @@ export function tokenProviderForUser(userId: string): TokenProvider {
   return tp;
 }
 
+/**
+ * Drop the cached TokenProvider for a user so the next call rebuilds it
+ * from `account.refreshToken`. Call after a re-auth (new refresh token) or
+ * when the account row is deleted.
+ */
+export function clearTokenProvider(userId: string): void {
+  tpCache.delete(userId);
+}
+
 function buildTokenProvider(userId: string): TokenProvider {
   let cached: CachedAccessToken | null = null;
   let inflight: Promise<string> | null = null;

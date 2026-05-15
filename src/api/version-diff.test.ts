@@ -5,7 +5,7 @@ import {
   seedUser,
   seedVersion,
 } from "../../test/db.ts";
-import { setFetch } from "../../test/fetch.ts";
+import { postJsonRequest, setFetch } from "../../test/fetch.ts";
 import { db } from "../db/client.ts";
 import { account } from "../db/schema.ts";
 import { encryptWithMaster } from "../auth/encryption.ts";
@@ -58,15 +58,8 @@ function stubGoogle(byDocId: Record<string, Document>): void {
   });
 }
 
-function postDiff(body: unknown, opts?: { auth?: string }): Request {
-  const headers = new Headers({ "content-type": "application/json" });
-  if (opts?.auth !== undefined) headers.set("authorization", opts.auth);
-  return new Request("http://localhost/api/extension/version-diff", {
-    method: "POST",
-    headers,
-    body: typeof body === "string" ? body : JSON.stringify(body),
-  });
-}
+const postDiff = (body: unknown, opts?: { auth?: string }) =>
+  postJsonRequest("/api/extension/version-diff", body, opts);
 
 describe("handleVersionDiffPost validation", () => {
   test("401 without bearer", async () => {

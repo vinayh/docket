@@ -5,6 +5,7 @@ import { db } from "../db/client.ts";
 import { account, session, user, verification } from "../db/schema.ts";
 import { config } from "../config.ts";
 import { encryptWithMaster } from "./encryption.ts";
+import { clearTokenProvider } from "./credentials.ts";
 
 /**
  * Better Auth instance. Owns `/api/auth/*` (sign-in, callback, session
@@ -53,7 +54,14 @@ export const auth = betterAuth({
   databaseHooks: {
     account: {
       create: { before: encryptAccountRefreshToken },
-      update: { before: encryptAccountRefreshToken },
+      update: {
+        before: encryptAccountRefreshToken,
+        // Re-auth issues a new refresh token; the cached TokenProvider still
+        // holds the old access token, so drop it and let the next call rebuild.
+        after: async (account) => {
+          if (account.userId) clearTokenProvider(account.userId);
+        },
+      },
     },
   },
 });

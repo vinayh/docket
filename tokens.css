@@ -1,9 +1,6 @@
-/* Margin design tokens. Imported by `site/src/styles/global.css` (Astro)
- * and `src/api/styles/input.css` (backend Tailwind build). Single source
- * of truth for colors + font families.
- *
- * The extension's `surfaces/extension/ui/tokens.css` mirrors these values
- * as plain CSS variables — keep them in sync when adjusting the palette.
+/* Margin design tokens. Single source of truth for colors + font families.
+ * Imported by `site/src/styles/global.css` (Astro), `src/api/styles/input.css`
+ * (backend Tailwind build), and `surfaces/extension/ui/extension.css`.
  */
 
 @theme {

@@ -1,11 +1,5 @@
 import * as v from "valibot";
-import {
-  requireFirstUser,
-  resolveUserByEmailOrFirst,
-  type User,
-} from "../domain/user.ts";
-
-export type { User };
+import { requireFirstUser, resolveUserByEmailOrFirst } from "../domain/user.ts";
 
 /**
  * Friendlier aliases for the most common CLI lookup patterns. New code is

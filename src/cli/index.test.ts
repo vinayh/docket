@@ -5,34 +5,9 @@ import {
   seedUser,
   seedVersion,
 } from "../../test/db.ts";
+import { runCli } from "../../test/cli.ts";
 
 beforeEach(cleanDb);
-
-interface CliResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
-
-/**
- * Run `bun src/cli/index.ts <args…>` as a subprocess. The child inherits
- * `MARGIN_DB_PATH` + `MARGIN_MASTER_KEY` + `BETTER_AUTH_SECRET` from the
- * parent test process, so both processes operate on the same temp SQLite
- * (WAL mode handles the cross-process concurrency).
- */
-async function runCli(args: string[]): Promise<CliResult> {
-  const proc = Bun.spawn(["bun", "src/cli/index.ts", ...args], {
-    env: { ...Bun.env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { stdout, stderr, exitCode };
-}
 
 describe("dispatcher", () => {
   test("no arguments → exit 0 with usage banner on stderr", async () => {

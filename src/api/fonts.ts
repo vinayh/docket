@@ -1,9 +1,8 @@
 /**
  * Self-hosted font assets used by the backend HTML pages (sign-in success,
- * Drive Picker, picker errors, magic-link review action). Same display font
- * as the extension surfaces (see `surfaces/extension/ui/tokens.css`); served
- * here so those pages can render the brand mark in Bagel Fat One without
- * widening their CSP to `font-src https://fonts.gstatic.com`.
+ * Drive Picker, picker errors, magic-link review action). Same Bagel Fat One
+ * brand mark as the extension surfaces; served here so those pages can render
+ * it without widening their CSP to `font-src https://fonts.gstatic.com`.
  *
  * The woff2 is vendored at `src/api/assets/bagel-fat-one.woff2` so the prod
  * image doesn't have to carry the `@fontsource/bagel-fat-one` package — the

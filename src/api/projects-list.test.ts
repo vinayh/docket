@@ -1,19 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { cleanDb, seedProject, seedUser } from "../../test/db.ts";
 import { issueTestSession } from "../../test/session.ts";
+import { postJsonRequest } from "../../test/fetch.ts";
 import { handleProjectsListPost } from "./projects-list.ts";
 
 beforeEach(cleanDb);
 
-function post(opts?: { auth?: string }): Request {
-  const headers = new Headers({ "content-type": "application/json" });
-  if (opts?.auth !== undefined) headers.set("authorization", opts.auth);
-  return new Request("http://localhost/api/extension/projects", {
-    method: "POST",
-    headers,
-    body: "{}",
-  });
-}
+const post = (opts?: { auth?: string }) =>
+  postJsonRequest("/api/extension/projects", {}, opts);
 
 describe("handleProjectsListPost", () => {
   test("401 without Authorization", async () => {

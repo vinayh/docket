@@ -6,19 +6,13 @@ import {
   seedVersion,
 } from "../../test/db.ts";
 import { issueTestSession } from "../../test/session.ts";
+import { postJsonRequest } from "../../test/fetch.ts";
 import { handleProjectDetailPost } from "./project-detail.ts";
 
 beforeEach(cleanDb);
 
-function postDetail(body: unknown, opts?: { auth?: string }): Request {
-  const headers = new Headers({ "content-type": "application/json" });
-  if (opts?.auth !== undefined) headers.set("authorization", opts.auth);
-  return new Request("http://localhost/api/extension/project", {
-    method: "POST",
-    headers,
-    body: typeof body === "string" ? body : JSON.stringify(body),
-  });
-}
+const postDetail = (body: unknown, opts?: { auth?: string }) =>
+  postJsonRequest("/api/extension/project", body, opts);
 
 describe("handleProjectDetailPost validation", () => {
   test("401 without bearer", async () => {

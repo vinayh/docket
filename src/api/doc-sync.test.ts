@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { cleanDb, seedProject, seedUser } from "../../test/db.ts";
 import { issueTestSession } from "../../test/session.ts";
+import { postJsonRequest } from "../../test/fetch.ts";
 import { handleDocSyncPost } from "./doc-sync.ts";
 
 /**
@@ -12,15 +13,8 @@ import { handleDocSyncPost } from "./doc-sync.ts";
 
 beforeEach(cleanDb);
 
-function postSync(body: unknown, opts?: { auth?: string }): Request {
-  const headers = new Headers({ "content-type": "application/json" });
-  if (opts?.auth !== undefined) headers.set("authorization", opts.auth);
-  return new Request("http://localhost/api/extension/doc-sync", {
-    method: "POST",
-    headers,
-    body: typeof body === "string" ? body : JSON.stringify(body),
-  });
-}
+const postSync = (body: unknown, opts?: { auth?: string }) =>
+  postJsonRequest("/api/extension/doc-sync", body, opts);
 
 describe("handleDocSyncPost", () => {
   test("401 without Authorization", async () => {

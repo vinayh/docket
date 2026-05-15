@@ -10,14 +10,26 @@ export interface EmailTransport {
   send(msg: EmailMessage): Promise<void>;
 }
 
-/** Default transport when nothing is configured. Logs to stdout so operators
- * can still recover magic-link URLs from the server log. */
+/** Default transport when nothing is configured. Logs a redacted preview so
+ * operators see what would be sent without leaking redeemable URLs. */
 export class LogEmailTransport implements EmailTransport {
   async send(msg: EmailMessage): Promise<void> {
     console.log(
-      `[email/log] to=${msg.to} subject=${JSON.stringify(msg.subject)}\n${msg.text}`,
+      `[email/log] to=${msg.to} subject=${JSON.stringify(msg.subject)}\n${redactSecrets(msg.text)}`,
     );
   }
+}
+
+// Strip review-action token URLs (`<base>/r/<token>` or `/r/<token>`) so
+// operators see something happened without leaking redeemable links.
+function redactSecrets(body: string): string {
+  return body.replace(
+    /(?:https?:\/\/[^\s<>"']*)?\/r\/[A-Za-z0-9_-]+(\?[^\s<>"']*)?/g,
+    (_m, query: string | undefined) => {
+      const action = query?.match(/[?&]action=([^&]+)/)?.[1];
+      return action ? `<redacted review URL action=${action}>` : "<redacted review URL>";
+    },
+  );
 }
 
 export class ResendEmailTransport implements EmailTransport {

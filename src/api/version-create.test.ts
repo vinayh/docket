@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanDb, seedProject, seedUser } from "../../test/db.ts";
-import { setFetch } from "../../test/fetch.ts";
+import { postJsonRequest, setFetch } from "../../test/fetch.ts";
 import { issueTestSession } from "../../test/session.ts";
 import { db } from "../db/client.ts";
 import { account } from "../db/schema.ts";
@@ -15,15 +15,8 @@ import { handleVersionCreatePost } from "./version-create.ts";
 
 beforeEach(cleanDb);
 
-function postCreate(body: unknown, opts?: { auth?: string }): Request {
-  const headers = new Headers({ "content-type": "application/json" });
-  if (opts?.auth !== undefined) headers.set("authorization", opts.auth);
-  return new Request("http://localhost/api/extension/version/create", {
-    method: "POST",
-    headers,
-    body: typeof body === "string" ? body : JSON.stringify(body),
-  });
-}
+const postCreate = (body: unknown, opts?: { auth?: string }) =>
+  postJsonRequest("/api/extension/version/create", body, opts);
 
 describe("handleVersionCreatePost", () => {
   test("401 without Authorization", async () => {
