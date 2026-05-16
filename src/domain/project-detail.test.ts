@@ -3,7 +3,6 @@ import {
   cleanDb,
   seedCanonicalComment,
   seedDerivative,
-  seedDriveWatchChannel,
   seedOverlay,
   seedProject,
   seedReviewRequest,
@@ -29,7 +28,7 @@ describe("getProjectDetail", () => {
     ).toBeNull();
   });
 
-  test("returns versions in createdAt desc order with per-version stats", async () => {
+  test("returns main (parent doc) first, then snapshots in createdAt desc order, with per-version stats", async () => {
     const u = await seedUser({ email: "owner@example.com" });
     const proj = await seedProject({ ownerUserId: u.id, parentDocId: "doc-parent" });
     const v1 = await seedVersion({
@@ -38,17 +37,17 @@ describe("getProjectDetail", () => {
       label: "v1",
       googleDocId: "doc-v1",
     });
+    const syncTs = new Date("2025-04-01T00:00:00Z");
     const v2 = await seedVersion({
       projectId: proj.id,
       createdByUserId: u.id,
       label: "v2",
       googleDocId: "doc-v2",
       parentVersionId: v1.id,
+      lastSyncedAt: syncTs,
     });
     await seedCanonicalComment({ projectId: proj.id, originVersionId: v1.id });
     await seedCanonicalComment({ projectId: proj.id, originVersionId: v1.id });
-    const syncTs = new Date("2025-04-01T00:00:00Z");
-    await seedDriveWatchChannel({ versionId: v2.id, lastSyncedAt: syncTs });
 
     const detail = await getProjectDetail({ projectId: proj.id, userId: u.id });
     expect(detail).not.toBeNull();
@@ -56,7 +55,15 @@ describe("getProjectDetail", () => {
     expect(detail!.project.parentDocId).toBe("doc-parent");
     expect(detail!.project.ownerEmail).toBe("owner@example.com");
 
-    expect(detail!.versions.map((v) => v.label).sort()).toEqual(["v1", "v2"]);
+    // ensureMainVersion backfills a "main" row pointing at parent_doc_id;
+    // listVersions floats it to the top. v1/v2 are seeded in the same ms so
+    // their relative order is unstable — just assert membership.
+    expect(detail!.versions[0]!.label).toBe("main");
+    expect(detail!.versions[0]!.googleDocId).toBe("doc-parent");
+    expect(detail!.versions.slice(1).map((v) => v.label).sort()).toEqual([
+      "v1",
+      "v2",
+    ]);
 
     const v2d = detail!.versions.find((v) => v.id === v2.id)!;
     expect(v2d.status).toBe("active");
@@ -103,11 +110,12 @@ describe("getProjectDetail", () => {
     expect(detail!.reviewRequests[0]!.status).toBe("open");
   });
 
-  test("empty project: no versions / derivatives / review requests", async () => {
+  test("project with no snapshots: main (parent doc) is backfilled, no derivatives or reviews", async () => {
     const u = await seedUser();
-    const proj = await seedProject({ ownerUserId: u.id });
+    const proj = await seedProject({ ownerUserId: u.id, parentDocId: "doc-only-parent" });
     const detail = await getProjectDetail({ projectId: proj.id, userId: u.id });
-    expect(detail!.versions).toEqual([]);
+    expect(detail!.versions.map((v) => v.label)).toEqual(["main"]);
+    expect(detail!.versions[0]!.googleDocId).toBe("doc-only-parent");
     expect(detail!.derivatives).toEqual([]);
     expect(detail!.reviewRequests).toEqual([]);
   });

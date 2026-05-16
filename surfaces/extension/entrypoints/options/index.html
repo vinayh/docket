@@ -6,51 +6,116 @@
     <meta name="manifest.open_in_tab" content="true" />
     <link rel="stylesheet" href="./style.css" />
   </head>
-  <body>
-    <main>
-      <h1>Margin extension</h1>
-      <p>
-        Connect this browser to your Margin backend, then sign in with Google
-        to authorize Drive access for the docs you choose to track.
+  <body class="text-[14px] leading-[1.55]">
+    <main class="max-w-[560px] mx-auto my-12 px-5">
+      <h1
+        class="font-display font-normal text-[32px] tracking-[-0.01em] leading-[1.05] mt-0 mb-5 text-ink"
+      >
+        Margin extension
+      </h1>
+
+      <!-- Dev-only banner; main.ts unhides it when import.meta.env.DEV. -->
+      <p
+        id="devBanner"
+        class="flex items-center gap-2 mt-0 mb-5 px-[0.7rem] py-[0.55rem] border border-dashed border-warn rounded bg-warn-bg text-warn text-[13px]"
+        hidden
+      >
+        <span
+          class="font-mono text-[10px] font-semibold tracking-[0.08em] px-[0.4rem] py-[0.05rem] rounded-full bg-warn text-cream"
+        >
+          DEV
+        </span>
+        <span>
+          Development build · backend
+          <code
+            id="devBackend"
+            class="font-mono font-medium text-inherit bg-transparent p-0"
+          ></code>
+        </span>
       </p>
 
-      <form id="form">
-        <label>
-          Backend URL
-          <input
-            type="url"
-            id="backendUrl"
-            name="backendUrl"
-            required
-            placeholder="https://margin.example.com"
-          />
-          <small>
-            Local dev: <code>http://localhost:8787</code>. Must match the
-            host running <code>bun margin serve</code>.
-          </small>
-        </label>
-
-        <button type="submit">Save backend URL</button>
-        <button type="button" id="test">Test connection</button>
-      </form>
-
-      <hr />
-
-      <section id="auth">
-        <h2>Account</h2>
-        <p id="authState">Loading…</p>
-        <button type="button" id="signIn">Sign in with Google</button>
-        <button type="button" id="signOut" hidden>Sign out</button>
-        <p>
-          <small>
+      <!-- Signed-out view. Shown by default; main.ts hides it on signed-in. -->
+      <section id="signedOut">
+        <p class="mt-0 mb-4 text-ink-2">
+          Sign in with Google to authorize Drive access for the docs you
+          choose to track.
+        </p>
+        <button type="button" id="signIn" class="px-4 py-2">
+          Sign in with Google
+        </button>
+        <p class="mt-0 mb-4 text-ink-2">
+          <small class="text-muted text-[12px] font-normal">
             Signing in opens a Google consent screen. Margin requests
-            <code>drive.file</code> — per-file access only for docs you
-            register through the extension's Picker.
+            <code
+              class="font-mono text-[12px] bg-cream-2 px-[0.35rem] py-[0.1rem] rounded text-ink-2"
+              >drive.file</code
+            >
+            — per-file access only for docs you register through the
+            extension's Picker.
           </small>
         </p>
       </section>
 
-      <p id="status" role="status"></p>
+      <!-- Signed-in view. Hidden by default; main.ts unhides on signed-in. -->
+      <section id="signedIn" hidden>
+        <div
+          class="grid grid-cols-[auto_1fr_auto] items-center gap-4 mb-6 px-4 py-[0.9rem] border border-rule rounded-md bg-cream-2"
+        >
+          <img
+            id="avatar"
+            class="w-12 h-12 rounded-full bg-cream border border-rule object-cover [&:not([src])]:invisible"
+            alt=""
+          />
+          <div class="grid gap-[0.1rem] min-w-0">
+            <p id="accountName" class="m-0 font-semibold text-ink"></p>
+            <p id="accountEmail" class="muted font-mono text-[12px]"></p>
+            <p class="muted">
+              <small class="text-muted text-[12px] font-normal">
+                Connected via Google ·
+                <code
+                  class="font-mono text-[12px] bg-cream-2 px-[0.35rem] py-[0.1rem] rounded text-ink-2"
+                  >drive.file</code
+                >
+                scope (per-file access).
+              </small>
+            </p>
+          </div>
+          <button type="button" id="signOut" class="px-4 py-2">Sign out</button>
+        </div>
+
+        <section>
+          <h2
+            class="font-display font-normal text-[18px] tracking-[-0.005em] text-ink mt-0 mb-[0.6rem] flex items-baseline gap-2"
+          >
+            Connected docs
+            <span
+              id="docsCount"
+              class="font-mono text-[12px] text-muted"
+            ></span>
+          </h2>
+          <p id="docsEmpty" class="muted" hidden>No docs tracked yet.</p>
+          <ul
+            id="docList"
+            class="list-none p-0 m-0 flex flex-col gap-[0.4rem]"
+          ></ul>
+        </section>
+      </section>
+
+      <p
+        id="status"
+        role="status"
+        class="min-h-[1.4em] mt-4 mb-0 font-semibold text-ink"
+      ></p>
+
+      <footer
+        class="mt-8 pt-4 border-t border-rule text-muted text-[12px]"
+      >
+        Margin extension
+        <code
+          id="extensionVersion"
+          class="font-mono font-medium text-inherit bg-transparent p-0"
+        ></code>
+      </footer>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

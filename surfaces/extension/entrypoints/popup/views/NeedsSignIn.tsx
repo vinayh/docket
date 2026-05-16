@@ -22,8 +22,14 @@ export function NeedsSignIn({ backendUrl, onSignedIn: _onSignedIn }: Props) {
   return (
     <>
       <p class="muted">
-        Connected to <code>{backendUrl}</code>. Finish setup by signing in
-        with Google.
+        {import.meta.env.DEV ? (
+          <>
+            Connected to <code>{backendUrl}</code>. Finish setup by signing
+            in with Google.
+          </>
+        ) : (
+          <>Finish setup by signing in with Google.</>
+        )}
       </p>
       <div class="actions">
         <button

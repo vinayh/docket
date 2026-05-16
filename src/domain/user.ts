@@ -22,6 +22,11 @@ export async function userEmailById(userId: string): Promise<string | null> {
   return rows[0]?.email ?? null;
 }
 
+export async function getUserById(userId: string): Promise<User | null> {
+  const rows = await db.select().from(user).where(eq(user.id, userId)).limit(1);
+  return rows[0] ?? null;
+}
+
 /**
  * Resolve an author email to a Margin user id, returning null when the email
  * is missing or no user exists for it. Use this for stamping `origin_user_id`

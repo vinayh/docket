@@ -1,20 +1,36 @@
 import { browser } from "wxt/browser";
 import { detectAndPersistBrowserQuirks } from "../../utils/browser-detect.ts";
 import type { Message, MessageResponse } from "../../utils/messages.ts";
-import { DEFAULT_BACKEND_URL } from "../../utils/types.ts";
+import { DEFAULT_BACKEND_URL, type ProjectListEntry } from "../../utils/types.ts";
 
 // Detect native-sidebar support (rules out Arc and other Chromium derivatives
 // that silently no-op `chrome.sidePanel`). Result is cached in
 // chrome.storage.local; the SW reads it sync at action-click time.
 void detectAndPersistBrowserQuirks();
 
-const form = document.getElementById("form") as HTMLFormElement;
-const backendUrlInput = document.getElementById("backendUrl") as HTMLInputElement;
-const testBtn = document.getElementById("test") as HTMLButtonElement;
+const signedOutEl = document.getElementById("signedOut") as HTMLElement;
+const signedInEl = document.getElementById("signedIn") as HTMLElement;
 const signInBtn = document.getElementById("signIn") as HTMLButtonElement;
 const signOutBtn = document.getElementById("signOut") as HTMLButtonElement;
-const authStateEl = document.getElementById("authState") as HTMLParagraphElement;
+const avatarEl = document.getElementById("avatar") as HTMLImageElement;
+const accountNameEl = document.getElementById("accountName") as HTMLElement;
+const accountEmailEl = document.getElementById("accountEmail") as HTMLElement;
+const docListEl = document.getElementById("docList") as HTMLUListElement;
+const docsCountEl = document.getElementById("docsCount") as HTMLElement;
+const docsEmptyEl = document.getElementById("docsEmpty") as HTMLElement;
 const status = document.getElementById("status") as HTMLParagraphElement;
+const devBanner = document.getElementById("devBanner") as HTMLElement;
+const devBackendEl = document.getElementById("devBackend") as HTMLElement;
+const extensionVersionEl = document.getElementById("extensionVersion") as HTMLElement;
+
+extensionVersionEl.textContent = `v${browser.runtime.getManifest().version}`;
+
+// Dev-only badge so the developer can see which backend the extension is
+// hitting. Vite tree-shakes this whole block out of prod bundles.
+if (import.meta.env.DEV) {
+  devBanner.hidden = false;
+  devBackendEl.textContent = DEFAULT_BACKEND_URL;
+}
 
 void hydrate();
 
@@ -22,105 +38,104 @@ async function hydrate(): Promise<void> {
   const r = (await browser.runtime.sendMessage({ kind: "settings/get" } satisfies Message)) as
     | MessageResponse
     | undefined;
-  if (r?.kind === "settings/get" && r.settings) {
-    backendUrlInput.value = r.settings.backendUrl;
-    renderAuthState(Boolean(r.settings.sessionToken));
-  } else {
-    backendUrlInput.value = DEFAULT_BACKEND_URL;
-    renderAuthState(false);
-  }
+  const signedIn =
+    r?.kind === "settings/get" ? Boolean(r.settings?.sessionToken) : false;
+  await renderAuthState(signedIn);
 }
 
-function renderAuthState(signedIn: boolean): void {
-  if (signedIn) {
-    authStateEl.textContent = "Signed in. Backend session is active.";
-    signInBtn.hidden = true;
-    signOutBtn.hidden = false;
-  } else {
-    authStateEl.textContent = "Not signed in.";
-    signInBtn.hidden = false;
-    signOutBtn.hidden = true;
-  }
+async function renderAuthState(signedIn: boolean): Promise<void> {
+  signedOutEl.hidden = signedIn;
+  signedInEl.hidden = !signedIn;
+  if (!signedIn) return;
+  // Fire both calls in parallel; both are decoration on top of the
+  // already-rendered signed-in shell. Failures leave placeholders in place.
+  await Promise.all([fillIdentity(), fillDocs()]);
 }
 
-form.addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const backendUrl = backendUrlInput.value.trim().replace(/\/+$/, "");
-  if (!backendUrl) {
-    setStatus("Backend URL is required", "error");
-    return;
-  }
-  const perm = await ensureBackendOrigin(backendUrl);
-  if (!perm.ok) {
-    setStatus(`Saved URL, but ${perm.reason}.`, "error");
+async function fillIdentity(): Promise<void> {
+  const r = (await browser.runtime.sendMessage({ kind: "auth/whoami" } satisfies Message)) as
+    | MessageResponse
+    | undefined;
+  if (r?.kind !== "auth/whoami") return;
+  if (r.image) {
+    avatarEl.src = r.image;
+    avatarEl.alt = r.name ?? r.email ?? "";
   } else {
-    setStatus("Backend URL saved.", "ok");
+    avatarEl.removeAttribute("src");
+    avatarEl.alt = "";
   }
-  // Preserve existing sessionToken (if any) so signing in earlier is sticky.
-  const existing = (await browser.runtime.sendMessage({
-    kind: "settings/get",
-  } satisfies Message)) as MessageResponse | undefined;
-  const sessionToken =
-    existing?.kind === "settings/get" ? existing.settings?.sessionToken ?? "" : "";
-  await browser.runtime.sendMessage({
-    kind: "settings/set",
-    settings: { backendUrl, sessionToken },
-  } satisfies Message);
-});
+  accountNameEl.textContent = r.name ?? "Signed in";
+  accountEmailEl.textContent = r.email ?? "";
+}
 
-testBtn.addEventListener("click", async () => {
-  const url = backendUrlInput.value.trim().replace(/\/+$/, "");
-  if (!url) {
-    setStatus("Enter a backend URL first", "error");
-    return;
-  }
-  const perm = await ensureBackendOrigin(url);
-  if (!perm.ok) {
-    setStatus(perm.reason, "error");
-    return;
-  }
-  setStatus("Testing…", null);
-  try {
-    const res = await fetch(new URL("/healthz", url).toString(), { method: "GET" });
-    if (!res.ok) {
-      setStatus(`Backend responded ${res.status}`, "error");
-      return;
-    }
-    const json = (await res.json()) as { ok?: boolean };
-    if (json.ok) setStatus("Backend reachable.", "ok");
-    else setStatus("Reached backend but /healthz did not return ok", "error");
-  } catch (err) {
-    setStatus(err instanceof Error ? err.message : String(err), "error");
-  }
-});
+async function fillDocs(): Promise<void> {
+  const r = (await browser.runtime.sendMessage({ kind: "projects/list" } satisfies Message)) as
+    | MessageResponse
+    | undefined;
+  if (r?.kind !== "projects/list" || !r.projects) return;
+  // Most recently active first; never-synced trailing.
+  const sorted = [...r.projects].sort((a, b) => {
+    const av = a.lastSyncedAt ?? -1;
+    const bv = b.lastSyncedAt ?? -1;
+    return bv - av;
+  });
+  docsCountEl.textContent = sorted.length === 0 ? "" : String(sorted.length);
+  docsEmptyEl.hidden = sorted.length > 0;
+  docListEl.replaceChildren(...sorted.map(renderDocRow));
+}
+
+function renderDocRow(p: ProjectListEntry): HTMLLIElement {
+  const li = document.createElement("li");
+  li.className =
+    "flex items-baseline justify-between gap-3 px-[0.7rem] py-[0.55rem] border border-rule rounded bg-cream";
+
+  const link = document.createElement("a");
+  link.href = `https://docs.google.com/document/d/${encodeURIComponent(p.parentDocId)}/edit`;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.className = "font-medium [overflow-wrap:anywhere]";
+  link.textContent = p.name ?? "Untitled doc";
+
+  const meta = document.createElement("span");
+  meta.className = "text-muted font-mono text-[11px] whitespace-nowrap";
+  const versionLabel =
+    p.versionCount === 1 ? "1 version" : `${p.versionCount} versions`;
+  const synced = formatRelative(p.lastSyncedAt);
+  meta.textContent = `${versionLabel} · last sync ${synced}`;
+
+  li.append(link, meta);
+  return li;
+}
+
+function formatRelative(ts: number | null): string {
+  if (!ts) return "never";
+  const diff = Date.now() - ts;
+  if (diff < 0) return "just now";
+  const sec = Math.round(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  return `${day}d ago`;
+}
 
 signInBtn.addEventListener("click", async () => {
-  const backendUrl = backendUrlInput.value.trim().replace(/\/+$/, "");
-  if (!backendUrl) {
-    setStatus("Enter a backend URL first", "error");
-    return;
-  }
-  const perm = await ensureBackendOrigin(backendUrl);
+  const perm = await ensureBackendOrigin(DEFAULT_BACKEND_URL);
   if (!perm.ok) {
     setStatus(perm.reason, "error");
     return;
   }
   setStatus("Opening Google sign-in in a new tab…", null);
-  // Tab-based OAuth: `chrome.identity.launchWebAuthFlow` is unusable now
-  // that Chrome 122+ stamps the extension origin onto Google's OAuth
-  // request (which Google rejects on `Web application` clients). Open a
-  // normal top-level tab instead; the `/api/auth/ext/success` bridge
-  // posts the session token back to the SW via
-  // `chrome.runtime.sendMessage`. The storage `onChanged` listener
-  // below flips the UI to "Signed in" once the token lands.
-  const launchUrl = `${backendUrl}/api/auth/ext/launch-tab?ext=${encodeURIComponent(
+  const launchUrl = `${DEFAULT_BACKEND_URL}/api/auth/ext/launch-tab?ext=${encodeURIComponent(
     browser.runtime.id,
   )}`;
   await browser.tabs.create({ url: launchUrl });
 });
 
 // React to the SW's `auth/token` write so the Options page flips to
-// "Signed in" without the user having to reload the tab.
+// signed-in without the user reloading the tab.
 browser.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local" || !changes.settings) return;
   const after =
@@ -130,7 +145,7 @@ browser.storage.onChanged.addListener((changes, areaName) => {
     (changes.settings.oldValue as { sessionToken?: string } | undefined)
       ?.sessionToken ?? "";
   if (before === after) return;
-  renderAuthState(Boolean(after));
+  void renderAuthState(Boolean(after));
   if (after) setStatus("Signed in.", "ok");
 });
 
@@ -140,19 +155,15 @@ signOutBtn.addEventListener("click", async () => {
   } satisfies Message)) as MessageResponse | undefined;
   if (r?.kind === "auth/sign-out" && r.ok) {
     setStatus("Signed out.", "ok");
-    renderAuthState(false);
+    void renderAuthState(false);
   } else {
     setStatus(r?.error ?? "sign-out failed", "error");
   }
 });
 
 // MV3 only allows fetch to origins listed in host_permissions or granted at
-// runtime. The user-configured backend isn't known at build time, so we
-// declare optional_host_permissions: ["<all_urls>"] in the manifest and
-// request the specific origin here. permissions.request must run from a
-// user gesture (button click) — every call site above is one.
-// `docs.google.com` is granted statically via host_permissions in the
-// manifest (see wxt.config.ts), so it isn't part of this request.
+// runtime. The backend URL is baked in at build time but not declared
+// statically — request the specific origin from this user gesture.
 async function ensureBackendOrigin(
   rawUrl: string,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -172,6 +183,7 @@ async function ensureBackendOrigin(
 
 function setStatus(message: string, tone: "ok" | "error" | null): void {
   status.textContent = message;
-  if (tone) status.dataset.tone = tone;
-  else delete status.dataset.tone;
+  const toneClass =
+    tone === "error" ? "text-bad" : tone === "ok" ? "text-good" : "text-ink";
+  status.className = `min-h-[1.4em] mt-4 mb-0 font-semibold ${toneClass}`;
 }

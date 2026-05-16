@@ -1,4 +1,6 @@
-import type { AnchorRange, CommentAnchor } from "../../db/schema.ts";
+import { eq } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { version, type AnchorRange, type CommentAnchor } from "../../db/schema.ts";
 import { listComments, exportDocx } from "../../google/drive.ts";
 import {
   parseDocx,
@@ -71,6 +73,14 @@ export async function ingestVersionComments(versionId: string): Promise<IngestRe
     driveIndex,
     result,
   });
+
+  // Stamp the version's last-synced timestamp on every successful ingest, even
+  // when zero comments were found — the projection table doesn't grow in that
+  // case, so we'd otherwise show "Never" forever for empty docs.
+  await db
+    .update(version)
+    .set({ lastSyncedAt: new Date() })
+    .where(eq(version.id, versionId));
 
   return result;
 }

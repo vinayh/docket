@@ -60,9 +60,9 @@ export const run = (args: string[]) =>
       }
       for (const c of channels) {
         const exp = c.expiration ? c.expiration.toISOString() : "—";
-        const last = c.lastSyncedAt ? c.lastSyncedAt.toISOString() : "—";
+        const lastEvent = c.lastEventAt ? c.lastEventAt.toISOString() : "—";
         console.log(
-          `${c.id}  version=${c.versionId.slice(0, 8)}  channel=${c.channelId.slice(0, 8)}  exp=${exp}  last_sync=${last}`,
+          `${c.id}  version=${c.versionId.slice(0, 8)}  channel=${c.channelId.slice(0, 8)}  exp=${exp}  last_event=${lastEvent}`,
         );
       }
     },

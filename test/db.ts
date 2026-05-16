@@ -100,6 +100,7 @@ export async function seedVersion(opts: {
   googleDocId?: string;
   name?: string | null;
   parentVersionId?: string | null;
+  lastSyncedAt?: Date | null;
 }): Promise<typeof version.$inferSelect> {
   // Default to a unique label per call so tests that seed multiple versions
   // in the same project don't collide on the `(project_id, label)` unique
@@ -114,6 +115,7 @@ export async function seedVersion(opts: {
       createdByUserId: opts.createdByUserId,
       parentVersionId: opts.parentVersionId ?? null,
       status: "active",
+      lastSyncedAt: opts.lastSyncedAt ?? null,
     })
     .returning();
   return inserted[0]!;
@@ -201,7 +203,6 @@ export async function seedDriveWatchChannel(opts: {
   resourceId?: string;
   token?: string | null;
   expiration?: Date | null;
-  lastSyncedAt?: Date;
 }): Promise<typeof driveWatchChannel.$inferSelect> {
   const inserted = await db
     .insert(driveWatchChannel)
@@ -212,7 +213,6 @@ export async function seedDriveWatchChannel(opts: {
       token: opts.token === undefined ? `token-${crypto.randomUUID()}` : opts.token,
       address: "https://example.com/webhooks/drive",
       expiration: opts.expiration === undefined ? new Date(Date.now() + 86_400_000) : opts.expiration,
-      lastSyncedAt: opts.lastSyncedAt ?? new Date(),
     })
     .returning();
   return inserted[0]!;

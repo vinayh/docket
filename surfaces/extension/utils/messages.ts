@@ -64,6 +64,7 @@ export const MessageSchema = v.variant("kind", [
   v.object({ kind: v.literal("settings/get") }),
   v.object({ kind: v.literal("settings/set"), settings: SettingsSchema }),
   v.object({ kind: v.literal("auth/sign-out") }),
+  v.object({ kind: v.literal("auth/whoami") }),
   v.object({ kind: v.literal("doc/state"), docId: Id }),
   v.object({ kind: v.literal("doc/sync"), docId: Id }),
   v.object({
@@ -132,6 +133,13 @@ export type MessageResponse =
     }
   | { kind: "settings/set"; ok: true; error?: string }
   | { kind: "auth/sign-out"; ok: true; error?: string }
+  | {
+      kind: "auth/whoami";
+      email: string | null;
+      name: string | null;
+      image: string | null;
+      error?: string;
+    }
   | { kind: "doc/state"; state: DocState | null; error?: string }
   | { kind: "doc/sync"; state: DocState | null; error?: string }
   | { kind: "doc/register"; result: RegisterDocResult; error?: string }

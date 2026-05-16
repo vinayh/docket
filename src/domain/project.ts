@@ -1,5 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
-import { db } from "../db/client.ts";
+import { db, isUniqueConstraintError } from "../db/client.ts";
 import { project, version, type ProjectSettings } from "../db/schema.ts";
 import { tokenProviderForUser } from "../auth/credentials.ts";
 import type { TokenProvider } from "../google/api.ts";
@@ -180,4 +180,46 @@ export async function getOwnedProject(
 export async function tokenProviderForProject(projectId: string): Promise<TokenProvider> {
   const proj = await requireProject(projectId);
   return tokenProviderForUser(proj.ownerUserId);
+}
+
+/**
+ * Lazy backfill for projects created before the createProject change that
+ * auto-inserts a "main" version row pointing at the parent doc. Idempotent —
+ * if a main row already exists (or a row already points at the parent doc
+ * under any label), this is a no-op. Called on read from getProjectDetail
+ * and getDocState so legacy projects appear with their parent doc as a
+ * version on first dashboard load, without forcing a migration that would
+ * need Drive credentials.
+ */
+export async function ensureMainVersion(proj: Project): Promise<void> {
+  const existing = await db
+    .select({ id: version.id })
+    .from(version)
+    .where(
+      and(
+        eq(version.projectId, proj.id),
+        eq(version.googleDocId, proj.parentDocId),
+      ),
+    )
+    .limit(1);
+  if (existing[0]) return;
+
+  try {
+    await db.insert(version).values({
+      projectId: proj.id,
+      googleDocId: proj.parentDocId,
+      name: proj.name,
+      parentVersionId: null,
+      label: "main",
+      createdByUserId: proj.ownerUserId,
+      snapshotContentHash: null,
+      status: "active",
+      createdAt: proj.createdAt,
+    });
+  } catch (err) {
+    // The (project_id, label) unique index can collide if the project
+    // happens to have a manually-labelled "main" row already. Treat as a
+    // no-op — the user's existing labelling wins.
+    if (!isUniqueConstraintError(err)) throw err;
+  }
 }

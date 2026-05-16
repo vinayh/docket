@@ -24,7 +24,8 @@ export function Diagnostics({ initiallyOpen }: Props) {
         setConn({ tone: "error", text: "No backend configured." });
         return;
       }
-      setConn({ tone: "", text: `Probing ${backendUrl}…` });
+      const label = import.meta.env.DEV ? backendUrl : "backend";
+      setConn({ tone: "", text: `Probing ${label}…` });
       await probeBackend(backendUrl, setConn);
     })();
   }, []);
@@ -47,6 +48,9 @@ async function probeBackend(
   backendUrl: string,
   setConn: (c: Connection) => void,
 ): Promise<void> {
+  // Prod hides the URL — it's an implementation detail. Dev keeps it
+  // visible so the developer can spot a localhost/prod mixup.
+  const label = import.meta.env.DEV ? backendUrl : "backend";
   const url = new URL("/healthz", backendUrl).toString();
   try {
     const res = await fetch(url, {
@@ -54,24 +58,28 @@ async function probeBackend(
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) {
-      setConn({ tone: "error", text: `Backend ${backendUrl} responded ${res.status}` });
+      setConn({ tone: "error", text: `${capitalize(label)} responded ${res.status}` });
       return;
     }
     const json = (await res.json().catch(() => null)) as { ok?: boolean } | null;
     if (!json?.ok) {
       setConn({
         tone: "error",
-        text: `Backend ${backendUrl} reachable but /healthz did not return ok`,
+        text: `${capitalize(label)} reachable but /healthz did not return ok`,
       });
       return;
     }
-    setConn({ tone: "ok", text: `Connected to ${backendUrl}` });
+    setConn({ tone: "ok", text: `Connected to ${label}` });
   } catch (err) {
     setConn({
       tone: "error",
-      text: `Backend ${backendUrl} unreachable: ${
+      text: `${capitalize(label)} unreachable: ${
         err instanceof Error ? err.message : String(err)
       }`,
     });
   }
+}
+
+function capitalize(s: string): string {
+  return s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1);
 }

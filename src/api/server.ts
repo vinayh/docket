@@ -12,6 +12,7 @@ import { handleVersionDiffPost } from "./version-diff.ts";
 import { handleVersionCommentsPost } from "./version-comments.ts";
 import { handleCommentActionPost } from "./comment-action.ts";
 import { handleSettingsPost } from "./settings.ts";
+import { handleWhoamiPost } from "./whoami.ts";
 import { handleReviewActionGet } from "./review-action.tsx";
 import { handleReviewRequestPost } from "./review-request.ts";
 import { handlePickerPage } from "./picker-page.tsx";
@@ -82,6 +83,7 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       "/api/extension/version-comments": corsRoute({ POST: handleVersionCommentsPost }),
       "/api/extension/comment-action": corsRoute({ POST: handleCommentActionPost }),
       "/api/extension/settings": corsRoute({ POST: handleSettingsPost }),
+      "/api/extension/whoami": corsRoute({ POST: handleWhoamiPost }),
       "/api/extension/review/request": corsRoute({ POST: handleReviewRequestPost }),
       "/api/picker/page": { GET: secured(handlePickerPage) },
       "/api/picker/register-doc": corsRoute({ POST: handleRegisterDocPost }),

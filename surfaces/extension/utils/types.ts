@@ -4,7 +4,14 @@ export interface Settings {
   sessionToken: string;
 }
 
-export const DEFAULT_BACKEND_URL = "http://localhost:8787";
+// Dev builds (`bun run ext:dev`) default to the locally running backend;
+// production builds bake in the deployed API host so a freshly installed
+// extension is reachable without the user pasting a URL on first launch.
+// Vite inlines `import.meta.env.DEV` at build time, so the dead branch is
+// tree-shaken from the prod bundle.
+export const DEFAULT_BACKEND_URL = import.meta.env.DEV
+  ? "http://localhost:8787"
+  : "https://api.margin.pub";
 
 // Mirror of backend's DocStateResponse. Discriminated on `tracked`.
 export type DocState =
@@ -45,7 +52,10 @@ export type RegisterDocResult =
 export interface ProjectListEntry {
   id: string;
   parentDocId: string;
+  name: string | null;
   createdAt: number;
+  versionCount: number;
+  lastSyncedAt: number | null;
 }
 
 // Mirror of backend's ProjectDetail. Keep field names/types in sync.

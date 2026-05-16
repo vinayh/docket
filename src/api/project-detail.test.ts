@@ -104,7 +104,8 @@ describe("handleProjectDetailPost lookup", () => {
     expect(body.project.id).toBe(proj.id);
     expect(body.project.parentDocId).toBe("doc-parent");
     expect(body.project.ownerEmail).toBe("owner@example.com");
-    expect(body.versions.map((v) => v.label)).toEqual(["v1"]);
+    // main row is backfilled by ensureMainVersion and floats to the top.
+    expect(body.versions.map((v) => v.label)).toEqual(["main", "v1"]);
     expect(body.derivatives).toEqual([]);
     expect(body.reviewRequests).toEqual([]);
   });

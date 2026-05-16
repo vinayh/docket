@@ -1,47 +1,31 @@
 import { and, count, eq, inArray, max } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import {
-  canonicalComment,
-  commentProjection,
-  driveWatchChannel,
-  reviewRequest,
-} from "../db/schema.ts";
+import { canonicalComment, reviewRequest, version } from "../db/schema.ts";
 
 /**
  * Project- and version-scoped aggregation helpers shared between
  * `doc-state` (per-doc tracked? lookup) and `project-detail` (whole-project
- * dashboard). Extracted from `domain/doc-state.ts` when the second consumer
- * landed — keeping them here avoids two diverging "best available
- * lastSyncedAt" / "count canonical comments" implementations.
+ * dashboard).
  */
 
 /**
- * Best available "last synced" signal for a version: prefer the watch
- * channel's `lastSyncedAt` (set when an inbound push triggered an ingest)
- * and fall back to the max projection `lastSyncedAt` (set by polling).
- * Either source maxes out at the most recent successful comment-ingest run.
- * Returns `null` when neither table has a row for the version.
+ * "Last synced" timestamp for a version. Sourced from `version.lastSyncedAt`,
+ * which `ingestVersionComments` stamps on every successful run regardless of
+ * whether any comments were found. Returns null when the version has never
+ * been ingested.
  */
 export async function pickLastSyncedAt(versionId: string): Promise<number | null> {
-  const watch = (
-    await db
-      .select({ ts: max(driveWatchChannel.lastSyncedAt) })
-      .from(driveWatchChannel)
-      .where(eq(driveWatchChannel.versionId, versionId))
-  )[0]?.ts;
-  const projection = (
-    await db
-      .select({ ts: max(commentProjection.lastSyncedAt) })
-      .from(commentProjection)
-      .where(eq(commentProjection.versionId, versionId))
-  )[0]?.ts;
-  return pickMaxDate(watch ?? null, projection ?? null);
+  const rows = await db
+    .select({ ts: version.lastSyncedAt })
+    .from(version)
+    .where(eq(version.id, versionId))
+    .limit(1);
+  return rows[0]?.ts?.getTime() ?? null;
 }
 
 /**
- * Batched form of `pickLastSyncedAt` — one query each against the watch
- * channel and projection tables, both grouped by version. Use when rendering
- * a list of versions (dashboard) to avoid N+1.
+ * Batched form of `pickLastSyncedAt`. One query against `version`. Use when
+ * rendering a list of versions (dashboard) to avoid N+1.
  */
 export async function pickLastSyncedAtByVersion(
   versionIds: readonly string[],
@@ -51,28 +35,12 @@ export async function pickLastSyncedAtByVersion(
 
   for (const id of versionIds) out.set(id, null);
 
-  const watchRows = await db
-    .select({
-      versionId: driveWatchChannel.versionId,
-      ts: max(driveWatchChannel.lastSyncedAt),
-    })
-    .from(driveWatchChannel)
-    .where(inArray(driveWatchChannel.versionId, versionIds as string[]))
-    .groupBy(driveWatchChannel.versionId);
-  for (const row of watchRows) {
-    out.set(row.versionId, pickMaxDate(out.get(row.versionId) ?? null, row.ts ?? null));
-  }
-
-  const projRows = await db
-    .select({
-      versionId: commentProjection.versionId,
-      ts: max(commentProjection.lastSyncedAt),
-    })
-    .from(commentProjection)
-    .where(inArray(commentProjection.versionId, versionIds as string[]))
-    .groupBy(commentProjection.versionId);
-  for (const row of projRows) {
-    out.set(row.versionId, pickMaxDate(out.get(row.versionId) ?? null, row.ts ?? null));
+  const rows = await db
+    .select({ id: version.id, ts: version.lastSyncedAt })
+    .from(version)
+    .where(inArray(version.id, versionIds as string[]));
+  for (const row of rows) {
+    out.set(row.id, row.ts?.getTime() ?? null);
   }
 
   return out;
@@ -111,6 +79,47 @@ export async function countCommentsByOriginVersion(
   return out;
 }
 
+/**
+ * Per-project version count, keyed by `project_id`. Used by the Options
+ * page's "Connected docs" list — one query is cheaper than N round-trips
+ * even at small project counts, and the index on `version.project_id`
+ * makes the grouped scan linear in row count.
+ */
+export async function countVersionsByProject(
+  projectIds: readonly string[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (projectIds.length === 0) return out;
+  for (const id of projectIds) out.set(id, 0);
+  const rows = await db
+    .select({ projectId: version.projectId, n: count() })
+    .from(version)
+    .where(inArray(version.projectId, projectIds as string[]))
+    .groupBy(version.projectId);
+  for (const row of rows) out.set(row.projectId, row.n);
+  return out;
+}
+
+/**
+ * Per-project last-synced timestamp — max of `version.lastSyncedAt` across
+ * the project's versions. Mirrors `pickLastSyncedAtByVersion` at the
+ * project-rollup level.
+ */
+export async function pickLastSyncedAtByProject(
+  projectIds: readonly string[],
+): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  if (projectIds.length === 0) return out;
+  for (const id of projectIds) out.set(id, null);
+  const rows = await db
+    .select({ projectId: version.projectId, ts: max(version.lastSyncedAt) })
+    .from(version)
+    .where(inArray(version.projectId, projectIds as string[]))
+    .groupBy(version.projectId);
+  for (const row of rows) out.set(row.projectId, row.ts?.getTime() ?? null);
+  return out;
+}
+
 export async function countOpenReviews(projectId: string): Promise<number> {
   const row = (
     await db
@@ -124,13 +133,4 @@ export async function countOpenReviews(projectId: string): Promise<number> {
       )
   )[0];
   return row?.n ?? 0;
-}
-
-function pickMaxDate(a: Date | number | null, b: Date | number | null): number | null {
-  const am = a instanceof Date ? a.getTime() : a;
-  const bm = b instanceof Date ? b.getTime() : b;
-  if (am === null && bm === null) return null;
-  if (am === null) return bm;
-  if (bm === null) return am;
-  return am > bm ? am : bm;
 }

@@ -67,7 +67,7 @@ describe("handleDocStatePost lookup", () => {
     expect(body.docId).toBe("doc-nobody-owns");
   });
 
-  test("returns tracked:true with role=parent when the doc is a project's parentDocId", async () => {
+  test("returns tracked:true with role=parent when the doc is a project's parentDocId, scoped to main", async () => {
     const u = await seedUser({ email: "owner@example.com" });
     const proj = await seedProject({ ownerUserId: u.id, parentDocId: "doc-parent" });
     await seedVersion({
@@ -86,7 +86,7 @@ describe("handleDocStatePost lookup", () => {
       tracked: true;
       role: string;
       project: { id: string; ownerEmail: string | null };
-      version: { id: string; label: string } | null;
+      version: { id: string; label: string; googleDocId: string } | null;
       commentCount: number;
       openReviewCount: number;
     };
@@ -94,7 +94,10 @@ describe("handleDocStatePost lookup", () => {
     expect(body.role).toBe("parent");
     expect(body.project.id).toBe(proj.id);
     expect(body.project.ownerEmail).toBe("owner@example.com");
-    expect(body.version?.label).toBe("v1");
+    // ensureMainVersion backfills a "main" row pointing at parentDocId — the
+    // parent-role response scopes the version + stats to that row.
+    expect(body.version?.label).toBe("main");
+    expect(body.version?.googleDocId).toBe("doc-parent");
     expect(body.commentCount).toBe(0);
     expect(body.openReviewCount).toBe(0);
   });

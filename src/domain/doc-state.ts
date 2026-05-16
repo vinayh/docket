@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { project, version } from "../db/schema.ts";
+import { ensureMainVersion } from "./project.ts";
 import {
   countComments,
   countOpenReviews,
@@ -73,17 +74,16 @@ export async function getDocState(opts: {
 
   if (projectRow) {
     // Parent doc is registered as the "main" version (see createProject).
-    // Resolve it directly so the parent-role response carries main's stats
-    // (comment count, last sync) rather than falling back to the
-    // most-recently-created snapshot — matches what the user actually sees
-    // in the open tab.
+    // Legacy projects from before that change are backfilled here so the
+    // parent-role response still carries a version row.
+    await ensureMainVersion(projectRow);
     const mainRows = await db
       .select()
       .from(version)
       .where(
         and(
           eq(version.projectId, projectRow.id),
-          eq(version.label, "main"),
+          eq(version.googleDocId, projectRow.parentDocId),
         ),
       )
       .limit(1);

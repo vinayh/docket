@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { cleanDb, seedProject, seedUser, seedVersion } from "../../test/db.ts";
 import { db } from "../db/client.ts";
-import { driveWatchChannel } from "../db/schema.ts";
+import { driveWatchChannel, version } from "../db/schema.ts";
 import { handleDriveWebhook } from "./drive-webhook.ts";
 
 beforeEach(cleanDb);
@@ -61,10 +61,13 @@ describe("/webhooks/drive", () => {
       .from(driveWatchChannel)
       .where(eq(driveWatchChannel.channelId, channelId))
       .limit(1);
-    // sync only stamps lastEventAt, not lastSyncedAt — the comments fetch
-    // is skipped so we never reach the second update branch.
+    // sync only stamps lastEventAt — the comments fetch is skipped, so the
+    // version's lastSyncedAt (stamped at the tail of ingest) stays null.
     expect(row[0]?.lastEventAt).toBeInstanceOf(Date);
-    expect(row[0]?.lastSyncedAt).toBeNull();
+    const verRow = (
+      await db.select().from(version).where(eq(version.id, v.id)).limit(1)
+    )[0];
+    expect(verRow?.lastSyncedAt).toBeNull();
   });
 
   test("200 even when the inner ingest throws (response is fire-and-forget)", async () => {

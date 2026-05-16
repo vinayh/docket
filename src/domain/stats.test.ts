@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   cleanDb,
   seedCanonicalComment,
-  seedCommentProjection,
-  seedDriveWatchChannel,
   seedProject,
   seedUser,
   seedVersion,
@@ -42,30 +40,27 @@ describe("countCommentsByOriginVersion", () => {
 });
 
 describe("pickLastSyncedAtByVersion", () => {
-  test("returns the max of watch.lastSyncedAt and projection.lastSyncedAt per version, null when absent", async () => {
+  test("returns version.lastSyncedAt per version, null when absent", async () => {
     const u = await seedUser();
     const proj = await seedProject({ ownerUserId: u.id });
-    const v1 = await seedVersion({ projectId: proj.id, createdByUserId: u.id });
-    const v2 = await seedVersion({ projectId: proj.id, createdByUserId: u.id });
-    const v3 = await seedVersion({ projectId: proj.id, createdByUserId: u.id });
-
-    const old = new Date("2025-01-01T00:00:00Z");
     const recent = new Date("2025-06-01T00:00:00Z");
-
-    await seedDriveWatchChannel({ versionId: v1.id, lastSyncedAt: old });
-    const c = await seedCanonicalComment({ projectId: proj.id, originVersionId: v1.id });
-    await seedCommentProjection({
-      canonicalCommentId: c.id,
-      versionId: v1.id,
+    const old = new Date("2025-01-01T00:00:00Z");
+    const v1 = await seedVersion({
+      projectId: proj.id,
+      createdByUserId: u.id,
       lastSyncedAt: recent,
     });
-    // v2: only watch channel
-    await seedDriveWatchChannel({ versionId: v2.id, lastSyncedAt: recent });
-    // v3: nothing — should land as null
+    const v2 = await seedVersion({
+      projectId: proj.id,
+      createdByUserId: u.id,
+      lastSyncedAt: old,
+    });
+    // v3: never synced → null
+    const v3 = await seedVersion({ projectId: proj.id, createdByUserId: u.id });
 
     const map = await pickLastSyncedAtByVersion([v1.id, v2.id, v3.id]);
     expect(map.get(v1.id)).toBe(recent.getTime());
-    expect(map.get(v2.id)).toBe(recent.getTime());
+    expect(map.get(v2.id)).toBe(old.getTime());
     expect(map.get(v3.id)).toBe(null);
   });
 
@@ -76,12 +71,15 @@ describe("pickLastSyncedAtByVersion", () => {
 });
 
 describe("non-batched helpers (kept for doc-state)", () => {
-  test("pickLastSyncedAt returns the single-version max", async () => {
+  test("pickLastSyncedAt returns version.lastSyncedAt", async () => {
     const u = await seedUser();
     const proj = await seedProject({ ownerUserId: u.id });
-    const v = await seedVersion({ projectId: proj.id, createdByUserId: u.id });
     const ts = new Date("2025-03-01T00:00:00Z");
-    await seedDriveWatchChannel({ versionId: v.id, lastSyncedAt: ts });
+    const v = await seedVersion({
+      projectId: proj.id,
+      createdByUserId: u.id,
+      lastSyncedAt: ts,
+    });
     expect(await pickLastSyncedAt(v.id)).toBe(ts.getTime());
   });
 

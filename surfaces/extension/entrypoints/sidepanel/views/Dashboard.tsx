@@ -1,5 +1,6 @@
 import { useState } from "preact/hooks";
 import { sendMessage } from "../../../ui/sendMessage.ts";
+import { RefreshIcon, SettingsIcon } from "../../../ui/Icon.tsx";
 import type {
   ProjectDerivativeDetail,
   ProjectDetail,
@@ -73,23 +74,28 @@ export function Dashboard({
     await refreshAll();
   }
 
-  const parentUrl = docUrl(current.project.parentDocId);
-
   return (
     <>
       <p class="title">{current.project.name ?? "Untitled project"}</p>
-      <p class="subtitle">
-        <a href={parentUrl} target="_blank" rel="noreferrer">
-          Open parent doc
-        </a>
-      </p>
       <p class="muted">Owner: {current.project.ownerEmail ?? "unknown"}</p>
       <div class="actions">
-        <button type="button" onClick={() => void refreshAll()}>
-          Refresh
+        <button
+          type="button"
+          class="icon-button"
+          title="Refresh"
+          aria-label="Refresh"
+          onClick={() => void refreshAll()}
+        >
+          <RefreshIcon />
         </button>
-        <button type="button" onClick={onOpenSettings}>
-          Settings
+        <button
+          type="button"
+          class="icon-button"
+          title="Settings"
+          aria-label="Settings"
+          onClick={onOpenSettings}
+        >
+          <SettingsIcon />
         </button>
       </div>
 
@@ -306,8 +312,15 @@ function VersionSyncButton({
     }
   }
   return (
-    <button type="button" disabled={busy} onClick={() => void click()}>
-      {busy ? "Syncing…" : "Sync"}
+    <button
+      type="button"
+      class={busy ? "icon-button is-busy" : "icon-button"}
+      title={busy ? "Syncing…" : "Sync"}
+      aria-label="Sync"
+      disabled={busy}
+      onClick={() => void click()}
+    >
+      <RefreshIcon />
     </button>
   );
 }

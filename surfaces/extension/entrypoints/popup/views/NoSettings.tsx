@@ -3,9 +3,7 @@ import { openOptions } from "../../../utils/ui-surfaces.ts";
 export function NoSettings() {
   return (
     <>
-      <p class="muted">
-        Configure your Margin backend URL to get started.
-      </p>
+      <p class="muted">Open Options to sign in with Google.</p>
       <div class="actions">
         <button
           type="button"

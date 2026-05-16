@@ -137,7 +137,7 @@ describe("handleDriveWatchEvent", () => {
   });
 
   test("sync state is a no-op handshake — bumps lastEventAt but does not call ingest", async () => {
-    const { ch } = await seedChannel({ token: "secret-1" });
+    const { ch, ver } = await seedChannel({ token: "secret-1" });
     const before = await getDriveWatchChannel(ch.id);
     expect(before?.lastEventAt).toBeNull();
 
@@ -150,8 +150,11 @@ describe("handleDriveWatchEvent", () => {
 
     const after = await getDriveWatchChannel(ch.id);
     expect(after?.lastEventAt).not.toBeNull();
-    // sync handshake must not bump lastSyncedAt — it's reserved for ingests.
-    expect(after?.lastSyncedAt?.getTime()).toBe(before?.lastSyncedAt?.getTime());
+    // sync handshake must not bump version.lastSyncedAt — it's reserved for ingests.
+    const verRow = (
+      await db.select().from(version).where(eq(version.id, ver.id)).limit(1)
+    )[0];
+    expect(verRow?.lastSyncedAt).toBeNull();
   });
 });
 

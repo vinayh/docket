@@ -4,6 +4,7 @@ import * as v from "valibot";
 import { MessageSchema, type Message, type MessageResponse } from "../utils/messages.ts";
 import { parseDocIdFromUrl } from "../utils/ids.ts";
 import { getBackendUrl, getSettings, patchSettings, setSettings } from "../utils/storage.ts";
+import { DEFAULT_BACKEND_URL } from "../utils/types.ts";
 import { openDashboard, openOptions } from "../utils/ui-surfaces.ts";
 import {
   BROWSER_QUIRKS_STORAGE_KEY,
@@ -17,6 +18,7 @@ import {
   fetchProjectDetail,
   fetchVersionComments,
   fetchVersionDiff,
+  fetchWhoami,
   listProjects,
   loadProjectSettings,
   registerDoc,
@@ -121,8 +123,18 @@ export default defineBackground(() => {
   // Auto-open Options on first install. Some Chromium derivatives (Arc) don't render the
   // browser-action popup until the extension is set up, and `runtime.openOptionsPage()`
   // doesn't always work in them either — so we go straight to a tab via `openOptions()`.
+  //
+  // Also seed `backendUrl` with the build-time default so a freshly installed
+  // production extension is reachable without the user pasting a URL — the
+  // popup's "sign in" CTA fires immediately on the open Doc.
   browser.runtime.onInstalled.addListener((details) => {
     if (details.reason !== "install") return;
+    void (async () => {
+      const existing = await getBackendUrl();
+      if (!existing) await patchSettings({ backendUrl: DEFAULT_BACKEND_URL });
+    })().catch((err) => {
+      console.warn("[margin] could not seed default backendUrl:", err);
+    });
     void openOptions().catch((err) => {
       console.warn("[margin] could not auto-open Options on install:", err);
     });
@@ -369,6 +381,8 @@ function errorResponseFor(message: Message | unknown, error: string): MessageRes
       return { kind: "settings/set", ok: true, error };
     case "auth/sign-out":
       return { kind: "auth/sign-out", ok: true, error };
+    case "auth/whoami":
+      return { kind: "auth/whoami", email: null, name: null, image: null, error };
     case "doc/state":
       return { kind: "doc/state", state: null, error };
     case "doc/sync":
@@ -415,6 +429,15 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
     case "auth/sign-out": {
       await signOutFromBackend();
       return { kind: "auth/sign-out", ok: true };
+    }
+    case "auth/whoami": {
+      const r = await fetchWhoami();
+      return {
+        kind: "auth/whoami",
+        email: r?.email ?? null,
+        name: r?.name ?? null,
+        image: r?.image ?? null,
+      };
     }
     case "doc/state": {
       const state = await fetchDocState(message.docId);

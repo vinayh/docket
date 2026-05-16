@@ -119,6 +119,31 @@
     background: var(--color-ink-2);
   }
 
+  /* Icon-only buttons (refresh, settings, per-row sync). Square hit target,
+   * stroke inherits color so the SVG follows hover/disabled states. */
+  button.icon-button {
+    padding: 0.3rem;
+    line-height: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  button.icon-button > svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  button.icon-button.is-busy > svg {
+    animation: icon-spin 0.9s linear infinite;
+  }
+  @keyframes icon-spin {
+    to { transform: rotate(360deg); }
+  }
+
   /* Doc / view title (popup-flavored default — 15px, truncating). The
    * sidepanel overrides font-size / line-height / letter-spacing /
    * white-space in `sidepanel/style.css` for its 22px variant. */

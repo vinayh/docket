@@ -119,12 +119,7 @@ export async function handleDriveWatchEvent(opts: {
 
   if (opts.resourceState === "sync") return null;
 
-  const result = await ingestVersionComments(row.versionId);
-  await db
-    .update(driveWatchChannel)
-    .set({ lastSyncedAt: new Date() })
-    .where(eq(driveWatchChannel.id, row.id));
-  return result;
+  return ingestVersionComments(row.versionId);
 }
 
 // Polling fallback (SPEC §9.3). Idempotent; safe to run on a cron.

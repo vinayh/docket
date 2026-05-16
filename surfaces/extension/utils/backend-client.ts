@@ -79,6 +79,21 @@ export async function signOutFromBackend(): Promise<void> {
   await patchSettings({ sessionToken: "" });
 }
 
+export interface WhoamiResponse {
+  email: string | null;
+  name: string | null;
+  image: string | null;
+}
+
+// Returns the authenticated user's profile — used by the Options page to
+// render the signed-in identity block (avatar + name + email). Null when
+// no session or backend unreachable.
+export async function fetchWhoami(): Promise<WhoamiResponse | null> {
+  const settings = await getSettings();
+  if (!settings) return null;
+  return postJsonOrNull<WhoamiResponse>("/api/extension/whoami", {}, settings);
+}
+
 // null = settings missing (popup renders that as "configure backend"). Network errors throw.
 export async function fetchDocState(docId: string): Promise<DocState | null> {
   const settings = await getSettings();

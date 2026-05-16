@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { db, isUniqueConstraintError } from "../db/client.ts";
 import { project, version } from "../db/schema.ts";
 import { tokenProviderForUser } from "../auth/credentials.ts";
@@ -159,11 +159,17 @@ export function pickNextLabel(existing: string[]): string {
 }
 
 export async function listVersions(projectId: string): Promise<Version[]> {
+  // Main (the parent doc) floats to the top regardless of createdAt; the
+  // remaining versions follow in createdAt desc so the most recent snapshot
+  // appears next.
   return db
     .select()
     .from(version)
     .where(eq(version.projectId, projectId))
-    .orderBy(desc(version.createdAt));
+    .orderBy(
+      asc(sql`case when ${version.label} = 'main' then 0 else 1 end`),
+      desc(version.createdAt),
+    );
 }
 
 export async function getVersion(id: string): Promise<Version | null> {

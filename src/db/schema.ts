@@ -138,6 +138,12 @@ export const version = sqliteTable(
     snapshotContentHash: text("snapshot_content_hash"),
     status: text("status").$type<VersionStatus>().notNull().default("active"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
+    // Stamped at the tail of every successful ingestVersionComments run, even
+    // when zero comments were found. Single source of truth for "when did
+    // Margin last refresh this version" — previously inferred from the max of
+    // commentProjection.lastSyncedAt and driveWatchChannel.lastSyncedAt, which
+    // returned null forever on docs with no comments.
+    lastSyncedAt: integer("last_synced_at", { mode: "timestamp_ms" }),
   },
   (t) => [
     index("version_project_idx").on(t.projectId),
@@ -356,7 +362,6 @@ export const driveWatchChannel = sqliteTable(
     expiration: integer("expiration", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(now),
     lastEventAt: integer("last_event_at", { mode: "timestamp_ms" }),
-    lastSyncedAt: integer("last_synced_at", { mode: "timestamp_ms" }),
   },
   (t) => [index("drive_watch_version_idx").on(t.versionId)],
 );

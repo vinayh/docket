@@ -1,4 +1,4 @@
-import { getOwnedProject } from "./project.ts";
+import { ensureMainVersion, getOwnedProject } from "./project.ts";
 import { listVersions, type Version } from "./version.ts";
 import { listDerivatives, type Derivative } from "./overlay.ts";
 import {
@@ -79,6 +79,7 @@ export async function getProjectDetail(opts: {
 }): Promise<ProjectDetail | null> {
   const proj = await getOwnedProject(opts.projectId, opts.userId);
   if (!proj) return null;
+  await ensureMainVersion(proj);
 
   const versions = await listVersions(proj.id);
   const versionIds = versions.map((v) => v.id);
