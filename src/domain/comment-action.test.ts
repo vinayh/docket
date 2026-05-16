@@ -42,11 +42,14 @@ async function loadStatus(id: string) {
 }
 
 async function countAudits(commentId: string) {
-  const rows = await db
-    .select()
-    .from(auditLog)
-    .where(eq(auditLog.targetId, commentId));
-  return rows.length;
+  // Status-transition audits use the bare comment id as targetId;
+  // projection-scoped audits (accept_projection / reanchor) use the
+  // composite `${commentId}:${versionId}` form. Count both so the test
+  // helpers don't have to thread the projection scope through.
+  const rows = await db.select({ targetId: auditLog.targetId }).from(auditLog);
+  return rows.filter(
+    (r) => r.targetId === commentId || r.targetId?.startsWith(`${commentId}:`),
+  ).length;
 }
 
 describe("performCommentAction — status transitions", () => {
@@ -138,7 +141,7 @@ describe("performCommentAction — accept_projection", () => {
     ).rejects.toBeInstanceOf(CommentActionNotFoundError);
   });
 
-  test("idempotent when already manually_resolved at confidence 100", async () => {
+  test("re-accepting an already-resolved projection logs an audit and refreshes lastSyncedAt", async () => {
     const { owner, ver, cc } = await seedWorld();
     await seedCommentProjection({
       canonicalCommentId: cc.id,
@@ -157,7 +160,7 @@ describe("performCommentAction — accept_projection", () => {
 
     expect(result.projection?.status).toBe("manually_resolved");
     expect(result.projection?.anchorMatchConfidence).toBe(100);
-    expect(await countAudits(cc.id)).toBe(beforeAudits);
+    expect(await countAudits(cc.id)).toBe(beforeAudits + 1);
   });
 
   test("promotes a fuzzy projection to manually_resolved + confidence 100", async () => {

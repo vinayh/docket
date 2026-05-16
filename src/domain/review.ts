@@ -109,69 +109,29 @@ export async function createReviewRequest(opts: {
 
   const actions = opts.actions ?? DEFAULT_ACTIONS;
   const baseUrl = config.publicBaseUrl;
-
-  const out: AssigneeMagicLinks[] = [];
-  for (const u of assignees) {
-    let shareError: string | null = null;
-    try {
-      await createPermission(tp, ver.googleDocId, {
-        emailAddress: u.email,
-        role: "commenter",
-      });
-    } catch (err) {
-      shareError = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[review] permission share failed for ${u.email} on ${ver.googleDocId}: ${shareError}`,
-      );
-    }
-
-    const issued = await issueReviewActionToken({
-      reviewRequestId,
-      assigneeUserId: u.id,
-    });
-    const baseUrlForToken = baseUrl
-      ? `${baseUrl.replace(/\/+$/, "")}/r/${issued.token}`
-      : `/r/${issued.token}`;
-    const links: AssigneeMagicLinks["links"] = actions.map((action) => ({
-      action,
-      url: `${baseUrlForToken}?action=${action}`,
-      expiresAt: issued.expiresAt.getTime(),
-    }));
-
-    out.push({ email: u.email, userId: u.id, links, shareError, emailError: null });
-
-    if (shareError) {
-      console.warn(
-        `[review] continuing despite share failure for ${u.email}; magic links still issued`,
-      );
-    }
-  }
-
-  // Notify assignees. Failures are recorded per-assignee — the magic links are
-  // still valid and visible in the side panel, so a broken transport doesn't
-  // wedge the review cycle.
   const transport = opts.emailTransport ?? getEmailTransport();
   const requesterEmail = await userEmailById(opts.ownerUserId);
-  for (const assignee of out) {
-    if (assignee.links.length === 0) continue;
-    try {
-      await transport.send({
-        to: assignee.email,
-        subject: renderReviewEmailSubject(requesterEmail),
-        text: renderReviewEmailBody({
-          requesterEmail,
-          googleDocId: ver.googleDocId,
-          deadline: opts.deadline ?? null,
-          links: assignee.links,
-        }),
-      });
-    } catch (err) {
-      assignee.emailError = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[review] email transport failed for ${assignee.email}: ${assignee.emailError}`,
-      );
-    }
-  }
+
+  // Fan out per-assignee work — Drive share + token mint + email send all hit
+  // the network and are independent across assignees. With 32+ reviewers, the
+  // previous sequential loop blocked the request on the sum of each round-trip;
+  // Promise.all caps it at the slowest assignee. Per-assignee failures are
+  // captured into the result, so one bad email doesn't sink the batch.
+  const out: AssigneeMagicLinks[] = await Promise.all(
+    assignees.map((u) =>
+      fanOutAssignee({
+        user: u,
+        reviewRequestId,
+        googleDocId: ver.googleDocId,
+        tp,
+        actions,
+        baseUrl,
+        transport,
+        requesterEmail,
+        deadline: opts.deadline ?? null,
+      }),
+    ),
+  );
 
   await db.insert(auditLog).values({
     actorUserId: opts.ownerUserId,
@@ -187,6 +147,75 @@ export async function createReviewRequest(opts: {
   });
 
   return { reviewRequestId, versionId: ver.id, assignees: out };
+}
+
+interface FanOutArgs {
+  user: { id: string; email: string };
+  reviewRequestId: string;
+  googleDocId: string;
+  tp: ReturnType<typeof tokenProviderForUser>;
+  actions: ReviewActionKind[];
+  baseUrl: string | null;
+  transport: EmailTransport;
+  requesterEmail: string | null;
+  deadline: Date | null;
+}
+
+async function fanOutAssignee(args: FanOutArgs): Promise<AssigneeMagicLinks> {
+  let shareError: string | null = null;
+  try {
+    await createPermission(args.tp, args.googleDocId, {
+      emailAddress: args.user.email,
+      role: "commenter",
+    });
+  } catch (err) {
+    shareError = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[review] permission share failed for ${args.user.email} on ${args.googleDocId}: ${shareError}`,
+    );
+  }
+
+  const issued = await issueReviewActionToken({
+    reviewRequestId: args.reviewRequestId,
+    assigneeUserId: args.user.id,
+  });
+  const baseUrlForToken = args.baseUrl
+    ? `${args.baseUrl.replace(/\/+$/, "")}/r/${issued.token}`
+    : `/r/${issued.token}`;
+  const links: AssigneeMagicLinks["links"] = args.actions.map((action) => ({
+    action,
+    url: `${baseUrlForToken}?action=${action}`,
+    expiresAt: issued.expiresAt.getTime(),
+  }));
+
+  let emailError: string | null = null;
+  if (links.length > 0) {
+    try {
+      await args.transport.send({
+        to: args.user.email,
+        subject: renderReviewEmailSubject(args.requesterEmail),
+        text: renderReviewEmailBody({
+          requesterEmail: args.requesterEmail,
+          googleDocId: args.googleDocId,
+          deadline: args.deadline,
+          links,
+        }),
+      });
+    } catch (err) {
+      emailError = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[review] email transport failed for ${args.user.email}: ${emailError}`,
+      );
+    }
+  }
+
+  return {
+    email: args.user.email,
+    userId: args.user.id,
+    links,
+    shareError,
+    emailError,
+  };
 }
 
 export class ReviewRequestNotFoundError extends Error {

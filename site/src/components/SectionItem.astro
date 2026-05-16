@@ -10,13 +10,13 @@ const { num, id, title, lede } = Astro.props;
 
 <section id={id} class="border-t rule pt-10 pb-12">
   <div class="flex items-baseline gap-4 mb-3">
-    <span class="font-display text-2xl text-[color:var(--color-ink)] tabular-nums">{num}</span>
+    <span class="font-display text-2xl text-ink tabular-nums">{num}</span>
     <h2 class="font-display text-2xl">{title}</h2>
   </div>
   {lede && (
-    <p class="text-[15px] text-[color:var(--color-ink-2)] max-w-prose mb-5">{lede}</p>
+    <p class="text-[15px] text-ink-2 max-w-prose mb-5">{lede}</p>
   )}
-  <div class="prose-tight text-[15px] leading-7 text-[color:var(--color-ink-2)]">
+  <div class="prose-tight text-[15px] leading-7 text-ink-2">
     <slot />
   </div>
 </section>

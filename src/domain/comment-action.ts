@@ -179,13 +179,6 @@ async function acceptProjection(
   if (!existing) {
     throw new CommentActionNotFoundError("projection_not_found");
   }
-  if (existing.projectionStatus === "manually_resolved" && existing.anchorMatchConfidence === 100) {
-    return projectionResult(ctx.comment.id, ctx.comment.status, {
-      versionId: targetVersionId,
-      status: existing.projectionStatus,
-      anchorMatchConfidence: existing.anchorMatchConfidence,
-    });
-  }
   await db
     .update(commentProjection)
     .set({
@@ -237,28 +230,25 @@ async function reanchorProjection(
   const doc = await getDocument(tp, ver.googleDocId);
   const result = reanchor(doc, ctx.comment.anchor);
 
-  if (existing) {
-    await db
-      .update(commentProjection)
-      .set({
-        projectionStatus: result.status,
-        anchorMatchConfidence: result.confidence,
-        lastSyncedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(commentProjection.canonicalCommentId, ctx.comment.id),
-          eq(commentProjection.versionId, targetVersionId),
-        ),
-      );
-  } else {
-    await db.insert(commentProjection).values({
+  // Upsert as one statement so two concurrent reanchors against the same
+  // (commentId, versionId) don't race the primary key — SQLite would throw
+  // `UNIQUE constraint failed` on the second insert without this.
+  await db
+    .insert(commentProjection)
+    .values({
       canonicalCommentId: ctx.comment.id,
       versionId: targetVersionId,
       projectionStatus: result.status,
       anchorMatchConfidence: result.confidence,
+    })
+    .onConflictDoUpdate({
+      target: [commentProjection.canonicalCommentId, commentProjection.versionId],
+      set: {
+        projectionStatus: result.status,
+        anchorMatchConfidence: result.confidence,
+        lastSyncedAt: new Date(),
+      },
     });
-  }
   await writeAudit({
     actorUserId,
     action: "comment_projection.reanchor",

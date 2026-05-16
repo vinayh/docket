@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { sendMessage } from "../../../ui/sendMessage.ts";
+import { parseEmails } from "../../../utils/emails.ts";
 import type { ProjectSettingsView } from "../../../utils/types.ts";
 
 interface Props {
@@ -216,13 +217,6 @@ function SettingsHeader({ onClose }: { onClose: () => void }) {
       </button>
     </div>
   );
-}
-
-function parseEmails(raw: string): string[] {
-  return raw
-    .split(/[\n,]/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
 }
 
 function diffSettings(

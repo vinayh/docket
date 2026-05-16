@@ -13,7 +13,7 @@ const { items } = Astro.props;
   <a href="/" class="flex items-baseline gap-2 mb-1">
     <span class="font-display text-3xl leading-none">margin</span>
   </a>
-  <div class="text-[11px] tracking-wide text-[color:var(--color-muted)] uppercase mb-10">
+  <div class="text-[11px] tracking-wide text-muted uppercase mb-10">
     v0.1.0 · alpha
   </div>
 
@@ -23,7 +23,7 @@ const { items } = Astro.props;
         <li>
           <a
             href={item.href}
-            class="text-[color:var(--color-ink-2)] hover:text-[color:var(--color-ink)] hover:underline underline-offset-4 decoration-2 decoration-[color:var(--color-accent)]"
+            class="text-ink-2 hover:text-ink hover:underline underline-offset-4 decoration-2 decoration-accent"
           >
             {item.label}
           </a>
@@ -31,21 +31,21 @@ const { items } = Astro.props;
       ))}
     </ul>
 
-    <div class="mt-10 mb-3 text-[11px] tracking-wide text-[color:var(--color-muted)] uppercase">
+    <div class="mt-10 mb-3 text-[11px] tracking-wide text-muted uppercase">
       Links
     </div>
     <ul class="space-y-1.5">
       <li>
         <a
           href="https://github.com/vinayh/margin"
-          class="text-[color:var(--color-ink-2)] hover:text-[color:var(--color-ink)]"
+          class="text-ink-2 hover:text-ink"
           >GitHub</a
         >
       </li>
       <li>
         <a
           href="mailto:hello@margin.vinayh.com"
-          class="text-[color:var(--color-ink-2)] hover:text-[color:var(--color-ink)]"
+          class="text-ink-2 hover:text-ink"
           >Contact</a
         >
       </li>

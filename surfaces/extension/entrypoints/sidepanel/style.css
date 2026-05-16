@@ -207,53 +207,6 @@ main {
   word-break: break-word;
 }
 
-/* Status pills. Light-cream background with an ink hairline; tone shifts
-   the fill so they stay legible against the cream page. */
-.status-badge {
-  display: inline-block;
-  padding: 0.05rem 0.45rem;
-  border-radius: 99px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  background: var(--color-cream-2);
-  color: var(--color-ink-2);
-  border: 1px solid var(--color-rule);
-}
-.status-badge.status-clean,
-.status-badge.status-assignment-reviewed {
-  background: var(--color-good-bg);
-  color: var(--color-good);
-  border-color: var(--color-good);
-}
-.status-badge.status-fuzzy {
-  background: var(--color-accent);
-  color: var(--color-ink);
-  border-color: var(--color-accent-2);
-}
-.status-badge.status-orphaned,
-.status-badge.status-assignment-declined {
-  background: var(--color-bad-bg);
-  color: var(--color-bad);
-  border-color: var(--color-bad);
-}
-.status-badge.status-assignment-changes_requested {
-  background: var(--color-warn-bg);
-  color: var(--color-warn);
-  border-color: var(--color-warn);
-}
-.status-badge.status-manually_resolved,
-.status-badge.status-assignment-pending,
-.status-badge.status-comment-addressed,
-.status-badge.status-comment-wontfix,
-.status-badge.status-comment-superseded {
-  background: var(--color-cream-2);
-  color: var(--color-muted);
-  border-color: var(--color-rule);
-}
-
 /* Versions / derivatives table. */
 table.data {
   width: 100%;

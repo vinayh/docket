@@ -15,8 +15,11 @@ import {
 } from "../domain/review.ts";
 
 const MAX_BODY_BYTES = 16 * 1024;
-const MAX_EMAILS = 32;
-const MAX_EMAIL_LEN = 320;
+// Matches src/domain/settings.ts and surfaces/extension/utils/messages.ts —
+// the default-reviewers field feeds review requests, so the ceiling has to
+// be the same on all three layers.
+const MAX_EMAILS = 64;
+const MAX_EMAIL_LEN = 254;
 
 const ReviewRequestBodySchema = v.object({
   versionId: IdSchema,
@@ -57,7 +60,9 @@ export async function handleReviewRequestPost(req: Request): Promise<Response> {
       versionId: parsed.versionId,
       ownerUserId: auth.userId,
       assigneeEmails: parsed.assigneeEmails,
-      deadline: parsed.deadline ? new Date(parsed.deadline) : null,
+      // `!= null` (not truthy): the schema admits deadline=0, which is a
+      // valid (if unusual) timestamp — truthy-check would silently drop it.
+      deadline: parsed.deadline != null ? new Date(parsed.deadline) : null,
     });
     return jsonOk(result);
   } catch (err) {

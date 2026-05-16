@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { sendMessage } from "../../../ui/sendMessage.ts";
 import { RefreshIcon, SettingsIcon } from "../../../ui/Icon.tsx";
+import { parseEmails } from "../../../utils/emails.ts";
 import type {
   ProjectDerivativeDetail,
   ProjectDetail,
@@ -286,13 +287,6 @@ function RequestReviewButton({
       {error ? <span class="muted error">{error}</span> : null}
     </div>
   );
-}
-
-function parseEmails(raw: string): string[] {
-  return raw
-    .split(/[,\n;\s]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
 }
 
 function VersionSyncButton({
