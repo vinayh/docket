@@ -131,3 +131,6 @@ dist
 
 # TernJS port file
 .tern-port
+
+# Claude Code per-machine settings (project skills + global settings stay tracked)
+.claude/settings.local.json

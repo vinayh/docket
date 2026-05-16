@@ -38,6 +38,8 @@
     "drizzle-orm": "^0.45.2",
     "fast-xml-parser": "^5.8.0",
     "fflate": "^0.8.2",
+    "lucide": "^1.16.0",
+    "lucide-preact": "^1.16.0",
     "preact": "^10.29.1",
     "preact-render-to-string": "^6.5.13",
     "valibot": "^1.4.0"

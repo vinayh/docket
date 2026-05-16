@@ -1,4 +1,5 @@
 import { browser } from "wxt/browser";
+import { createElement, Trash2 } from "lucide";
 import { detectAndPersistBrowserQuirks } from "../../utils/browser-detect.ts";
 import type { Message, MessageResponse } from "../../utils/messages.ts";
 import { DEFAULT_BACKEND_URL, type ProjectListEntry } from "../../utils/types.ts";
@@ -87,14 +88,14 @@ async function fillDocs(): Promise<void> {
 function renderDocRow(p: ProjectListEntry): HTMLLIElement {
   const li = document.createElement("li");
   li.className =
-    "flex items-baseline justify-between gap-3 px-[0.7rem] py-[0.55rem] border border-rule rounded bg-cream";
+    "flex items-baseline gap-3 px-[0.7rem] py-[0.55rem] border border-rule rounded bg-cream";
 
   const link = document.createElement("a");
   link.href = `https://docs.google.com/document/d/${encodeURIComponent(p.parentDocId)}/edit`;
   link.target = "_blank";
   link.rel = "noreferrer";
-  link.className = "font-medium [overflow-wrap:anywhere]";
-  link.textContent = p.name ?? "Untitled doc";
+  link.className = "flex-1 min-w-0 font-medium [overflow-wrap:anywhere]";
+  link.textContent = p.name ?? "Untitled project";
 
   const meta = document.createElement("span");
   meta.className = "text-muted font-mono text-[11px] whitespace-nowrap";
@@ -103,8 +104,50 @@ function renderDocRow(p: ProjectListEntry): HTMLLIElement {
   const synced = formatRelative(p.lastSyncedAt);
   meta.textContent = `${versionLabel} · last sync ${synced}`;
 
-  li.append(link, meta);
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "icon-button text-muted hover:text-bad";
+  del.title = `Delete project "${p.name ?? p.parentDocId}"`;
+  del.setAttribute("aria-label", "Delete project");
+  del.append(createElement(Trash2));
+  del.addEventListener("click", () => void confirmAndDelete(p, li, del));
+
+  li.append(link, meta, del);
   return li;
+}
+
+async function confirmAndDelete(
+  p: ProjectListEntry,
+  row: HTMLLIElement,
+  button: HTMLButtonElement,
+): Promise<void> {
+  const label = p.name ?? p.parentDocId;
+  // `confirm` is sync + blocking; that's the right shape for a one-off
+  // destructive action and avoids hand-rolling a modal for a single use site.
+  if (!window.confirm(`Delete project "${label}"? This cannot be undone.`)) {
+    return;
+  }
+  button.disabled = true;
+  try {
+    const r = (await browser.runtime.sendMessage({
+      kind: "project/delete",
+      projectId: p.id,
+    } satisfies Message)) as MessageResponse | undefined;
+    if (r?.kind !== "project/delete" || !r.deleted) {
+      setStatus(r?.error ?? "delete failed", "error");
+      button.disabled = false;
+      return;
+    }
+    row.remove();
+    setStatus(`Deleted "${label}".`, "ok");
+    // Refresh the count + empty state without re-rendering the whole list.
+    const remaining = docListEl.childElementCount;
+    docsCountEl.textContent = remaining === 0 ? "" : String(remaining);
+    docsEmptyEl.hidden = remaining > 0;
+  } catch (err) {
+    setStatus(err instanceof Error ? err.message : String(err), "error");
+    button.disabled = false;
+  }
 }
 
 function formatRelative(ts: number | null): string {

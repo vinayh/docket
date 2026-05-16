@@ -1,10 +1,5 @@
 @import "../../ui/extension.css";
 
-/* Popup-only rules: dimensions + header/main element layout (slightly
- * smaller than the sidepanel's) + the `<details>` diagnostics fold's
- * `::before` marker. Named classes — `.title`, `.subtitle`, `.stats`,
- * `.stat-label`, `.stat-value`, `.banner` — live in extension.css. */
-
 body {
   font-size: 13px;
   line-height: 1.5;

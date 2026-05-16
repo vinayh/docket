@@ -1,21 +1,11 @@
-/**
- * Shared Tailwind v4 entry for the extension's popup / sidepanel / options.
- * Each per-entrypoint `style.css` `@import`s this file. Tokens come from
- * the repo-root `tokens.css` `@theme` block so the site, backend, and
- * extension stay in lockstep on colors and fonts.
- *
- * Bagel Fat One ships a `./latin.css` entry; the variable Inter +
- * JetBrains Mono packages don't, and their `wght.css` would reference
- * every unicode-range slice. Hand-rolling the latin @font-face keeps the
- * bundled woff2s to one per family.
- */
+/* Shared Tailwind v4 entry for the extension surfaces.
+ * Bagel ships ./latin.css; Inter + JetBrains Mono don't, so hand-rolled
+ * @font-face blocks below keep bundled woff2s to one per family. */
 
 @import "tailwindcss";
 @import "../../../tokens.css";
 @import "@fontsource/bagel-fat-one/latin.css";
 
-/* font-family matches `--font-sans` / `--font-mono` in tokens.css so the
- * Tailwind `font-sans` / `font-mono` utilities pick up the variable woff2. */
 @font-face {
   font-family: "Inter";
   font-style: normal;
@@ -40,9 +30,6 @@
     U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-/* Tailwind v4 auto-detects content; @source pins the scan paths so the
- * extension build is deterministic regardless of cwd. Globs are relative
- * to this file. */
 @source "../entrypoints/**/*.{tsx,ts,html}";
 @source "./*.tsx";
 
@@ -119,8 +106,6 @@
     background: var(--color-ink-2);
   }
 
-  /* Icon-only buttons (refresh, settings, per-row sync). Square hit target,
-   * stroke inherits color so the SVG follows hover/disabled states. */
   button.icon-button {
     padding: 0.3rem;
     line-height: 0;
@@ -144,19 +129,13 @@
     to { transform: rotate(360deg); }
   }
 
-  /* Doc / view title (popup-flavored default — 15px, truncating). The
-   * sidepanel overrides font-size / line-height / letter-spacing /
-   * white-space in `sidepanel/style.css` for its 22px variant. */
   .title {
-    @apply font-display font-normal m-0 mb-[0.15rem] text-[15px] tracking-[-0.005em] leading-[1.15] truncate text-ink;
+    @apply font-sans font-semibold m-0 mb-[0.15rem] text-[15px] tracking-[-0.005em] leading-[1.15] truncate text-ink;
   }
   .subtitle {
     @apply text-muted font-mono text-[11px] m-0 mb-[0.6rem];
   }
 
-  /* Popup stats grid (Tracked view's 2x2 metrics block). Tokens come
-   * straight from @theme; the few non-standard pixel values use Tailwind
-   * arbitrary syntax for fidelity. */
   .stats {
     @apply grid grid-cols-2 gap-y-2 gap-x-[0.9rem] m-0 mb-[0.7rem] pt-[0.4rem] border-t border-rule;
   }
@@ -167,15 +146,10 @@
     @apply m-0 tabular-nums text-ink;
   }
 
-  /* Banner block (popup-only today; styled here so the same affordance
-   * remains available if the sidepanel ever needs a notice-card). */
   .banner {
     @apply px-[0.65rem] py-[0.55rem] m-0 mb-[0.7rem] border border-rule rounded-md bg-cream-2;
   }
 
-  /* Status pills used by Comments.tsx + Dashboard.tsx with dynamic
-   * `status-badge status-${value}` class concatenation. The variant set
-   * is exhaustive — when a new status lands, add a rule here. */
   .status-badge {
     display: inline-block;
     padding: 0.05rem 0.45rem;

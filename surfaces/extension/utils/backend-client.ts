@@ -171,6 +171,17 @@ export async function fetchProjectDetail(projectId: string): Promise<ProjectDeta
   );
 }
 
+export async function deleteProject(projectId: string): Promise<boolean> {
+  const settings = await getSettings();
+  if (!settings) return false;
+  const r = await postJsonOrNull<{ deleted: boolean }>(
+    "/api/extension/project-delete",
+    { projectId },
+    settings,
+  );
+  return r?.deleted === true;
+}
+
 export async function createVersion(opts: {
   projectId: string;
   label?: string;

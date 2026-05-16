@@ -34,7 +34,6 @@
         </span>
       </p>
 
-      <!-- Signed-out view. Shown by default; main.ts hides it on signed-in. -->
       <section id="signedOut">
         <p class="mt-0 mb-4 text-ink-2">
           Sign in with Google to authorize Drive access for the docs you
@@ -43,20 +42,8 @@
         <button type="button" id="signIn" class="px-4 py-2">
           Sign in with Google
         </button>
-        <p class="mt-0 mb-4 text-ink-2">
-          <small class="text-muted text-[12px] font-normal">
-            Signing in opens a Google consent screen. Margin requests
-            <code
-              class="font-mono text-[12px] bg-cream-2 px-[0.35rem] py-[0.1rem] rounded text-ink-2"
-              >drive.file</code
-            >
-            — per-file access only for docs you register through the
-            extension's Picker.
-          </small>
-        </p>
       </section>
 
-      <!-- Signed-in view. Hidden by default; main.ts unhides on signed-in. -->
       <section id="signedIn" hidden>
         <div
           class="grid grid-cols-[auto_1fr_auto] items-center gap-4 mb-6 px-4 py-[0.9rem] border border-rule rounded-md bg-cream-2"
@@ -68,16 +55,9 @@
           />
           <div class="grid gap-[0.1rem] min-w-0">
             <p id="accountName" class="m-0 font-semibold text-ink"></p>
-            <p id="accountEmail" class="muted font-mono text-[12px]"></p>
-            <p class="muted">
-              <small class="text-muted text-[12px] font-normal">
-                Connected via Google ·
-                <code
-                  class="font-mono text-[12px] bg-cream-2 px-[0.35rem] py-[0.1rem] rounded text-ink-2"
-                  >drive.file</code
-                >
-                scope (per-file access).
-              </small>
+            <p class="m-0 text-[12px] text-muted">
+              Connected Google account
+              <span id="accountEmail" class="font-mono text-ink-2 ml-1"></span>
             </p>
           </div>
           <button type="button" id="signOut" class="px-4 py-2">Sign out</button>
@@ -85,15 +65,15 @@
 
         <section>
           <h2
-            class="font-display font-normal text-[18px] tracking-[-0.005em] text-ink mt-0 mb-[0.6rem] flex items-baseline gap-2"
+            class="font-semibold text-[18px] tracking-[-0.005em] text-ink mt-0 mb-[0.6rem] flex items-baseline gap-2"
           >
-            Connected docs
+            Connected projects
             <span
               id="docsCount"
               class="font-mono text-[12px] text-muted"
             ></span>
           </h2>
-          <p id="docsEmpty" class="muted" hidden>No docs tracked yet.</p>
+          <p id="docsEmpty" class="muted" hidden>No projects tracked yet.</p>
           <ul
             id="docList"
             class="list-none p-0 m-0 flex flex-col gap-[0.4rem]"

@@ -1,500 +1,264 @@
 @import "../../ui/extension.css";
 
-/* Sidepanel-specific rules: full-height body, larger header/title sizing
- * than the popup, a:visited handling, plus all the bespoke component
- * classes (`.diff-*`, `.comment-*`, `.review-*`, `.settings-*`, etc.).
- * Shared bits (button defaults, `.muted` / `.error` / `.actions`, status
- * badges, font + color tokens) come from extension.css. */
-
-body {
-  font-size: 13px;
-  line-height: 1.5;
-  min-height: 100vh;
+@layer base {
+  body {
+    @apply text-[13px] leading-[1.5] min-h-screen;
+  }
+  a:visited {
+    @apply text-ink;
+  }
+  header {
+    @apply flex items-baseline gap-2 px-[0.9rem] pt-[0.7rem] pb-[0.55rem] border-b border-rule bg-cream;
+  }
+  header strong {
+    @apply font-display text-[22px] font-normal tracking-[-0.01em] leading-none text-ink;
+  }
+  header .header-email {
+    @apply flex-1 min-w-0 text-[11px] font-mono truncate;
+  }
+  main {
+    @apply p-[0.9rem];
+  }
 }
 
-a:visited {
-  color: var(--color-ink);
-}
+@layer components {
+  .title {
+    @apply text-[22px] tracking-[-0.01em] leading-[1.15] overflow-visible text-clip whitespace-normal;
+  }
+  .subtitle {
+    @apply [overflow-wrap:anywhere];
+  }
+  .actions {
+    @apply mt-[0.6rem];
+  }
 
-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 0.7rem 0.9rem 0.55rem;
-  border-bottom: 1px solid var(--color-rule);
-  background: var(--color-cream);
-}
-header strong {
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  line-height: 1;
-  color: var(--color-ink);
-}
+  .panel-section {
+    @apply mt-[1.2rem] pt-[0.8rem] border-t border-rule;
+  }
 
-main {
-  padding: 0.9rem;
-}
+  .section-heading {
+    @apply text-[15px] font-semibold tracking-[-0.005em] text-ink m-0 mb-2 flex items-baseline gap-[0.4rem];
+    & .count {
+      @apply font-mono text-[11px] font-normal text-muted p-0 bg-transparent rounded-none;
+    }
+  }
+  .section-heading-row {
+    @apply flex items-baseline justify-between gap-2 mb-2;
+    & .section-heading {
+      @apply m-0;
+    }
+  }
 
-/* `.title` / `.subtitle` come from extension.css with popup-flavored
- * defaults (15px title, truncating). Sidepanel overrides only the
- * properties that differ — bigger font, looser line-height, no
- * truncation, and subtitle allows arbitrary-position wraps for long
- * doc names + paths. */
-.title {
-  font-size: 22px;
-  letter-spacing: -0.01em;
-  line-height: 1.05;
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-}
-.subtitle {
-  overflow-wrap: anywhere;
-}
+  .snapshot-control {
+    @apply inline-flex items-center gap-[0.4rem];
+  }
 
-/* `.actions` base layout lives in extension.css; sidepanel adds top margin. */
-.actions {
-  margin: 0.6rem 0 0;
-}
+  .project-picker {
+    @apply list-none p-0 m-0 mt-[0.6rem] flex flex-col gap-[0.35rem];
+    & > li > button {
+      @apply w-full text-left px-[0.7rem] py-[0.55rem] border border-rule rounded-[4px] bg-cream-2 text-ink;
+      &:hover:not(:disabled) {
+        @apply border-ink bg-cream-2;
+      }
+    }
+  }
+  .project-picker-doc {
+    @apply font-mono text-[11px] text-muted break-all;
+  }
 
-.panel-section {
-  margin-top: 1.2rem;
-  padding-top: 0.8rem;
-  border-top: 1px solid var(--color-rule);
-}
+  .review-request-form {
+    @apply flex flex-col gap-[0.35rem] mt-[0.4rem];
+    & textarea {
+      @apply [font:inherit] font-mono text-[12px] w-full resize-y px-2 py-[0.4rem] border border-rule rounded-[4px] bg-cream text-ink;
+      &:focus {
+        @apply outline-2 outline-accent -outline-offset-1 border-ink;
+      }
+    }
+  }
 
-.section-heading {
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 400;
-  letter-spacing: -0.005em;
-  color: var(--color-ink);
-  margin: 0 0 0.5rem;
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-}
-.section-heading-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-.section-heading-row .section-heading {
-  margin: 0;
-}
-.section-heading .count {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--color-muted);
-  padding: 0;
-  background: none;
-  border-radius: 0;
-}
+  .review-row-toggle {
+    @apply bg-transparent border-0 p-0 m-0 cursor-pointer text-left [font:inherit] text-ink;
+    &:hover {
+      @apply bg-transparent;
+    }
+  }
+  .review-row-body {
+    @apply mt-[0.4rem] mb-[0.6rem] pl-[0.7rem] border-l-2 border-accent;
+  }
+  .review-assignees {
+    @apply list-none p-0 m-0 flex flex-col gap-2;
+    & > li {
+      @apply flex flex-col gap-[0.2rem];
+    }
+  }
+  .review-magic-links {
+    @apply list-none p-0 m-0 mt-1 flex flex-col gap-[0.2rem] text-[11px];
+    & code {
+      @apply font-mono break-all text-ink-2;
+    }
+  }
+  .review-share-error {
+    @apply mt-[0.2rem] text-[11px] break-words;
+  }
 
-.snapshot-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
+  table.data {
+    @apply w-full border-collapse text-[12px] tabular-nums;
+    & th,
+    & td {
+      @apply text-left px-2 py-[0.45rem] border-b border-rule align-middle;
+    }
+    & th {
+      @apply font-mono text-muted font-normal uppercase text-[10px] tracking-[0.06em] py-[0.3rem];
+    }
+    & td.numeric,
+    & th.numeric {
+      @apply text-right;
+    }
+    & tbody tr:hover td {
+      @apply bg-ink/[3%];
+    }
+  }
 
-/* Project picker (no active tab match): list of tracked projects. */
-.project-picker {
-  list-style: none;
-  padding: 0;
-  margin: 0.6rem 0 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-.project-picker > li > button {
-  width: 100%;
-  text-align: left;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--color-rule);
-  border-radius: 4px;
-  background: var(--color-cream-2);
-  color: var(--color-ink);
-}
-.project-picker > li > button:hover:not(:disabled) {
-  border-color: var(--color-ink);
-  background: var(--color-cream-2);
-}
-.project-picker-doc {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-muted);
-  word-break: break-all;
-}
+  .row-actions {
+    @apply flex gap-[0.3rem] flex-wrap;
+  }
 
-/* Per-row Request review form. */
-.review-request-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin-top: 0.4rem;
-}
-.review-request-form textarea {
-  font: inherit;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  width: 100%;
-  resize: vertical;
-  padding: 0.4rem 0.5rem;
-  border: 1px solid var(--color-rule);
-  border-radius: 4px;
-  background: var(--color-cream);
-  color: var(--color-ink);
-}
-.review-request-form textarea:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
-  border-color: var(--color-ink);
-}
+  .rows {
+    @apply list-none p-0 m-0 text-[12px];
+    & > li {
+      @apply py-[0.45rem] border-b border-rule;
+    }
+    & > li:last-child {
+      @apply border-b-0;
+    }
+  }
 
-.review-row-toggle {
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  color: var(--color-ink);
-}
-.review-row-toggle:hover {
-  background: none;
-}
-.review-row-body {
-  margin: 0.4rem 0 0.6rem;
-  padding-left: 0.7rem;
-  border-left: 2px solid var(--color-accent);
-}
-.review-assignees {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-.review-assignees > li {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-.review-magic-links {
-  list-style: none;
-  padding: 0;
-  margin: 0.25rem 0 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  font-size: 11px;
-}
-.review-magic-links code {
-  font-family: var(--font-mono);
-  word-break: break-all;
-  color: var(--color-ink-2);
-}
-.review-share-error {
-  margin: 0.2rem 0 0 0;
-  font-size: 11px;
-  word-break: break-word;
-}
+  .diff-view {
+    @apply block;
+  }
+  .diff-header {
+    @apply flex items-center justify-between gap-2 mb-2;
+  }
+  .diff-table {
+    @apply w-full table-fixed border-collapse mt-[0.6rem] text-[12px];
+    & th,
+    & td {
+      @apply align-top px-[0.45rem] py-[0.35rem] border-b border-rule [overflow-wrap:anywhere];
+    }
+    & th {
+      @apply font-mono text-muted font-normal uppercase text-[10px] tracking-[0.06em] text-left;
+    }
+  }
+  .diff-para {
+    @apply m-0 text-[12px] leading-[1.5];
+  }
+  h1.diff-para {
+    @apply font-semibold text-[17px] tracking-[-0.01em];
+  }
+  h2.diff-para {
+    @apply font-semibold text-[14px] tracking-[-0.005em];
+  }
+  h3.diff-para {
+    @apply font-semibold text-[13px];
+  }
 
-/* Versions / derivatives table. */
-table.data {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-table.data th,
-table.data td {
-  text-align: left;
-  padding: 0.45rem 0.5rem;
-  border-bottom: 1px solid var(--color-rule);
-  vertical-align: middle;
-}
-table.data th {
-  font-family: var(--font-mono);
-  color: var(--color-muted);
-  font-weight: 400;
-  text-transform: uppercase;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  padding-top: 0.3rem;
-  padding-bottom: 0.3rem;
-}
-table.data td.numeric,
-table.data th.numeric {
-  text-align: right;
-}
-table.data tbody tr:hover td {
-  background: rgba(21, 20, 15, 0.03);
-}
+  .diff-row.diff-added td:last-child {
+    @apply bg-good-bg;
+  }
+  .diff-row.diff-removed td:first-child {
+    @apply bg-bad-bg;
+  }
+  .diff-row.diff-modified td:first-child {
+    @apply bg-bad/[8%];
+  }
+  .diff-row.diff-modified td:last-child {
+    @apply bg-good/[10%];
+  }
+  .diff-row.diff-style td {
+    @apply bg-accent/[18%];
+  }
+  .diff-word.diff-word-add {
+    @apply bg-good-bg no-underline;
+  }
+  .diff-word.diff-word-del {
+    @apply bg-bad-bg line-through;
+  }
+  .diff-tag {
+    @apply inline-block ml-[0.3rem] px-[0.35rem] bg-cream-2 border border-rule rounded-[3px] font-mono text-[10px] text-muted uppercase tracking-[0.06em];
+  }
 
-.row-actions {
-  display: flex;
-  gap: 0.3rem;
-  flex-wrap: wrap;
-}
+  .comments-view {
+    @apply block;
+  }
+  .comments-header {
+    @apply flex items-center justify-between gap-2 mb-[0.4rem];
+  }
+  .comment-list {
+    @apply list-none p-0 m-0 mt-[0.6rem] flex flex-col gap-[0.55rem];
+  }
+  .comment-card {
+    @apply border border-rule rounded-[6px] px-[0.7rem] py-[0.6rem] bg-cream-2;
+    &.comment-orphaned {
+      @apply border-bad;
+    }
+    &.comment-fuzzy {
+      @apply border-accent-2;
+    }
+  }
+  .comment-card-head {
+    @apply flex items-center flex-wrap gap-[0.35rem] mb-[0.3rem];
+  }
+  .comment-meta {
+    @apply m-0 mb-[0.3rem] text-[11px] text-muted;
+  }
+  .comment-quote {
+    @apply m-0 mb-[0.35rem] px-[0.55rem] py-1 border-l-2 border-accent text-ink-2 text-[12px] italic [overflow-wrap:anywhere] bg-accent/[8%];
+  }
+  .comment-body {
+    @apply m-0 text-[12px] whitespace-pre-wrap [overflow-wrap:anywhere] text-ink;
+  }
+  .comment-tag {
+    @apply inline-block px-[0.35rem] bg-cream border border-rule rounded-[3px] font-mono text-[10px] text-muted uppercase tracking-[0.06em];
+  }
+  .comment-actions {
+    @apply flex flex-wrap gap-[0.3rem] mt-2;
+    & button {
+      @apply text-[11px] px-2 py-[0.2rem];
+    }
+  }
 
-.rows {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  font-size: 12px;
-}
-.rows > li {
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--color-rule);
-}
-.rows > li:last-child {
-  border-bottom: none;
-}
-
-/* Diff view. */
-.diff-view {
-  display: block;
-}
-.diff-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-.diff-table {
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: collapse;
-  margin-top: 0.6rem;
-  font-size: 12px;
-}
-.diff-table th,
-.diff-table td {
-  vertical-align: top;
-  padding: 0.35rem 0.45rem;
-  border-bottom: 1px solid var(--color-rule);
-  overflow-wrap: anywhere;
-}
-.diff-table th {
-  font-family: var(--font-mono);
-  color: var(--color-muted);
-  font-weight: 400;
-  text-transform: uppercase;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-align: left;
-}
-.diff-para {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
-h1.diff-para {
-  font-family: var(--font-display);
-  font-size: 17px;
-  letter-spacing: -0.01em;
-}
-h2.diff-para {
-  font-family: var(--font-display);
-  font-size: 14px;
-  letter-spacing: -0.005em;
-}
-h3.diff-para {
-  font-weight: 600;
-  font-size: 13px;
-}
-
-/* Diff highlighting — earthy accents instead of github green/orange. */
-.diff-row.diff-added td:last-child {
-  background: var(--color-good-bg);
-}
-.diff-row.diff-removed td:first-child {
-  background: var(--color-bad-bg);
-}
-.diff-row.diff-modified td:first-child {
-  background: rgba(138, 58, 19, 0.08);
-}
-.diff-row.diff-modified td:last-child {
-  background: rgba(47, 111, 58, 0.1);
-}
-.diff-row.diff-style td {
-  background: rgba(255, 241, 92, 0.18);
-}
-.diff-word.diff-word-add {
-  background: var(--color-good-bg);
-  text-decoration: none;
-}
-.diff-word.diff-word-del {
-  background: var(--color-bad-bg);
-  text-decoration: line-through;
-}
-.diff-tag {
-  display: inline-block;
-  margin-left: 0.3rem;
-  padding: 0 0.35rem;
-  background: var(--color-cream-2);
-  border: 1px solid var(--color-rule);
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-/* Comments view. */
-.comments-view {
-  display: block;
-}
-.comments-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.4rem;
-}
-.comment-list {
-  list-style: none;
-  padding: 0;
-  margin: 0.6rem 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-}
-.comment-card {
-  border: 1px solid var(--color-rule);
-  border-radius: 6px;
-  padding: 0.6rem 0.7rem;
-  background: var(--color-cream-2);
-}
-.comment-card.comment-orphaned {
-  border-color: var(--color-bad);
-}
-.comment-card.comment-fuzzy {
-  border-color: var(--color-accent-2);
-}
-.comment-card-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-bottom: 0.3rem;
-}
-.comment-meta {
-  margin: 0 0 0.3rem;
-  font-size: 11px;
-  color: var(--color-muted);
-}
-.comment-quote {
-  margin: 0 0 0.35rem;
-  padding: 0.25rem 0.55rem;
-  border-left: 2px solid var(--color-accent);
-  color: var(--color-ink-2);
-  font-size: 12px;
-  font-style: italic;
-  overflow-wrap: anywhere;
-  background: rgba(255, 241, 92, 0.08);
-}
-.comment-body {
-  margin: 0;
-  font-size: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--color-ink);
-}
-.comment-tag {
-  display: inline-block;
-  padding: 0 0.35rem;
-  background: var(--color-cream);
-  border: 1px solid var(--color-rule);
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.comment-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-top: 0.5rem;
-}
-.comment-actions button {
-  font-size: 11px;
-  padding: 0.2rem 0.5rem;
-}
-
-/* Settings view. */
-.settings-view {
-  display: block;
-}
-.settings-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.4rem;
-}
-.settings-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  margin-top: 0.6rem;
-}
-.settings-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-.settings-field label {
-  font-weight: 600;
-  font-size: 12px;
-  color: var(--color-ink);
-}
-.settings-field small {
-  color: var(--color-muted);
-  font-size: 11px;
-}
-.settings-field input[type="text"],
-.settings-field textarea {
-  font: inherit;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  padding: 0.4rem 0.5rem;
-  border: 1px solid var(--color-rule);
-  border-radius: 4px;
-  background: var(--color-cream);
-  color: var(--color-ink);
-}
-.settings-field input[type="text"]:focus,
-.settings-field textarea:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
-  border-color: var(--color-ink);
-}
-.settings-field textarea {
-  min-height: 4.6rem;
-  resize: vertical;
-}
-.settings-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 12px;
-  color: var(--color-ink);
-}
-.settings-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
+  .settings-view {
+    @apply block;
+  }
+  .settings-header {
+    @apply flex items-center justify-between gap-2 mb-[0.4rem];
+  }
+  .settings-form {
+    @apply flex flex-col gap-[0.85rem] mt-[0.6rem];
+  }
+  .settings-field {
+    @apply flex flex-col gap-[0.3rem];
+    & label {
+      @apply font-semibold text-[12px] text-ink;
+    }
+    & small {
+      @apply text-muted text-[11px];
+    }
+    & input[type="text"],
+    & textarea {
+      @apply [font:inherit] font-mono text-[12px] px-2 py-[0.4rem] border border-rule rounded-[4px] bg-cream text-ink;
+      &:focus {
+        @apply outline-2 outline-accent -outline-offset-1 border-ink;
+      }
+    }
+    & textarea {
+      @apply min-h-[4.6rem] resize-y;
+    }
+  }
+  .settings-toggle {
+    @apply flex items-center gap-2 text-[12px] text-ink;
+  }
+  .settings-actions {
+    @apply flex gap-2 mt-2;
+  }
 }

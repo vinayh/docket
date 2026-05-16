@@ -7,6 +7,7 @@ import { handleDocStatePost } from "./doc-state.ts";
 import { handleDocSyncPost } from "./doc-sync.ts";
 import { handleProjectDetailPost } from "./project-detail.ts";
 import { handleProjectsListPost } from "./projects-list.ts";
+import { handleProjectDeletePost } from "./project-delete.ts";
 import { handleVersionCreatePost } from "./version-create.ts";
 import { handleVersionDiffPost } from "./version-diff.ts";
 import { handleVersionCommentsPost } from "./version-comments.ts";
@@ -77,6 +78,7 @@ export function startServer(opts: ServeOptions & { backgroundLoops?: boolean } =
       "/api/extension/doc-state": corsRoute({ POST: handleDocStatePost }),
       "/api/extension/doc-sync": corsRoute({ POST: handleDocSyncPost }),
       "/api/extension/project": corsRoute({ POST: handleProjectDetailPost }),
+      "/api/extension/project-delete": corsRoute({ POST: handleProjectDeletePost }),
       "/api/extension/projects": corsRoute({ POST: handleProjectsListPost }),
       "/api/extension/version/create": corsRoute({ POST: handleVersionCreatePost }),
       "/api/extension/version-diff": corsRoute({ POST: handleVersionDiffPost }),

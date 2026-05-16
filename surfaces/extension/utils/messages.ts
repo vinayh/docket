@@ -72,6 +72,7 @@ export const MessageSchema = v.variant("kind", [
     docUrlOrId: v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_URL_LEN)),
   }),
   v.object({ kind: v.literal("project/detail"), projectId: Id }),
+  v.object({ kind: v.literal("project/delete"), projectId: Id }),
   v.object({ kind: v.literal("projects/list") }),
   v.object({
     kind: v.literal("version/create"),
@@ -144,6 +145,7 @@ export type MessageResponse =
   | { kind: "doc/sync"; state: DocState | null; error?: string }
   | { kind: "doc/register"; result: RegisterDocResult; error?: string }
   | { kind: "project/detail"; detail: ProjectDetail | null; error?: string }
+  | { kind: "project/delete"; deleted: boolean; error?: string }
   | {
       kind: "projects/list";
       projects: ProjectListEntry[] | null;

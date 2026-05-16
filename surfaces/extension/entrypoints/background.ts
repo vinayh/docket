@@ -14,6 +14,7 @@ import {
 import {
   createReviewRequest,
   createVersion,
+  deleteProject,
   fetchDocState,
   fetchProjectDetail,
   fetchVersionComments,
@@ -391,6 +392,8 @@ function errorResponseFor(message: Message | unknown, error: string): MessageRes
       return { kind: "doc/register", result: { kind: "error", message: error }, error };
     case "project/detail":
       return { kind: "project/detail", detail: null, error };
+    case "project/delete":
+      return { kind: "project/delete", deleted: false, error };
     case "projects/list":
       return { kind: "projects/list", projects: null, error };
     case "version/create":
@@ -472,6 +475,10 @@ async function handleMessage(message: Message): Promise<MessageResponse> {
     case "project/detail": {
       const detail = await fetchProjectDetail(message.projectId);
       return { kind: "project/detail", detail };
+    }
+    case "project/delete": {
+      const deleted = await deleteProject(message.projectId);
+      return { kind: "project/delete", deleted };
     }
     case "projects/list": {
       const projects = await listProjects();

@@ -38,22 +38,39 @@ type View =
 
 export function App() {
   const [view, setView] = useState<View>({ kind: "loading" });
+  const [email, setEmail] = useState<string | null>(null);
   const bootTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Each boot bumps this; only the latest run is allowed to commit its
+  // setView. Without this, fast tab-switches race — an earlier boot's
+  // async work can resolve after a later boot's setView, leaving the panel
+  // pointing at a stale doc.
+  const bootGen = useRef(0);
 
   useEffect(() => {
-    void boot(setView);
+    const runBoot = (): void => {
+      const gen = ++bootGen.current;
+      void boot(setView, () => gen === bootGen.current);
+    };
+
+    runBoot();
+    void (async () => {
+      const r = await sendMessage({ kind: "auth/whoami" });
+      if (r?.kind === "auth/whoami" && !r.error) setEmail(r.email);
+    })();
 
     // Re-resolve when the user navigates the active tab so the panel
     // follows the doc context. `tabs.onUpdated` fires for every change a
     // tab makes — title, favicon, loading state, URL — so we filter to
     // url-changes and coalesce bursts behind a single short debounce.
     // `tabs.onActivated` fires once per tab switch; coalescing handles
-    // the case where it lands alongside an onUpdated.
+    // the case where it lands alongside an onUpdated. Window-focus changes
+    // (cmd-tab between Chrome windows) also re-resolve since each window
+    // has its own active tab.
     const schedule = () => {
       if (bootTimer.current) clearTimeout(bootTimer.current);
       bootTimer.current = setTimeout(() => {
         bootTimer.current = null;
-        void boot(setView);
+        runBoot();
       }, 100);
     };
     const onActivated = (): void => schedule();
@@ -65,8 +82,12 @@ export function App() {
       // title / favicon / audible / pinned churn.
       if (changeInfo.url || changeInfo.status === "complete") schedule();
     };
+    const onFocusChanged = (windowId: number): void => {
+      if (windowId !== browser.windows.WINDOW_ID_NONE) schedule();
+    };
     browser.tabs.onActivated.addListener(onActivated);
     browser.tabs.onUpdated.addListener(onUpdated);
+    browser.windows.onFocusChanged.addListener(onFocusChanged);
 
     // Lifecycle port: lets the SW track "is the panel open in this window?"
     // synchronously inside the toolbar `action.onClicked` handler — the
@@ -83,6 +104,7 @@ export function App() {
     return () => {
       browser.tabs.onActivated.removeListener(onActivated);
       browser.tabs.onUpdated.removeListener(onUpdated);
+      browser.windows.onFocusChanged.removeListener(onFocusChanged);
       if (bootTimer.current) clearTimeout(bootTimer.current);
       port?.disconnect();
     };
@@ -90,7 +112,7 @@ export function App() {
 
   return (
     <>
-      <Header />
+      <Header email={email} />
       <main id="main">
         <Body view={view} setView={setView} />
       </main>
@@ -192,21 +214,31 @@ function Body({ view, setView }: { view: View; setView: (v: View) => void }) {
   }
 }
 
-async function boot(setView: (v: View) => void): Promise<void> {
+async function boot(
+  setView: (v: View) => void,
+  isCurrent: () => boolean,
+): Promise<void> {
+  const commit = (v: View): void => {
+    if (isCurrent()) setView(v);
+  };
   const settings = await getSettings();
+  if (!isCurrent()) return;
   if (!settings) {
-    setView({ kind: "no-settings" });
+    commit({ kind: "no-settings" });
     return;
   }
 
   try {
     const docId = await getActiveDocId();
+    if (!isCurrent()) return;
     if (docId) {
       const state = await fetchDocState(docId);
+      if (!isCurrent()) return;
       if (state && state.tracked) {
         const detail = await fetchProjectDetail(state.project.id);
+        if (!isCurrent()) return;
         if (detail) {
-          setView({ kind: "loaded", detail });
+          commit({ kind: "loaded", detail });
           return;
         }
       }
@@ -215,9 +247,9 @@ async function boot(setView: (v: View) => void): Promise<void> {
     // it isn't tracked. The user can pick from their own projects to navigate
     // the dashboard without needing to alt-tab over to a Docs window first.
     const projects = await fetchProjects();
-    setView({ kind: "picker", projects: projects ?? [] });
+    commit({ kind: "picker", projects: projects ?? [] });
   } catch (err) {
-    setView({
+    commit({
       kind: "error",
       message: err instanceof Error ? err.message : String(err),
     });

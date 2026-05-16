@@ -1,6 +1,6 @@
 import { useState } from "preact/hooks";
 import { sendMessage } from "../../../ui/sendMessage.ts";
-import { RefreshIcon, SettingsIcon } from "../../../ui/Icon.tsx";
+import { MessageSquare, RefreshCw, Send, Settings } from "lucide-preact";
 import { parseEmails } from "../../../utils/emails.ts";
 import type {
   ProjectDerivativeDetail,
@@ -78,7 +78,6 @@ export function Dashboard({
   return (
     <>
       <p class="title">{current.project.name ?? "Untitled project"}</p>
-      <p class="muted">Owner: {current.project.ownerEmail ?? "unknown"}</p>
       <div class="actions">
         <button
           type="button"
@@ -87,7 +86,7 @@ export function Dashboard({
           aria-label="Refresh"
           onClick={() => void refreshAll()}
         >
-          <RefreshIcon />
+          <RefreshCw />
         </button>
         <button
           type="button"
@@ -96,7 +95,7 @@ export function Dashboard({
           aria-label="Settings"
           onClick={onOpenSettings}
         >
-          <SettingsIcon />
+          <Settings />
         </button>
       </div>
 
@@ -166,9 +165,12 @@ function VersionsSection({
                     <VersionSyncButton version={v} onSync={onSync} />
                     <button
                       type="button"
+                      class="icon-button"
+                      title="Comments"
+                      aria-label="Comments"
                       onClick={() => onOpenComments(v.id, v.label)}
                     >
-                      Comments
+                      <MessageSquare />
                     </button>
                     {v.parentVersionId ? (
                       <button
@@ -254,8 +256,14 @@ function RequestReviewButton({
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)}>
-        Request review
+      <button
+        type="button"
+        class="icon-button"
+        title="Request review"
+        aria-label="Request review"
+        onClick={() => setOpen(true)}
+      >
+        <Send />
       </button>
     );
   }
@@ -314,7 +322,7 @@ function VersionSyncButton({
       disabled={busy}
       onClick={() => void click()}
     >
-      <RefreshIcon />
+      <RefreshCw />
     </button>
   );
 }

@@ -183,6 +183,24 @@ export async function tokenProviderForProject(projectId: string): Promise<TokenP
 }
 
 /**
+ * Owner-scoped project deletion. Returns true when a row was deleted, false
+ * when nothing matched (either the project doesn't exist or the caller isn't
+ * the owner — same no-info-leak posture as the read paths). All descendants
+ * (versions, overlays, comments, review requests, derivatives, drive watches,
+ * audit log) cascade via FKs declared in schema.ts.
+ */
+export async function deleteOwnedProject(
+  projectId: string,
+  userId: string,
+): Promise<boolean> {
+  const rows = await db
+    .delete(project)
+    .where(and(eq(project.id, projectId), eq(project.ownerUserId, userId)))
+    .returning({ id: project.id });
+  return rows.length > 0;
+}
+
+/**
  * Lazy backfill for projects created before the createProject change that
  * auto-inserts a "main" version row pointing at the parent doc. Idempotent —
  * if a main row already exists (or a row already points at the parent doc
